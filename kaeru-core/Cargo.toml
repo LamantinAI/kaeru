@@ -1,0 +1,16 @@
+[package]
+name = "kaeru-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "kaeru — cognitive memory core: substrate, schema, primitives"
+repository.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+cozo.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+config.workspace = true

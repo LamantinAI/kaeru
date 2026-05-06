@@ -1,0 +1,6 @@
+/target
+/.kaeru-vault/
+*.swp
+.DS_Store
+.idea/
+.vscode/

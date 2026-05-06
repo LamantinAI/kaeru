@@ -1,0 +1,17 @@
+[package]
+name = "kaeru-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "kaeru — command-line interface for the cognitive memory graph"
+repository.workspace = true
+
+[[bin]]
+name = "kaeru"
+path = "src/main.rs"
+
+[dependencies]
+kaeru-core.workspace = true
+clap.workspace = true
+chrono.workspace = true
+uuid.workspace = true

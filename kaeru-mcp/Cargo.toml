@@ -1,0 +1,21 @@
+[package]
+name = "kaeru-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "kaeru — Model Context Protocol server exposing the curator API as native MCP tools"
+repository.workspace = true
+
+[[bin]]
+name = "kaeru-mcp"
+path = "src/main.rs"
+
+[dependencies]
+kaeru-core.workspace = true
+rmcp.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true

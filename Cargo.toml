@@ -1,0 +1,57 @@
+[workspace]
+resolver = "2"
+members = ["kaeru-core", "kaeru-cli", "kaeru-mcp"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/LamantinAI/kaeru"
+description = "Cognitive memory layer for LLM agents — typed graph + bi-temporal substrate + curator API"
+authors = ["GrumpyChubbyCat <lamantin-ai@yandex.ru>"]
+
+[workspace.dependencies]
+# Substrate. Cozo with the rocksdb storage backend explicitly enabled —
+# disk-mode `Store::open(path)` opens the embedded RocksDB engine via
+# `DbInstance::new("rocksdb", path, "")`. The "compact" default features
+# (minimal + requests + graph-algo) stay on.
+cozo = { version = "0.7", features = ["storage-rocksdb"] }
+
+# CLI parsing
+clap = { version = "4", features = ["derive", "env"] }
+
+# Serde
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# Time / IDs
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+
+# Config — env / file sources merged through serde
+config = "0.14"
+
+# MCP server (kaeru-mcp). Official Anthropic-maintained Rust SDK.
+rmcp = { version = "1.6", features = ["server", "transport-io", "macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+schemars = "1"
+
+# Internal
+kaeru-core = { path = "kaeru-core" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+
+# graph_builder 0.4.1 (transitive via cozo's graph-algo feature) fails to
+# compile on rayon 1.10+ / rustc 1.85+ due to `into_par_iter().copied()`
+# moving from `&Box<[T]>`. Upstream PR #144 (lawless-m/graph) fixes by
+# replacing with `par_iter().copied()`. Pin until merged + released.
+# https://github.com/neo4j-labs/graph/pull/144
+[patch.crates-io]
+graph_builder = { git = "https://github.com/lawless-m/graph", branch = "fix/edgelist-par-iter" }
