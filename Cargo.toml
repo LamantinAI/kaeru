@@ -35,8 +35,15 @@ uuid = { version = "1", features = ["v7", "serde"] }
 config = "0.14"
 
 # MCP server (kaeru-mcp). Official Anthropic-maintained Rust SDK.
-rmcp = { version = "1.6", features = ["server", "transport-io", "macros"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std", "signal"] }
+# Streamable HTTP transport because kaeru-mcp is a long-lived service —
+# a single daemon owns the RocksDB lock; many agent sessions connect
+# concurrently over `http://127.0.0.1:<port>/mcp`. Stdio is intentionally
+# not available: it tied each session to its own subprocess and made
+# multi-session use impossible (RocksDB is single-writer).
+rmcp = { version = "1.6", features = ["server", "transport-streamable-http-server", "macros"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+tokio-util = "0.7"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 schemars = "1"

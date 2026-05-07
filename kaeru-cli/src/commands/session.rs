@@ -22,6 +22,7 @@ pub fn awake(store: &Store) -> Result<()> {
         "initiative: {}",
         ctx.initiative.as_deref().unwrap_or("(none)")
     );
+    println!();
     print_id_section(store, "pinned", &ctx.pinned)?;
     print_id_section(store, "recent", &ctx.recent)?;
     print_id_section(store, "under review", &ctx.under_review)?;

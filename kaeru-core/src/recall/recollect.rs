@@ -46,6 +46,7 @@ pub fn recollect_provenance(store: &Store, node_id: &NodeId) -> Result<Vec<NodeB
     // as its own ancestor. When an initiative is active, the projection
     // also restricts ancestors to that initiative — provenance does not
     // leak across initiatives.
+    // `:order validity` returns newest-first (Cozo wraps in Reverse<>).
     let script = match store.current_initiative() {
         Some(init) => {
             params.insert("init".to_string(), DataValue::Str(init.into()));
@@ -58,10 +59,11 @@ pub fn recollect_provenance(store: &Store, node_id: &NodeId) -> Result<Vec<NodeB
                                       *edge{{src: prev, dst: id, edge_type @ 'NOW'}},
                                       edge_type = 'derived_from'
 
-                ?[id, type, name, body] := ancestor[id, h], h > 0,
-                                            *node{{id, type, name, body @ 'NOW'}},
+                ?[id, type, name, body, validity] := ancestor[id, h], h > 0,
+                                            *node{{id, type, name, body, validity @ 'NOW'}},
                                             *node_initiative{{initiative, node_id: id}},
                                             initiative = $init
+                :order validity
                 "#
             )
         }
@@ -74,8 +76,9 @@ pub fn recollect_provenance(store: &Store, node_id: &NodeId) -> Result<Vec<NodeB
                                   *edge{{src: prev, dst: id, edge_type @ 'NOW'}},
                                   edge_type = 'derived_from'
 
-            ?[id, type, name, body] := ancestor[id, h], h > 0,
-                                        *node{{id, type, name, body @ 'NOW'}}
+            ?[id, type, name, body, validity] := ancestor[id, h], h > 0,
+                                        *node{{id, type, name, body, validity @ 'NOW'}}
+            :order validity
             "#
         ),
     };

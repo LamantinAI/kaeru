@@ -17,10 +17,28 @@ You interact through `kaeru-cli` subprocesses. Substrate location is
 read from `KAERU_VAULT_PATH` (or the Linux default
 `~/.local/share/kaeru`); platform defaults handle macOS / Windows.
 
-**Cardinal rule:** every meaningful action must pass `--initiative
-<name>`. Without it, mutations stay un-tagged and reads are
-cross-initiative — almost never what you want. Use the repo /
+**Cardinal rule (initiative):** every meaningful action must pass
+`--initiative <name>`. Without it, mutations stay un-tagged and reads
+are cross-initiative — almost never what you want. Use the repo /
 project / topic name as the initiative when in doubt.
+
+**Cardinal rule (language):** the vault is in the user's native
+language. If they capture in Russian, store and search in Russian;
+if Japanese, in Japanese; if English, in English. **Do NOT translate
+content into English on capture and do NOT translate queries into
+English on lookup.** Translation creates a drift between what was
+stored and what you query for, and nothing matches. Every node carries
+a `lang:ru` / `lang:en` / `lang:mixed` / `lang:other` tag at write
+time that signals which language to expect.
+
+**Search idiom (multilingual):** `search` is FTS without stemming —
+exact tokens after lowercasing. Russian morphology, English
+plurals, German declensions — none of them are folded. For
+inflection-tolerant matching, append `*` to the term:
+`search "утечк*"` finds `утечка` / `утечку` / `утечке`,
+`search "token*"` finds `token` / `tokens` / `tokenize`,
+`search "verlier*"` finds `verlieren` / `verloren` / `Verlierer`.
+This works for any script; do not "translate to English to be safe".
 
 ## When to use
 
@@ -68,15 +86,49 @@ kaeru --initiative X link from-name to-name --type causal
 kaeru --initiative X recall <name>            # name → id (exact match)
 kaeru --initiative X drill <name>             # name + 1-hop drill-down
 kaeru --initiative X search "<query>"         # FTS across name+body
+kaeru --initiative X search "<query>*"        # prefix-match (handles word forms)
 kaeru --initiative X trace <name>             # walk derived_from ancestors
 kaeru --initiative X recent --since 3h        # episodes in last 3h
 kaeru --initiative X ideas                    # archival ideas
 kaeru --initiative X outcomes                 # archival outcomes
 kaeru --initiative X overview                 # full subgraph map
+kaeru --initiative X tagged "<tag>"           # slice by tag — see below
 ```
 
 `drill` is the most-used: replaces `recall <name>` + `summary <id>`
 with one round-trip.
+
+**Search results are sorted newest-first within equal scores**, so a
+recent capture beats a stale one when both match. Stale information
+naturally falls down the list; if the agent doesn't see what it
+expects in the top 3 results, it should refine the query rather than
+keep scrolling.
+
+## Slicing by tag
+
+Every captured node automatically gets these tags:
+- `kind:<type>` — `kind:observation`, `kind:reference`, `kind:experiment`, `kind:idea`, …
+- `sig:<level>` — `sig:low` / `sig:medium` / `sig:high` (significance, only for episodes that have it).
+- `role:<role>` — `role:jot` / `role:review` / `role:synthesise` / `role:revised` (when applicable).
+- `lang:<code>` — `lang:ru` / `lang:en` / `lang:mixed` / `lang:other` (auto-detected from body script).
+- `topic:<word>` — up to 5 content tokens auto-derived from the body.
+  E.g. `jot "обнаружил утечку токена"` adds `topic:обнаружил`,
+  `topic:утечку`, `topic:токена`.
+- `status:<state>` — only for hypotheses (`status:open`, `status:supported`, `status:refuted`, `status:inconclusive`).
+
+Examples:
+```bash
+kaeru --initiative X tagged "kind:experiment"     # all experiments
+kaeru --initiative X tagged "sig:high"            # high-significance only
+kaeru --initiative X tagged "topic:auth"          # everything mentioning "auth"
+kaeru --initiative X tagged "lang:ru"             # only Russian-language nodes
+kaeru --initiative X tagged "status:open"         # open hypotheses
+```
+
+Topic tags use the **exact form from the body** — same as `search`,
+no stemming. If you stored "утечку", topic tag is `topic:утечку`,
+not `topic:утечка`. For loose matching use `search "<root>*"`
+instead of `tagged`.
 
 ## Reason (hypothesis cycle)
 

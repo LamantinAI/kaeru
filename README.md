@@ -97,10 +97,16 @@ kaeru --initiative auth-rewrite export /tmp/auth-snapshot
 
 ## Connecting to an MCP-aware agent
 
-`kaeru-mcp` exposes the same 36 verbs as native MCP tools — no shell-out, no markdown-of-CLI-output parsing. See `kaeru-mcp/README.md` for full setup; quick version:
+`kaeru-mcp` is a long-lived HTTP service: **one daemon per machine** owns the substrate, any number of agent sessions (Claude Code, Cursor, …) connect concurrently. This is intentional — RocksDB is single-writer, so a stdio MCP that forks a subprocess per session would hit lock contention. See `kaeru-mcp/README.md` for systemd / launchd unit templates and the full HTTP config.
+
+Quick version (Linux + Claude Code):
 
 ```bash
-claude mcp add kaeru -- kaeru-mcp
+# 1. Run the daemon (or set up the systemd user unit from contrib/).
+kaeru-mcp                                            # foreground, Ctrl-C to stop
+
+# 2. Tell Claude where to find it.
+claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp
 ```
 
 After restart the agent sees tools like `awake`, `drill`, `claim`, `at` natively. Each tool takes an optional `initiative` parameter.

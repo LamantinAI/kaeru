@@ -19,6 +19,10 @@ use super::parse_brief;
 /// [`Store::use_initiative`]), the lookup is constrained to nodes
 /// attached to that initiative through the `node_initiative` junction.
 /// Otherwise the search is cross-initiative.
+///
+/// When several distinct nodes share the same name, the **newest
+/// assertion wins** — `:order validity` returns newest-first because
+/// Cozo wraps the timestamp in `Reverse<>`.
 pub fn recall_id_by_name(store: &Store, name: &str) -> Result<Option<NodeId>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("name".to_string(), DataValue::Str(name.into()));
@@ -27,14 +31,19 @@ pub fn recall_id_by_name(store: &Store, name: &str) -> Result<Option<NodeId>> {
         Some(init) => {
             params.insert("init".to_string(), DataValue::Str(init.into()));
             r#"
-                ?[id] := *node{id, name @ 'NOW'}, name = $name,
-                         *node_initiative{initiative, node_id: id},
-                         initiative = $init
+                ?[id, validity] := *node{id, validity, name @ 'NOW'},
+                                    name = $name,
+                                    *node_initiative{initiative, node_id: id},
+                                    initiative = $init
+                :order validity
+                :limit 1
             "#
         }
         None => {
             r#"
-                ?[id] := *node{id, name @ 'NOW'}, name = $name
+                ?[id, validity] := *node{id, validity, name @ 'NOW'}, name = $name
+                :order validity
+                :limit 1
             "#
         }
     };

@@ -9,6 +9,7 @@
 use cozo::DataValue;
 use cozo::ScriptMutability;
 use std::collections::BTreeMap;
+use std::collections::HashSet;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -53,6 +54,121 @@ pub(crate) fn now_validity_seconds() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Maximum number of `topic:<word>` tags derived from a body.
+/// Keeps the tag list bounded; bumps later if needed.
+const MAX_TOPIC_TOKENS: usize = 5;
+
+/// Extracts up to [`MAX_TOPIC_TOKENS`] significant content tokens from
+/// `body` — lowercased, alphanumeric (Unicode-aware, so Cyrillic /
+/// CJK survive), length ≥ 3, deduped, basic stop-words removed. Used
+/// to build `topic:<word>` tags so nodes can be sliced by content via
+/// `tagged "topic:<word>"`.
+///
+/// Returns `Vec<String>` of just the tokens themselves (without the
+/// `topic:` prefix); call sites do that wrapping.
+pub(crate) fn derive_topic_tokens(body: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for raw in body.split_whitespace() {
+        let cleaned: String = raw
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect::<String>()
+            .to_lowercase();
+        if cleaned.chars().count() < 3 || is_stop_word(&cleaned) || !seen.insert(cleaned.clone()) {
+            continue;
+        }
+        out.push(cleaned);
+        if out.len() >= MAX_TOPIC_TOKENS {
+            break;
+        }
+    }
+    out
+}
+
+/// Tiny EN+RU stop-word list — drops the most common low-content tokens
+/// so they don't burn slots in the topic-tag set. Not exhaustive on
+/// purpose; the goal is "not pure noise", not perfect linguistics.
+fn is_stop_word(w: &str) -> bool {
+    matches!(
+        w,
+        // English
+        "the" | "and" | "for" | "are" | "but" | "not" | "you" | "all" | "any"
+        | "can" | "had" | "her" | "was" | "one" | "our" | "out" | "have"
+        | "this" | "with" | "they" | "from" | "what" | "been" | "were"
+        | "than" | "them" | "then" | "into" | "some" | "more" | "just"
+        | "that" | "will" | "your"
+        // Russian (basic high-frequency forms)
+        | "что" | "это" | "как" | "так" | "вот" | "уже" | "был" | "была"
+        | "было" | "были" | "она" | "они" | "его" | "ему" | "тех" | "там"
+        | "тут" | "под" | "над" | "при" | "для" | "или" | "между" | "если"
+        | "когда" | "потом" | "тоже" | "после"
+    )
+}
+
+/// Detects the predominant script of `body` and returns a tag string
+/// (`lang:ru` / `lang:en` / `lang:mixed` / `lang:other`). Heuristic
+/// only — counts Cyrillic vs Latin alphabetic chars, ignores
+/// punctuation and digits. Multilingual-by-design: doesn't enforce a
+/// language, just gives a hint for downstream agents.
+pub(crate) fn detect_lang_tag(body: &str) -> String {
+    let mut cyrillic: usize = 0;
+    let mut latin: usize = 0;
+    for c in body.chars() {
+        if !c.is_alphabetic() {
+            continue;
+        }
+        let cp = c as u32;
+        // Cyrillic + Cyrillic Supplement Unicode blocks.
+        if (0x0400..=0x04FF).contains(&cp) || (0x0500..=0x052F).contains(&cp) {
+            cyrillic += 1;
+        } else if c.is_ascii_alphabetic() {
+            latin += 1;
+        }
+    }
+    let total = cyrillic + latin;
+    if total == 0 {
+        return "lang:other".to_string();
+    }
+    let cyr_ratio = cyrillic as f64 / total as f64;
+    if cyr_ratio > 0.7 {
+        "lang:ru".to_string()
+    } else if cyr_ratio < 0.3 {
+        "lang:en".to_string()
+    } else {
+        "lang:mixed".to_string()
+    }
+}
+
+/// Builds a Cozo list literal of single-quoted strings, suitable for
+/// inlining into a `<-` rule. Tokens that came through `derive_topic_tokens`
+/// are already alphanumeric, so quote escaping is unnecessary; we still
+/// double single-quotes defensively for fixed prefix tags
+/// (`kind:`, `sig:`, `lang:`, …) that might one day include them.
+pub(crate) fn tags_literal(tags: &[String]) -> String {
+    if tags.is_empty() {
+        return "null".to_string();
+    }
+    let inner = tags
+        .iter()
+        .map(|t| format!("'{}'", t.replace('\'', "''")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{inner}]")
+}
+
+/// Convenience: builds the tags list for a write that has a body.
+/// Combines fixed prefix tags (caller-specified) with the auto-derived
+/// `lang:*` and `topic:<word>` tags.
+pub(crate) fn build_body_tags(fixed: &[&str], body: &str) -> Vec<String> {
+    let mut tags: Vec<String> = fixed.iter().map(|s| (*s).to_string()).collect();
+    tags.push(detect_lang_tag(body));
+    for token in derive_topic_tokens(body) {
+        tags.push(format!("topic:{token}"));
+    }
+    tags
 }
 
 /// Reads a node's `(name, body)` at NOW. Returns `None` if no row is valid

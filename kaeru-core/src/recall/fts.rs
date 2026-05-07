@@ -53,12 +53,12 @@ pub fn fuzzy_recall(store: &Store, query: &str, limit: usize) -> Result<Vec<Node
                 hits[id, score] := ~node:fts_name{{id | query: $q, k: {limit}, bind_score: score}}
                 hits[id, score] := ~node:fts_body{{id | query: $q, k: {limit}, bind_score: score}}
 
-                ?[id, type, name, body, score] :=
+                ?[id, type, name, body, score, validity] :=
                     hits[id, score],
-                    *node{{id, type, name, body @ 'NOW'}},
+                    *node{{id, type, name, body, validity @ 'NOW'}},
                     *node_initiative{{initiative, node_id: id}},
                     initiative = $init
-                :order -score
+                :order -score, validity
                 "#
             )
         }
@@ -67,10 +67,10 @@ pub fn fuzzy_recall(store: &Store, query: &str, limit: usize) -> Result<Vec<Node
             hits[id, score] := ~node:fts_name{{id | query: $q, k: {limit}, bind_score: score}}
             hits[id, score] := ~node:fts_body{{id | query: $q, k: {limit}, bind_score: score}}
 
-            ?[id, type, name, body, score] :=
+            ?[id, type, name, body, score, validity] :=
                 hits[id, score],
-                *node{{id, type, name, body @ 'NOW'}}
-            :order -score
+                *node{{id, type, name, body, validity @ 'NOW'}}
+            :order -score, validity
             "#
         ),
     };

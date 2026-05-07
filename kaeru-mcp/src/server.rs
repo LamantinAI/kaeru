@@ -332,17 +332,19 @@ impl KaeruServer {
             let ctx = kaeru_core::awake(&self.store).map_err(to_mcp)?;
             let mut out = String::new();
             out.push_str(&format!(
-                "initiative: {}\n",
+                "initiative: {}\n\n",
                 ctx.initiative.as_deref().unwrap_or("(none)")
             ));
             out.push_str(&format!("pinned ({}):\n", ctx.pinned.len()));
             for id in &ctx.pinned {
                 out.push_str(&format!("  - {id}{}\n", brief_suffix(&self.store, id)));
             }
+            out.push('\n');
             out.push_str(&format!("recent ({}):\n", ctx.recent.len()));
             for id in &ctx.recent {
                 out.push_str(&format!("  - {id}{}\n", brief_suffix(&self.store, id)));
             }
+            out.push('\n');
             out.push_str(&format!("under review ({}):\n", ctx.under_review.len()));
             for id in &ctx.under_review {
                 out.push_str(&format!("  - {id}{}\n", brief_suffix(&self.store, id)));
@@ -541,7 +543,7 @@ impl KaeruServer {
         })
     }
 
-    #[tool(description = "Full-text search across name and body via Cozo FTS. Use for fuzzy lookups when exact name is forgotten.")]
+    #[tool(description = "Full-text search across name and body via Cozo FTS. No stemming — search the form you wrote. For inflection-tolerant matching across any language append `*`: `утечк*` finds `утечку`/`утечке`, `token*` finds `tokens`/`tokenize`. Search in the SAME language as the original capture, not in English. Results are ordered by score, then newest-first within equal scores.")]
     fn search(
         &self,
         Parameters(p): Parameters<SearchParams>,
@@ -584,7 +586,7 @@ impl KaeruServer {
         })
     }
 
-    #[tool(description = "List nodes whose `tags` array contains the given tag (`kind:observation`, `sig:high`, custom).")]
+    #[tool(description = "List nodes whose `tags` array contains the given tag — exact match. Common tag families: `kind:<type>` (observation, experiment, idea, reference, …), `sig:<level>` (low/medium/high), `role:<role>` (jot/review/synthesise/revised), `lang:<code>` (ru/en/mixed/other — auto-detected from body), `topic:<word>` (up to 5 content tokens auto-derived from body — same form as in body, no stemming), `status:<state>` (only for hypotheses). For loose matching use the `search` tool with `prefix*` instead. Newest-first when multiple match.")]
     fn tagged(
         &self,
         Parameters(p): Parameters<TaggedParams>,
@@ -921,6 +923,7 @@ impl KaeruServer {
             for id in &report.orphans {
                 out.push_str(&format!("  - {id}{}\n", brief_suffix(&self.store, id)));
             }
+            out.push('\n');
             out.push_str(&format!(
                 "unresolved reviews ({}):\n",
                 report.unresolved_reviews.len()
@@ -959,12 +962,29 @@ impl ServerHandler for KaeruServer {
         .with_server_info(Implementation::from_build_env())
         .with_protocol_version(ProtocolVersion::LATEST)
         .with_instructions(
-            "kaeru — cognitive memory for LLM agents. Re-entry ritual: \
-             call `initiatives` to see projects, then `awake --initiative <name>` for what was open, \
-             then `overview --initiative <name>` for what the project knows. Capture with `jot` (auto-named) \
-             or `episode` (deliberate name); link with `link`. Inquire with `drill <name>`, `trace <name>`, \
-             `search <query>`. Reason with `claim/test/confirm/refute`. Bi-temporal handle: `at <name> --when <ts>`, \
-             `history <name>`. Always pass `initiative` on each call once known.".to_string(),
+            "kaeru — cognitive memory for LLM agents. \
+             Re-entry ritual: call `initiatives` to see projects, then `awake` (process state — what was open) \
+             then `overview` (epistemic state — what the project knows), both with the chosen `initiative`. \
+             \
+             Always pass `initiative` on every call once known; without it, mutations stay un-tagged and \
+             reads are cross-initiative. \
+             \
+             LANGUAGE: store and search in the user's NATIVE language. Don't translate Russian to English on \
+             capture; don't translate Russian queries to English on lookup. Each node carries a `lang:*` tag \
+             auto-detected from body script. \
+             \
+             SEARCH: `search` is FTS without stemming. Append `*` for inflection-tolerant matching across \
+             any language: `утечк*`, `token*`, `verlier*`. \
+             \
+             TAGS: every node auto-tags `kind:*`, `sig:*`, `role:*` (when applicable), `lang:*`, and up to 5 \
+             `topic:<word>` tokens from body. Slice by tag via `tagged \"topic:...\"` etc. \
+             \
+             FRESHNESS: search/recall results sort newest-first within equal scores; recent captures beat stale ones. \
+             \
+             Capture with `jot` (auto-named) or `episode` (deliberate name); link with `link`. \
+             Inquire with `drill <name>`, `trace <name>`, `search <query>`, `tagged <tag>`. \
+             Reason with `claim/test/confirm/refute`. Bi-temporal handle: `at`, `history`."
+                .to_string(),
         )
     }
 }

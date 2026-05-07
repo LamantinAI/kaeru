@@ -13,7 +13,9 @@ use crate::graph::new_node_id;
 use crate::store::Store;
 
 use super::attach_node_to_initiative;
+use super::build_body_tags;
 use super::now_validity_seconds;
+use super::tags_literal;
 
 /// Writes an episode node and an audit_event for the operation.
 /// Returns the new episode node id.
@@ -31,19 +33,22 @@ pub fn write_episode(
     params.insert("name".to_string(), DataValue::Str(name.into()));
     params.insert("body".to_string(), DataValue::Str(body.into()));
 
-    // Encode kind + significance into `tags` — keeps the schema uniform.
-    // Richer per-episode typing (separate columns / properties JSON
-    // schema) is a follow-up.
-    // Tags and validity are inlined into the script: cozo's `<-` literal
-    // rule needs concrete values for List and Validity columns; passing
-    // them as `DataValue` parameters trips `eval::not_constant`.
-    let kind_tag = kind.as_str();
-    let sig_tag = significance.as_str();
+    // Encode kind + significance into `tags`, plus auto-derive
+    // `lang:*` (script heuristic) and `topic:<word>` tokens from the
+    // body so the node can be sliced via `tagged "topic:..."` and the
+    // agent has a language hint at read time. Tags and validity are
+    // inlined into the script — cozo's `<-` literal rule needs concrete
+    // values for List and Validity columns; passing them as parameters
+    // trips `eval::not_constant`.
+    let kind_tag = format!("kind:{}", kind.as_str());
+    let sig_tag = format!("sig:{}", significance.as_str());
+    let all_tags = build_body_tags(&[kind_tag.as_str(), sig_tag.as_str()], body);
+    let tags = tags_literal(&all_tags);
     let now_secs = now_validity_seconds();
     let script = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, ['kind:{kind_tag}', 'sig:{sig_tag}'], null, null]]
+            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
@@ -72,11 +77,16 @@ pub fn jot(store: &Store, body: &str) -> Result<NodeId> {
     params.insert("name".to_string(), DataValue::Str(name.into()));
     params.insert("body".to_string(), DataValue::Str(body.into()));
 
+    let all_tags = build_body_tags(
+        &["kind:observation", "sig:low", "role:jot"],
+        body,
+    );
+    let tags = tags_literal(&all_tags);
     let now_secs = now_validity_seconds();
     let script = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, ['kind:observation', 'sig:low', 'role:jot'], null, null]]
+            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );

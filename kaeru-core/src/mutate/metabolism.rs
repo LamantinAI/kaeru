@@ -12,9 +12,11 @@ use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
 use crate::store::Store;
 
+use super::build_body_tags;
 use super::now_validity_seconds;
 use super::read_connected_edges;
 use super::read_type_tier_now;
+use super::tags_literal;
 
 /// Bi-temporal forget: retracts a node and every edge connected to it
 /// (inbound or outbound) at NOW. Non-destructive — historical assertions
@@ -101,10 +103,14 @@ pub fn improve(
     p2.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
     p2.insert("name".to_string(), DataValue::Str(new_name.into()));
     p2.insert("body".to_string(), DataValue::Str(new_body.into()));
+    let kind_tag = format!("kind:{}", type_str);
+    let role_tag = "role:revised".to_string();
+    let all_tags = build_body_tags(&[kind_tag.as_str(), role_tag.as_str()], new_body);
+    let tags = tags_literal(&all_tags);
     let s2 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{assert_secs}.0, true], '{type_str}', '{tier_str}', $name, $body, null, null, null]]
+            [[$id, [{assert_secs}.0, true], '{type_str}', '{tier_str}', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );

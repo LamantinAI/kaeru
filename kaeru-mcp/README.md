@@ -1,88 +1,125 @@
 # kaeru-mcp
 
-Model Context Protocol server exposing the kaeru curator API as
-native MCP tools. Drop it into any MCP-aware agent runtime; the agent
-gets 36 tools — `awake`, `overview`, `jot`, `drill`, `claim`, `flag`,
-`settle`, `at`, `history`, … — without any markdown-parsing layer.
+Long-lived MCP service that exposes the kaeru curator API over HTTP.
+**One daemon per machine** owns the substrate; any number of agent
+sessions (Claude Code, Cursor, Continue, …) connect concurrently.
 
-## Build
+This is **not** a stdio MCP server you spawn from each agent session.
+The substrate is single-writer (RocksDB under Cozo), so each subprocess
+would race for the lock — the second one to start fails. Service-mode
+solves that by putting one writer in front of the vault and letting
+many readers/writers connect over HTTP.
+
+## Build & install
 
 ```bash
 cargo install --path kaeru-mcp
 ```
 
-The binary lands at `~/.cargo/bin/kaeru-mcp`. It uses stdio transport;
-logs go to stderr only (stdout is the JSON-RPC channel).
+The binary lands at `~/.cargo/bin/kaeru-mcp`.
+
+## Run as a service
+
+### Linux (systemd, user-mode)
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp contrib/systemd/kaeru-mcp.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now kaeru-mcp
+```
+
+Check status / logs:
+
+```bash
+systemctl --user status kaeru-mcp
+journalctl --user -u kaeru-mcp -f
+```
+
+Override env vars via `systemctl --user edit kaeru-mcp` (creates a
+drop-in `override.conf`).
+
+### macOS (launchd)
+
+```bash
+cp contrib/launchd/ai.lamantin.kaeru-mcp.plist ~/Library/LaunchAgents/
+# Edit the file: replace REPLACE_ME with your username (3 spots).
+launchctl load ~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist
+```
+
+Logs land in `~/Library/Logs/kaeru-mcp.log`.
+
+### Quick foreground run (for testing)
+
+```bash
+kaeru-mcp
+# stops on Ctrl-C
+```
+
+By default it listens on `http://127.0.0.1:9876/mcp`.
 
 ## Configuration
 
-`kaeru-mcp` reads the same env vars as `kaeru-cli`:
+Two layers, both env-driven:
 
-| Variable                       | Effect                                              |
-|--------------------------------|-----------------------------------------------------|
-| `KAERU_VAULT_PATH`             | Override vault location                             |
-| `KAERU_ACTIVE_WINDOW_SIZE`     | Soft cap on `awake` pinned set (default 15)         |
-| `KAERU_RECENT_EPISODES_CAP`    | Soft cap on `recent` results (default 15)           |
-| `KAERU_AWAKE_DEFAULT_WINDOW_SECS` | Default `awake` window in seconds (default 86400) |
-| `KAERU_SUMMARY_VIEW_CHILDREN_CAP` | Soft cap on `drill` children (default 12)        |
-| `KAERU_BODY_EXCERPT_CHARS`     | Excerpt truncation (default 240)                    |
-| `KAERU_PROVENANCE_MAX_HOPS`    | Max hops for `trace` (default 5)                    |
-| `KAERU_DEFAULT_MAX_HOPS`       | Default walk depth (default 2)                      |
-| `KAERU_MAX_HOPS_CAP`           | Walk hard cap (default 3)                           |
-| `RUST_LOG`                     | Log level (`info`, `debug`, …). Logs go to stderr.  |
+**Daemon transport** (`KAERU_MCP_*` — see `src/settings.rs`):
 
-## Connecting to Claude Code
+| Variable                     | Default       | Effect                                |
+|------------------------------|---------------|---------------------------------------|
+| `KAERU_MCP_LISTEN_ADDRESS`   | `127.0.0.1`   | Bind IPv4. `0.0.0.0` = LAN-exposed (no auth!). |
+| `KAERU_MCP_LISTEN_PORT`      | `9876`        | TCP port.                             |
+| `KAERU_MCP_MOUNT_PATH`       | `/mcp`        | Axum mount path (must start with `/`).|
+| `KAERU_MCP_LOG_LEVEL`        | `info`        | `error` / `warn` / `info` / `debug` / `trace`. |
 
-Add to Claude Code's MCP server registry. Either via CLI:
+**Substrate / curator-API caps** (`KAERU_*` — see
+`kaeru-core/src/config.rs`): `KAERU_VAULT_PATH`,
+`KAERU_ACTIVE_WINDOW_SIZE`, `KAERU_RECENT_EPISODES_CAP`,
+`KAERU_AWAKE_DEFAULT_WINDOW_SECS`, `KAERU_SUMMARY_VIEW_CHILDREN_CAP`,
+`KAERU_BODY_EXCERPT_CHARS`, `KAERU_PROVENANCE_MAX_HOPS`,
+`KAERU_DEFAULT_MAX_HOPS`, `KAERU_MAX_HOPS_CAP`.
+
+Run `kaeru config` (the CLI binary) to see resolved values.
+
+## Connecting an MCP client
+
+### Claude Code
+
+Once the daemon is running, register it as an HTTP-transport MCP
+server. Either via CLI:
 
 ```bash
-claude mcp add kaeru -- kaeru-mcp
+claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp
 ```
 
-…or directly in the config file (`~/.claude/claude_desktop_config.json`
-or `claude.json`, depending on platform):
+…or directly in `~/.claude/claude_desktop_config.json` (or
+`~/.config/claude/claude_code_settings.json`, depending on platform):
 
 ```json
 {
   "mcpServers": {
     "kaeru": {
-      "command": "kaeru-mcp",
-      "env": {
-        "KAERU_VAULT_PATH": "/home/you/.local/share/kaeru"
-      }
+      "transport": "http",
+      "url": "http://127.0.0.1:9876/mcp"
     }
   }
 }
 ```
 
-After restart, Claude sees the 36 tools natively. No CLI subprocess
-overhead, no markdown parsing — direct in-process tool calls.
+After restart, Claude sees the curator-API tools (`awake`, `drill`,
+`claim`, `at`, `history`, …). Each tool accepts an optional
+`initiative` parameter; pass it on every call once you've picked a
+project.
 
-## Connecting to other MCP runtimes
+### Other MCP runtimes
 
-Anything that speaks MCP over stdio: Cursor, Continue, Goose, Cline,
-mcp-inspector, etc. Format is the same — point the runtime at the
-`kaeru-mcp` binary.
+Anything that speaks streamable HTTP MCP — Cursor, Continue, Goose,
+mcp-inspector, etc. Format is the same; point the runtime at the URL.
 
-For debugging, the official inspector is the easiest:
+For poking at it interactively, the official inspector handles HTTP:
 
 ```bash
-npx @modelcontextprotocol/inspector kaeru-mcp
+npx @modelcontextprotocol/inspector --transport http http://127.0.0.1:9876/mcp
 ```
-
-## Initiative discipline (read first)
-
-Every tool call accepts an optional `initiative` parameter. Pass the
-project name on each call once you know which project you're working
-on. Without `initiative`, mutations are un-tagged and reads are
-cross-initiative — almost never what you want.
-
-The agent's standard re-entry ritual:
-
-1. `initiatives` — list known projects.
-2. `awake` with `initiative=<name>` — what was open last time.
-3. `overview` with `initiative=<name>` — what the project knows.
-4. Then capture / inquire / reason with `initiative=<name>` on each call.
 
 ## Tool catalogue
 
@@ -99,22 +136,32 @@ diagnostics        : lint
 snapshot           : export
 ```
 
-Every tool has a `description` field that the agent reads via
-`tools/list`; explore in the inspector to see the full schemas.
+`tools/list` returns descriptions and JsonSchema for each. Drill in
+with the inspector to see full param shapes.
 
-## Concurrency model
+## Operational notes
 
-Stdio MCP processes one tool call at a time at the protocol level,
-but `rmcp` may dispatch handlers concurrently inside the server. For
-a single agent making sequential tool calls (the normal pattern),
-this is fine — each call sees the substrate state at the moment its
-handler runs. If you batch-fire many calls without waiting, expect
-out-of-order responses and possible read-after-write surprises.
+- **Single writer.** Only one `kaeru-mcp` should run per machine
+  per vault. If you start a second instance pointing at the same
+  vault path it will fail at startup with a RocksDB `LOCK` error —
+  this is the substrate refusing to corrupt itself, not a kaeru bug.
+- **Auth.** None. `127.0.0.1` is fine for personal use; binding to
+  `0.0.0.0` exposes the entire curator API to anyone who can reach
+  the port. Add a reverse proxy if you need auth.
+- **Updates.** After `cargo install --path kaeru-mcp`, restart the
+  service so the new binary takes over: `systemctl --user restart
+  kaeru-mcp` / `launchctl unload+load`.
+- **Schema migrations.** kaeru-core's bootstrap is idempotent — new
+  indexes and FTS catalogues self-install on next start of the
+  daemon. No manual migration step.
+- **Concurrency model.** rmcp dispatches incoming tool calls onto
+  tokio tasks; sequential requests within one MCP session are well-
+  ordered. If a single client batch-fires many calls without waiting,
+  responses can come back out of order, and read-after-write within
+  the batch may race. Real agents wait for each response.
 
 ## Versioning
 
-`kaeru-mcp` rides the workspace version. Tool descriptions and schemas
-follow the curator API in `kaeru-core`; when a verb is added or
-renamed there, this server picks it up at the next rebuild. There's
-no MCP-side migration story yet — agents reading `tools/list` always
-get the current shape.
+Rides the workspace version. The tool surface tracks `kaeru-core`'s
+curator API; new verbs there get exposed automatically on the next
+rebuild.

@@ -13,6 +13,7 @@ pub fn lint(store: &Store) -> Result<()> {
     for id in &report.orphans {
         print_id_with_name(store, id)?;
     }
+    println!();
     println!(
         "unresolved reviews ({}):",
         report.unresolved_reviews.len()
@@ -20,5 +21,6 @@ pub fn lint(store: &Store) -> Result<()> {
     for id in &report.unresolved_reviews {
         print_id_with_name(store, id)?;
     }
+    println!();
     Ok(())
 }

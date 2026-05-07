@@ -20,24 +20,28 @@ pub fn tagged(store: &Store, tag: &str) -> Result<Vec<NodeBrief>> {
     params.insert("tag".to_string(), DataValue::Str(tag.into()));
 
     // `is_in` fails when `tags` is null; skip null rows first.
+    // `:order validity` puts newest-first because Cozo wraps the
+    // timestamp in `Reverse<>`.
     let script = match store.current_initiative() {
         Some(init) => {
             params.insert("init".to_string(), DataValue::Str(init.into()));
             r#"
-                ?[id, type, name, body] :=
-                    *node{id, type, name, body, tags @ 'NOW'},
+                ?[id, type, name, body, validity] :=
+                    *node{id, type, name, body, tags, validity @ 'NOW'},
                     !is_null(tags),
                     is_in($tag, tags),
                     *node_initiative{initiative, node_id: id},
                     initiative = $init
+                :order validity
             "#
         }
         None => {
             r#"
-                ?[id, type, name, body] :=
-                    *node{id, type, name, body, tags @ 'NOW'},
+                ?[id, type, name, body, validity] :=
+                    *node{id, type, name, body, tags, validity @ 'NOW'},
                     !is_null(tags),
                     is_in($tag, tags)
+                :order validity
             "#
         }
     };

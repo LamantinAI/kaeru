@@ -89,8 +89,9 @@ pub fn overview(store: &Store) -> Result<String> {
                 out.push_str(&format!("    - {name}\n"));
             }
         }
+        // Blank line between tiers so visual blocks read separately.
+        out.push('\n');
     }
-    out.push('\n');
 
     // Provenance forests — archival nodes as roots of derived_from
     // trees. Cycle-safe via `seen` set.

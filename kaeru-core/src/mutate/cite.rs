@@ -15,7 +15,9 @@ use crate::graph::new_node_id;
 use crate::store::Store;
 
 use super::attach_node_to_initiative;
+use super::build_body_tags;
 use super::now_validity_seconds;
+use super::tags_literal;
 
 /// Creates an archival `Reference` node carrying `body` as its summary
 /// and `url` in `properties.url`. Returns the new node id.
@@ -33,10 +35,12 @@ pub fn cite(store: &Store, name: &str, url: &str, body: &str) -> Result<NodeId> 
         DataValue::Json(JsonData(payload)),
     );
 
+    let all_tags = build_body_tags(&["kind:reference"], body);
+    let tags = tags_literal(&all_tags);
     let script = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'reference', 'archival', $name, $body, null, null, $properties]]
+            [[$id, [{now_secs}.0, true], 'reference', 'archival', $name, $body, {tags}, null, $properties]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );

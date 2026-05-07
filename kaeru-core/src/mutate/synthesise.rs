@@ -16,7 +16,9 @@ use crate::store::Store;
 
 use super::attach_edge_to_initiative;
 use super::attach_node_to_initiative;
+use super::build_body_tags;
 use super::now_validity_seconds;
+use super::tags_literal;
 
 /// Many-to-one consolidation: creates a new node carrying the synthesised
 /// content and links it to each seed via `derived_from`, preserving the
@@ -54,10 +56,14 @@ pub fn synthesise(
     p1.insert("id".to_string(), DataValue::Str(new_id.clone().into()));
     p1.insert("name".to_string(), DataValue::Str(name.into()));
     p1.insert("body".to_string(), DataValue::Str(body.into()));
+    let kind_tag = format!("kind:{}", target_type_str);
+    let role_tag = "role:synthesise".to_string();
+    let all_tags = build_body_tags(&[kind_tag.as_str(), role_tag.as_str()], body);
+    let tags = tags_literal(&all_tags);
     let s1 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{assert_secs}.0, true], '{target_type_str}', '{target_tier_str}', $name, $body, null, null, null]]
+            [[$id, [{assert_secs}.0, true], '{target_type_str}', '{target_tier_str}', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );

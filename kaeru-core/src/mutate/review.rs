@@ -14,7 +14,9 @@ use crate::store::Store;
 
 use super::attach_edge_to_initiative;
 use super::attach_node_to_initiative;
+use super::build_body_tags;
 use super::now_validity_seconds;
+use super::tags_literal;
 
 /// Closes an open question by recording that `by` supersedes the `question`.
 ///
@@ -78,11 +80,15 @@ pub fn mark_under_review(
     p1.insert("id".to_string(), DataValue::Str(review_id.clone().into()));
     p1.insert("name".to_string(), DataValue::Str(review_name.into()));
     p1.insert("body".to_string(), DataValue::Str(reason.into()));
+    let all_tags = build_body_tags(
+        &["kind:observation", "sig:high", "role:review"],
+        reason,
+    );
+    let tags = tags_literal(&all_tags);
     let s1 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{assert_secs}.0, true], 'episode', 'operational', $name, $body,
-              ['kind:observation', 'sig:high', 'role:review'], null, null]]
+            [[$id, [{assert_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );

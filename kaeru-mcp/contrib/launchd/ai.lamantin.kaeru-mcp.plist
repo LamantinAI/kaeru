@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd user agent for kaeru-mcp on macOS.
+
+  Install:
+    mkdir -p ~/Library/LaunchAgents
+    cp contrib/launchd/ai.lamantin.kaeru-mcp.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist
+
+  Inspect:
+    launchctl list | grep kaeru-mcp
+    tail -f ~/Library/Logs/kaeru-mcp.log
+
+  Configure: edit the EnvironmentVariables block below, then
+    launchctl unload ~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist
+    launchctl load   ~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist
+
+  ProgramArguments points to ~/.cargo/bin/kaeru-mcp; adjust if you
+  installed the binary elsewhere.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>ai.lamantin.kaeru-mcp</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/REPLACE_ME/.cargo/bin/kaeru-mcp</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <!-- kaeru-mcp tunables -->
+        <!--<key>KAERU_MCP_LISTEN_ADDRESS</key><string>127.0.0.1</string>-->
+        <!--<key>KAERU_MCP_LISTEN_PORT</key>   <string>9876</string>-->
+        <!--<key>KAERU_MCP_MOUNT_PATH</key>    <string>/mcp</string>-->
+        <key>KAERU_MCP_LOG_LEVEL</key><string>info</string>
+
+        <!-- kaeru-core tunables -->
+        <!--<key>KAERU_VAULT_PATH</key><string>/Users/REPLACE_ME/Library/Application Support/ai.lamantin.kaeru</string>-->
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/REPLACE_ME/Library/Logs/kaeru-mcp.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/REPLACE_ME/Library/Logs/kaeru-mcp.log</string>
+</dict>
+</plist>

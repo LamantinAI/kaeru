@@ -15,7 +15,9 @@ use crate::store::Store;
 
 use super::attach_edge_to_initiative;
 use super::attach_node_to_initiative;
+use super::build_body_tags;
 use super::now_validity_seconds;
+use super::tags_literal;
 
 /// Replaces `old_id` with a freshly-asserted node carrying the new content,
 /// connected to the old by a `supersedes` edge.
@@ -64,10 +66,13 @@ pub fn supersedes(
     p2.insert("id".to_string(), DataValue::Str(new_id.clone().into()));
     p2.insert("name".to_string(), DataValue::Str(new_name.into()));
     p2.insert("body".to_string(), DataValue::Str(new_body.into()));
+    let kind_tag = format!("kind:{}", new_type.as_str());
+    let all_tags = build_body_tags(&[kind_tag.as_str()], new_body);
+    let tags = tags_literal(&all_tags);
     let s2 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{assert_secs}, true], '{}', '{}', $name, $body, null, null, null]]
+            [[$id, [{assert_secs}, true], '{}', '{}', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#,
         new_type.as_str(),

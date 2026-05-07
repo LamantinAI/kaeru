@@ -17,8 +17,10 @@ use crate::store::Store;
 
 use super::attach_edge_to_initiative;
 use super::attach_node_to_initiative;
+use super::build_body_tags;
 use super::now_validity_seconds;
 use super::read_name_body_now;
+use super::tags_literal;
 
 /// Creates a new hypothesis node carrying `claim` as its body.
 /// Initial status is `Open` (encoded in tags). Returns the hypothesis id.
@@ -31,11 +33,12 @@ pub fn formulate_hypothesis(store: &Store, name: &str, claim: &str) -> Result<No
     params.insert("name".to_string(), DataValue::Str(name.into()));
     params.insert("body".to_string(), DataValue::Str(claim.into()));
 
+    let all_tags = build_body_tags(&["status:open"], claim);
+    let tags = tags_literal(&all_tags);
     let script = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'hypothesis', 'operational', $name, $body,
-              ['status:open'], null, null]]
+            [[$id, [{now_secs}.0, true], 'hypothesis', 'operational', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
@@ -64,11 +67,12 @@ pub fn run_experiment(
     p1.insert("id".to_string(), DataValue::Str(id.clone().into()));
     p1.insert("name".to_string(), DataValue::Str(name.into()));
     p1.insert("body".to_string(), DataValue::Str(method.into()));
+    let all_tags = build_body_tags(&["kind:experiment"], method);
+    let tags = tags_literal(&all_tags);
     let s1 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'experiment', 'operational', $name, $body,
-              null, null, null]]
+            [[$id, [{now_secs}.0, true], 'experiment', 'operational', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
@@ -130,7 +134,14 @@ pub fn update_hypothesis_status(
 
     // Step 2 — re-assert with new status tag.
     let assert_secs = now_validity_seconds();
-    let status_tag = format!("status:{}", new_status.as_str());
+    let status_full = format!("status:{}", new_status.as_str());
+    // Compute tags first (non-consuming) so we can still move `body`
+    // into the params map below.
+    let all_tags: Vec<String> = match body.as_deref() {
+        Some(b) => build_body_tags(&[status_full.as_str()], b),
+        None => vec![status_full.clone()],
+    };
+    let tags = tags_literal(&all_tags);
     let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
     p2.insert("id".to_string(), DataValue::Str(hypothesis_id.clone().into()));
     p2.insert("name".to_string(), DataValue::Str(name.into()));
@@ -145,8 +156,7 @@ pub fn update_hypothesis_status(
     let s2 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{assert_secs}.0, true], 'hypothesis', 'operational', $name, $body,
-              ['{status_tag}'], null, null]]
+            [[$id, [{assert_secs}.0, true], 'hypothesis', 'operational', $name, $body, {tags}, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
