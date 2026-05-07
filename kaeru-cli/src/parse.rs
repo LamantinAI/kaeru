@@ -9,6 +9,7 @@
 //! - `parse_tier` : `operational` / `archival` (with abbreviations).
 
 use chrono::DateTime;
+use chrono::NaiveDate;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 
@@ -144,7 +145,16 @@ pub fn parse_when(s: &str) -> Result<f64> {
         }
     }
 
-    // Fallback — RFC 3339 datetime.
+    // Bare ISO date (`YYYY-MM-DD`) — common in `--due`. Treat as UTC midnight.
+    if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
+        let dt = date
+            .and_hms_opt(0, 0, 0)
+            .ok_or_else(|| Error::Invalid(format!("bad date {trimmed:?}")))?
+            .and_utc();
+        return Ok(dt.timestamp() as f64);
+    }
+
+    // Fallback — full RFC 3339 datetime.
     DateTime::parse_from_rfc3339(trimmed)
         .map(|dt| dt.timestamp() as f64)
         .map_err(|e| Error::Invalid(format!("bad timestamp {trimmed:?}: {e}")))

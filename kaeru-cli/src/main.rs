@@ -395,16 +395,22 @@ enum Command {
         tag: String,
     },
 
-    /// Record an external reference (paper, gist, dashboard) as an
-    /// archival `Reference` node. The URL goes into `properties.url`;
-    /// the body is your one-paragraph summary of what's at the link.
+    /// Record an archival reference. Two flavours:
+    ///
+    /// - **External source** (paper, gist, dashboard): pass `--url` —
+    ///   it lands in `properties.url`.
+    /// - **Persona / entity** (a person, place, book without a link):
+    ///   skip `--url`; the body alone tells who/what/where.
+    ///
+    /// Both go into the archival tier — these are things the agent
+    /// recalls long-term, not work-in-progress thoughts.
     Cite {
-        /// Short, recallable name.
+        /// Short, recallable name (e.g. `transformer-paper` or `nikita-host`).
         name: String,
-        /// URL of the source.
+        /// Optional URL of the source. Skip for persona / entity records.
         #[arg(long)]
-        url: String,
-        /// One-paragraph summary of why this matters.
+        url: Option<String>,
+        /// One-paragraph summary — what's at the link, or who this entity is.
         #[arg(long)]
         body: String,
     },
@@ -471,6 +477,29 @@ enum Command {
     /// `forget` / `supersedes`.
     History {
         /// Node name.
+        name: String,
+    },
+
+    /// Capture a todo as a `Task` node. Auto-named from the body's
+    /// first words. Tags: `kind:task`, `status:open`, optional
+    /// `due:<YYYY-MM-DD>`, plus the standard `topic:*` / `lang:*`.
+    ///
+    /// `--due` accepts: a date `2026-05-15`, an RFC-3339 datetime, or
+    /// a duration into the future — `3d` = "due in 3 days", `2w` =
+    /// "due in 2 weeks". When omitted the task has no deadline.
+    Task {
+        /// Free-form task description. Quote if it contains spaces.
+        body: String,
+        /// Optional due date / deadline.
+        #[arg(long)]
+        due: Option<String>,
+    },
+
+    /// Mark a task done. RMW: retracts the open row and reasserts
+    /// with `status:done`. The id and name stay the same;
+    /// `tagged "status:open"` no longer surfaces it.
+    Done {
+        /// Task name (or UUIDv7 id).
         name: String,
     },
 
@@ -596,7 +625,9 @@ fn main() -> Result<()> {
         Command::Between { a, b } => commands::lookup::between(&store, &a, &b)?,
         Command::Tagged { tag } => commands::lookup::tagged(&store, &tag)?,
 
-        Command::Cite { name, url, body } => commands::capture::cite(&store, &name, &url, &body)?,
+        Command::Cite { name, url, body } => {
+            commands::capture::cite(&store, &name, url.as_deref(), &body)?
+        }
         Command::Unlink { from, to, r#type } => {
             commands::capture::unlink(&store, &from, &to, &r#type)?
         }
@@ -606,6 +637,9 @@ fn main() -> Result<()> {
 
         Command::At { name, when } => commands::temporal::at(&store, &name, &when)?,
         Command::History { name } => commands::temporal::history(&store, &name)?,
+
+        Command::Task { body, due } => commands::task::task(&store, &body, due.as_deref())?,
+        Command::Done { name } => commands::task::done(&store, &name)?,
 
         Command::Forget { name } => commands::metabolism::forget(&store, &name)?,
         Command::Revise { name, body, rename } => commands::metabolism::revise(

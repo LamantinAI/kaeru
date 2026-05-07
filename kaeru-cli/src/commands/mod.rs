@@ -11,5 +11,6 @@ pub mod lookup;
 pub mod metabolism;
 pub mod review;
 pub mod session;
+pub mod task;
 pub mod temporal;
 pub mod vault;

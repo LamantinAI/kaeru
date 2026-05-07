@@ -20,10 +20,24 @@ use super::now_validity_seconds;
 use super::tags_literal;
 
 /// Creates an archival `Reference` node carrying `body` as its summary
-/// and `url` in `properties.url`. Returns the new node id.
-pub fn cite(store: &Store, name: &str, url: &str, body: &str) -> Result<NodeId> {
+/// and an optional `url` in `properties.url`. Returns the new node id.
+///
+/// `url` is optional so the same primitive covers two flavours of
+/// reference: external citations (papers, gists, dashboards — pass
+/// `Some(url)`) and persona / entity records (people, places, things
+/// — pass `None`). Both end up in the archival tier because the
+/// agent typically wants long-lived recall on them.
+pub fn cite(
+    store: &Store,
+    name: &str,
+    url: Option<&str>,
+    body: &str,
+) -> Result<NodeId> {
     let id = new_node_id();
-    let payload = json!({ "url": url });
+    let payload = match url {
+        Some(u) => json!({ "url": u }),
+        None => json!({}),
+    };
     let now_secs = now_validity_seconds();
 
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();

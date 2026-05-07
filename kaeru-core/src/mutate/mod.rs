@@ -26,6 +26,7 @@ pub mod metabolism;
 pub mod review;
 pub mod supersedes;
 pub mod synthesise;
+pub mod task;
 
 pub use cite::cite;
 pub use consolidate::consolidate_in;
@@ -34,6 +35,8 @@ pub use edge::link;
 pub use edge::unlink;
 pub use episode::jot;
 pub use episode::write_episode;
+pub use task::complete_task;
+pub use task::write_task;
 pub use hypothesis::formulate_hypothesis;
 pub use hypothesis::run_experiment;
 pub use hypothesis::update_hypothesis_status;

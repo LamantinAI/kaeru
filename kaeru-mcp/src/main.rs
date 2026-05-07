@@ -16,8 +16,11 @@
 
 // `settings` rather than `config` — avoids a path-resolution clash
 // with the external `config` crate that this module imports from.
+mod params;
 mod server;
 mod settings;
+mod tools;
+mod utils;
 
 use std::error::Error;
 use std::str::FromStr;

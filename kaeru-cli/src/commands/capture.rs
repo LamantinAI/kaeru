@@ -59,9 +59,12 @@ pub fn unlink(store: &Store, from: &str, to: &str, edge_type_str: &str) -> Resul
     Ok(())
 }
 
-pub fn cite(store: &Store, name: &str, url: &str, body: &str) -> Result<()> {
+pub fn cite(store: &Store, name: &str, url: Option<&str>, body: &str) -> Result<()> {
     let id = core_cite(store, name, url, body)?;
-    println!("cited: {name} ({url}) — {id}");
+    match url {
+        Some(u) => println!("cited: {name} ({u}) — {id}"),
+        None => println!("cited: {name} — {id}"),
+    }
     Ok(())
 }
 

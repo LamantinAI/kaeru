@@ -40,6 +40,52 @@ inflection-tolerant matching, append `*` to the term:
 `search "verlier*"` finds `verlieren` / `verloren` / `Verlierer`.
 This works for any script; do not "translate to English to be safe".
 
+## Personas — same primitives, different uses
+
+The verb taxonomy looks research-flavoured (`claim` / `test` /
+`confirm` / `synthesise`) but the underlying primitives are general.
+Three example personas of how the same kaeru maps to different daily
+workflows:
+
+### Researcher / engineer
+
+The "default" use case. Captures observations as `jot` /
+`episode`, formalizes hunches via `claim`, validates with `test` +
+`confirm` / `refute`, settles findings with `synthesise` →
+`settle` (operational draft → archival outcome). External sources
+go through `cite --url ...`. Initiative is the project name.
+
+### Personal manager / assistant
+
+The agent helps with daily life — todos, people, plans, journal.
+
+- **Tasks** with deadlines: `task "купить молоко" --due 2d`,
+  `task "позвонить маме" --due weekend`. Mark complete with
+  `done <task-name>`.
+- **People / places / things** without URLs: `cite "Анна"
+  --body "врач семейной клиники, рекомендация Маши"` — same `cite`
+  verb, no `--url` needed. Persona records live in archival tier
+  ("cortex"), so things like "who is my user" stick around forever.
+- **Plans / intentions / decisions**: just `jot` (`role:jot`,
+  `kind:observation`). Slice later with `tagged "topic:план"` etc.
+- **Daily journal**: `jot` whatever's on the agent / user's mind;
+  `recent --since 24h` for "what happened today", `recent --since 7d`
+  for the week.
+
+Initiative for personal use is typically a single name like
+`personal` or `daily`, or split by life area (`work`, `home`,
+`learning`).
+
+### Long-term cortex (cross-initiative facts)
+
+Things that should outlive any specific project — `who is my user`,
+`my preferences`, `repeated correspondents`, persistent locations.
+Capture as `cite "<name>" --body "..."` (no URL) **without
+`--initiative`**, or under a stable initiative like `cortex`. The
+archival tier means these aren't surfaced by a project's `awake` /
+`overview` and aren't crowded out by recent thoughts; they're
+retrievable on demand via `drill <name>` / `tagged "kind:reference"`.
+
 ## When to use
 
 Auto-trigger when the user:
@@ -72,6 +118,15 @@ kaeru --initiative X jot "noticed token expiry differs across platforms"
 
 # Load-bearing observation / decision — pick a deliberate name:
 kaeru --initiative X episode 'auth-decision' 'platform-aware expiry policy'
+
+# Todo with deadline (auto-named, kind:task, status:open):
+kaeru --initiative X task "купить молоко" --due 2d
+kaeru --initiative X task "созвон с командой" --due 2026-05-15
+kaeru --initiative X done <task-name>          # mark complete (RMW: status:done)
+
+# External source OR persona/entity — both via `cite`:
+kaeru --initiative X cite "transformer-paper" --url https://... --body "..."
+kaeru --initiative X cite "Анна" --body "врач, рекомендация Маши"
 
 # Connect two named nodes:
 kaeru --initiative X link from-name to-name --type causal
