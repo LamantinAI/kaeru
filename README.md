@@ -45,24 +45,12 @@ kaeru/
 
 Future integration crates: `kaeru-langchain` (Python bridge), `kaeru-rig` (Rig framework). Not yet started.
 
-## Building from source
+## Install
 
 > **Pre-1.0 alpha.** Substrate schema may change between minor versions —
 > export to markdown (`kaeru export <dir>`) if you need to keep notes around.
 
-Prerequisites: Rust 1.95+ (edition 2024). On Linux you'll also need `libclang-dev` for the RocksDB build.
-
-```bash
-git clone https://github.com/GrumpyChubbyCat/kaeru.git
-cd kaeru
-
-# Build everything; runs the test suite.
-cargo test --workspace
-
-# Install the two binaries to ~/.cargo/bin
-cargo install --path kaeru-cli
-cargo install --path kaeru-mcp
-```
+See [QUICK_START.md](QUICK_START.md) for prebuilt binaries (Linux x86_64, macOS aarch64), source builds, MCP daemon setup, and the re-entry ritual.
 
 ## Quick tour (CLI)
 
