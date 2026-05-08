@@ -1,6 +1,8 @@
 /target
+/dist
 /.kaeru-vault/
 *.swp
 .DS_Store
 .idea/
 .vscode/
+.intentionally-empty-file.*

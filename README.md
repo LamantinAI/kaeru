@@ -47,13 +47,16 @@ Future integration crates: `kaeru-langchain` (Python bridge), `kaeru-rig` (Rig f
 
 ## Building from source
 
+> **Pre-1.0 alpha.** Substrate schema may change between minor versions —
+> export to markdown (`kaeru export <dir>`) if you need to keep notes around.
+
 Prerequisites: Rust 1.95+ (edition 2024). On Linux you'll also need `libclang-dev` for the RocksDB build.
 
 ```bash
-git clone <repo>
+git clone https://github.com/GrumpyChubbyCat/kaeru.git
 cd kaeru
 
-# Build everything; runs the test suite (43 tests).
+# Build everything; runs the test suite.
 cargo test --workspace
 
 # Install the two binaries to ~/.cargo/bin
