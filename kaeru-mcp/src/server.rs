@@ -289,6 +289,24 @@ impl ServerHandler for KaeruServer {
              Always pass `initiative` on every call once known; without it, mutations stay un-tagged and \
              reads are cross-initiative. \
              \
+             TWO TIERS — operational (working memory: in-flight observations, claims under test, open questions) \
+             vs archival (settled knowledge: outcomes, references, ideas, summaries). Operational decays and gets \
+             revisited; archival is what survives and what a fresh agent reads first. Move things to archival when \
+             they stop changing. \
+             \
+             CAPTURE DISPATCH — match the verb to the *epistemic status* of the content, not its length: \
+             • `jot` — fleeting note, no name needed (auto-named). Operational. \
+             • `episode` — observation tied to current work, may evolve. Operational. \
+             • `cite <name> --body \"...\"` (URL OPTIONAL) — settled document you want to keep verbatim: ADRs, \
+             specs, product passports, persona records, glossaries. Goes straight to archival/reference. Use this \
+             for \"my own settled doc\", not just external papers. \
+             • `claim` → `test` → `confirm`/`refute` — for hypotheses you're actively testing. Operational. \
+             • `synthesise` (over operational seeds) → `settle` — when many episodes converge into one durable \
+             insight. Promotes to archival/idea or archival/outcome. \
+             • `task <body> --due ...` / `done <name>` — for actionable todos with deadlines. \
+             A common failure mode is capturing everything as `episode`. If the content is already settled \
+             (a decision made, a spec written, a fact about an entity), reach for `cite` instead. \
+             \
              LANGUAGE: store and search in the user's NATIVE language. Don't translate Russian to English on \
              capture; don't translate Russian queries to English on lookup. Each node carries a `lang:*` tag \
              auto-detected from body script. \
@@ -301,9 +319,8 @@ impl ServerHandler for KaeruServer {
              \
              FRESHNESS: search/recall results sort newest-first within equal scores; recent captures beat stale ones. \
              \
-             Capture with `jot` (auto-named) or `episode` (deliberate name); link with `link`. \
-             Inquire with `drill <name>`, `trace <name>`, `search <query>`, `tagged <tag>`. \
-             Reason with `claim/test/confirm/refute`. Bi-temporal handle: `at`, `history`."
+             Inquire with `drill <name>`, `trace <name>`, `search <query>`, `tagged <tag>`. Bi-temporal handle: \
+             `at`, `history`. Link with `link <from> <to> --type ...`."
                 .to_string(),
         )
     }
