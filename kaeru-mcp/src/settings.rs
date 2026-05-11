@@ -40,6 +40,16 @@ pub struct KaeruMcpConfig {
     /// pipes the binary somewhere.
     #[serde(default = "default_log_level")]
     pub log_level: String,
+
+    /// Idle timeout for rmcp MCP sessions, in seconds. After this
+    /// many seconds without activity the session manager drops the
+    /// session (rmcp's own default behaviour is 300s). Editor-attached
+    /// clients like Claude Code sit idle between user prompts, so we
+    /// disable reaping by default — set to non-zero to restore it
+    /// (useful for proxy-style deployments where hung clients should
+    /// free server-side state).
+    #[serde(default)]
+    pub keep_alive_secs: u64,
 }
 
 impl KaeruMcpConfig {

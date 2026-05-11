@@ -40,6 +40,8 @@
         <!-- kaeru-mcp tunables -->
         <!--<key>KAERU_MCP_LISTEN_ADDRESS</key><string>127.0.0.1</string>-->
         <!--<key>KAERU_MCP_LISTEN_PORT</key>   <string>9876</string>-->
+        <!-- Idle session reaping in seconds; 0 = disabled (default). -->
+        <!--<key>KAERU_MCP_KEEP_ALIVE_SECS</key><string>0</string>-->
         <!--<key>KAERU_MCP_MOUNT_PATH</key>    <string>/mcp</string>-->
         <key>KAERU_MCP_LOG_LEVEL</key><string>info</string>
 

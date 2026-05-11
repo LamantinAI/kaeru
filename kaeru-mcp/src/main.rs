@@ -24,6 +24,8 @@ mod utils;
 
 use std::error::Error;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::time::Duration;
 
 use rmcp::transport::streamable_http_server::StreamableHttpServerConfig;
 use rmcp::transport::streamable_http_server::StreamableHttpService;
@@ -74,16 +76,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let cancel = CancellationToken::new();
     let mut session_manager = LocalSessionManager::default();
     // rmcp defaults to a 5-minute idle timeout that reaps Claude Code MCP
-    // sessions during normal interactive pauses. The reaped sessions appear
-    // as `kaeru · ✘ failed` in the client UI before auto-reconnect. Disable
-    // the timeout — sessions live as long as the underlying connection.
-    session_manager.session_config.keep_alive = None;
+    // sessions during normal interactive pauses, surfacing as
+    // `kaeru · ✘ failed` until auto-reconnect. Default is `0` = disabled
+    // (sessions live as long as the underlying connection); set
+    // `KAERU_MCP_KEEP_ALIVE_SECS` to a non-zero value for proxy-style
+    // deployments where hung clients should free server-side state.
+    session_manager.session_config.keep_alive = match mcp_config.keep_alive_secs {
+        0 => None,
+        secs => Some(Duration::from_secs(secs)),
+    };
     let service = StreamableHttpService::new(
         // Each MCP session reuses the same KaeruServer (and therefore
         // the same Arc<Store> / RocksDB lock); cloning the server is
         // cheap and shares state across sessions.
         move || Ok(server.clone()),
-        std::sync::Arc::new(session_manager),
+        Arc::new(session_manager),
         StreamableHttpServerConfig::default()
             .with_cancellation_token(cancel.child_token()),
     );
