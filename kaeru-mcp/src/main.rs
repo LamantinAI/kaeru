@@ -72,12 +72,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server = KaeruServer::new(store);
 
     let cancel = CancellationToken::new();
+    let mut session_manager = LocalSessionManager::default();
+    // rmcp defaults to a 5-minute idle timeout that reaps Claude Code MCP
+    // sessions during normal interactive pauses. The reaped sessions appear
+    // as `kaeru · ✘ failed` in the client UI before auto-reconnect. Disable
+    // the timeout — sessions live as long as the underlying connection.
+    session_manager.session_config.keep_alive = None;
     let service = StreamableHttpService::new(
         // Each MCP session reuses the same KaeruServer (and therefore
         // the same Arc<Store> / RocksDB lock); cloning the server is
         // cheap and shares state across sessions.
         move || Ok(server.clone()),
-        LocalSessionManager::default().into(),
+        std::sync::Arc::new(session_manager),
         StreamableHttpServerConfig::default()
             .with_cancellation_token(cancel.child_token()),
     );
