@@ -110,6 +110,50 @@ under-review). `overview` answers "what does this project know"
 (epistemic state — categorical breakdown, provenance forests, open
 questions). Run both.
 
+## Cadence — habits that keep the graph useful
+
+These are the moves that turn kaeru from "saved markdown with
+frontmatter" into an actual graph the agent can reason over. Each is
+small per occurrence; together they're the difference between "I cited
+something once" and "next session can find it via three different paths".
+
+- **Capture the user's ask as a `task`.** When the user says
+  "build X and report back" or "fix Y by tomorrow", that's literally
+  what `task` was designed for: `task "<body>" --due 1h`, `done <name>`
+  when finished. The task node is what survives into next session as
+  "what was being worked on" — `awake` surfaces open tasks. Findings
+  you derive *while* doing the task go into separate
+  `cite` / `episode` / `claim` nodes; the task is the operational arc
+  connecting them. Single-shot factual lookups don't need a task.
+
+- **Cite, then link.** When you `cite` a new node that's conceptually
+  adjacent to one you saw earlier in this session (via `search` /
+  `drill`), `link` them — `--type causal` if one causes the other,
+  `--type derived-from` if one is a refinement, `--type refers-to`
+  for a plain "see also". Edges are how recall walks the graph; without
+  them every cite is an island and only exact-name lookups will find
+  it. Costs one CLI call per edge. Pays off every time someone
+  navigates in.
+
+- **Don't `search` what you just `recalled`.** `recall <name>` returns
+  the id; full content is `drill <name>`. Re-issuing `search "<same
+  words>"` after a successful `recall` is a redundant round-trip that
+  queries a different index for the same answer. If you want neighbors,
+  use `drill` (1-hop) or `between A B`.
+
+- **Refine, don't stampede.** If `search "X"` doesn't surface what you
+  want in the top 3 hits, the next call should be a *different shape* —
+  `search "X*"` for inflection, `tagged "topic:X"` for exact-token
+  slice, or `drill <related-name>` to walk in. Five variant phrasings
+  in 20 seconds is almost always slower than reading the first three
+  results carefully and then making one targeted call.
+
+- **Re-`awake` after long gaps.** If your last `awake` / `recent` was
+  more than ~30 minutes ago and there's any chance another agent or
+  another teammate's session has written to the same vault, run them
+  again before assuming your view is current. The vault is shared at
+  the daemon level; sibling writes only become visible on read.
+
 ## Capture (write thoughts)
 
 ```bash
@@ -127,6 +171,10 @@ kaeru --initiative X done <task-name>          # mark complete (RMW: status:done
 # External source OR persona/entity — both via `cite`:
 kaeru --initiative X cite "transformer-paper" --url https://... --body "..."
 kaeru --initiative X cite "Анна" --body "врач, рекомендация Маши"
+# When using --url, point at the canonical artifact (the actual PDF,
+# the release-asset download URL, the dashboard panel) — not the API
+# endpoint or metadata URL. Future `drill` exposes that URL to the next
+# agent, which wants to fetch, not introspect.
 
 # Connect two named nodes:
 kaeru --initiative X link from-name to-name --type causal
@@ -156,8 +204,10 @@ with one round-trip.
 **Search results are sorted newest-first within equal scores**, so a
 recent capture beats a stale one when both match. Stale information
 naturally falls down the list; if the agent doesn't see what it
-expects in the top 3 results, it should refine the query rather than
-keep scrolling.
+expects in the top 3 results, it should **change the shape of the
+query** — `search "X*"` for inflection, `tagged "topic:X"` for exact
+token, `drill <related>` to walk neighbors — not re-phrase the same
+intent five times.
 
 ## Slicing by tag
 
