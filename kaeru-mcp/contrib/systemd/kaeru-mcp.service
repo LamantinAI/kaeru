@@ -21,7 +21,13 @@ After=default.target
 [Service]
 Type=simple
 ExecStart=%h/.cargo/bin/kaeru-mcp
-Restart=on-failure
+# Always restart, not just on-failure. A clean SIGTERM (e.g. from a desktop
+# session teardown or an accidental `systemctl --user stop`) would otherwise
+# leave the daemon down — and silent vault unavailability spreads quickly
+# because clients (Claude Code, Cursor) don't probe aggressively for
+# stopped services. To stop the daemon deliberately, use
+# `systemctl --user disable --now kaeru-mcp` or `mask`.
+Restart=always
 RestartSec=2
 
 # kaeru-mcp tunables — uncomment / adjust as needed.

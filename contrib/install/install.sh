@@ -124,7 +124,7 @@ After=default.target
 [Service]
 Type=simple
 ExecStart=$bin_path
-Restart=on-failure
+Restart=always
 RestartSec=2
 
 # kaeru-mcp tunables — uncomment and edit, then \`systemctl --user daemon-reload\`.
