@@ -19,6 +19,7 @@
 mod params;
 mod server;
 mod settings;
+mod sse;
 mod tools;
 mod utils;
 
@@ -74,6 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server = KaeruServer::new(store);
 
     let cancel = CancellationToken::new();
+
     let mut session_manager = LocalSessionManager::default();
     // rmcp defaults to a 5-minute idle timeout that reaps Claude Code MCP
     // sessions during normal interactive pauses, surfacing as
@@ -85,6 +87,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
         0 => None,
         secs => Some(Duration::from_secs(secs)),
     };
+
+    let sse_router = sse::router(
+        server.clone(),
+        &mcp_config.sse_path,
+        &mcp_config.messages_path,
+    );
     let service = StreamableHttpService::new(
         // Each MCP session reuses the same KaeruServer (and therefore
         // the same Arc<Store> / RocksDB lock); cloning the server is
@@ -95,12 +103,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .with_cancellation_token(cancel.child_token()),
     );
 
-    let router = axum::Router::new().nest_service(&mcp_config.mount_path, service);
+    let router = axum::Router::new()
+        .nest_service(&mcp_config.mount_path, service)
+        .merge(sse_router);
     let address = format!("{}:{}", mcp_config.listen_address, mcp_config.listen_port);
     let listener = TcpListener::bind(&address).await?;
 
     tracing::info!(
-        url = %format!("http://{address}{}", mcp_config.mount_path),
+        streamable_http = %format!("http://{address}{}", mcp_config.mount_path),
+        sse             = %format!("http://{address}{}", mcp_config.sse_path),
+        messages        = %format!("http://{address}{}", mcp_config.messages_path),
         "kaeru-mcp listening — point MCP clients here"
     );
 

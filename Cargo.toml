@@ -43,7 +43,8 @@ config = "0.14"
 rmcp = { version = "1.6", features = ["server", "transport-streamable-http-server", "macros"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
 tokio-util = "0.7"
-axum = { version = "0.8", default-features = false, features = ["http1", "tokio"] }
+tokio-stream = "0.1"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 schemars = "1"

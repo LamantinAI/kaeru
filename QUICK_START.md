@@ -92,6 +92,22 @@ claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp
 
 Restart your Claude Code session. The agent will see ~38 tools (`awake`, `drill`, `claim`, `at`, `cite`, …) — each takes an optional `initiative` parameter. Tool descriptions and the server's `instructions` field map out when to use what.
 
+## 4b. Wire into Opencode
+
+If you use [Opencode](https://opencode.ai) (works well with Qwen 3.7 Max / DeepSeek V4 / GLM-5.1 and any OSS-model provider you already have configured):
+
+```bash
+bash contrib/opencode/install-opencode.sh
+```
+
+What this does:
+
+1. Drops `AGENTS.kaeru.md` into `~/.config/opencode/` — kaeru's behaviour rules, loaded into every session's system prompt via the `instructions` config key.
+2. Drops `/kaeru`, `/lesson`, `/recall` slash commands into `~/.config/opencode/commands/`.
+3. Merges an `mcp.kaeru` block into your existing `~/.config/opencode/opencode.json` — additive, your providers and API keys are untouched. If your config is a symlink to `/etc/opencode/opencode.json`, the installer prints the `jq` + `sudo` merge command instead of elevating itself.
+
+Restart your opencode session. The agent will see kaeru tools as `kaeru_awake`, `kaeru_drill`, `kaeru_jot`, … See [`contrib/opencode/README.md`](contrib/opencode/README.md) for the design notes.
+
 ## 5. Re-entry ritual (every session)
 
 ```bash
