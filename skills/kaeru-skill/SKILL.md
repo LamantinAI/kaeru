@@ -40,6 +40,64 @@ inflection-tolerant matching, append `*` to the term:
 `search "verlier*"` finds `verlieren` / `verloren` / `Verlierer`.
 This works for any script; do not "translate to English to be safe".
 
+## Memory of record (runtimes with built-in memory, e.g. Claude Code)
+
+kaeru is meant to be the agent's **memory of record** — the one place
+durable knowledge lives across sessions. Some runtimes ship their own
+built-in memory that loads every session and competes with kaeru for
+the agent's attention; **Claude Code** is the common case (an
+auto-loaded `MEMORY.md` plus a file store under
+`~/.claude/projects/<project>/memory/`). Left alone, the agent drifts
+back to the built-in store and knowledge forks across two systems.
+
+This is an integration gap, not a kaeru bug — a built-in store baked
+into the runtime's system prompt can't be out-competed by an MCP
+server's instructions alone. Close it from the **config** side, where
+the user has the lever. In line with kaeru's facilitator stance these
+are setup steps the user opts into, not anything kaeru enforces.
+
+**1. Make the built-in store redirect to kaeru.** Rewrite the
+auto-loaded memory file (Claude Code: `MEMORY.md`) from a neutral index
+into a short directive: *source of truth is kaeru; on session start run
+`initiatives` → `awake` → `overview`; write new facts to kaeru
+(`jot`/`episode`/`cite`/`claim`/`task`), not to the file store.* The
+same file that pulled the agent toward local notes now pushes it toward
+kaeru, every session.
+
+**2. Migrate existing notes, leave pointers.** For each note already in
+the built-in store, `cite` it into kaeru (persona/project facts are
+exactly what archival `cite` is for — no `--url` needed), then reduce
+the original file to a one-line pointer at the kaeru node so nothing is
+lost and nothing is dual-maintained.
+
+**3. Reinforce on session start (optional).** If the runtime supports
+startup hooks, add one that prints a one-line reminder to consult kaeru
+first. Claude Code example — a `SessionStart` hook in
+`~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '%s\\n' 'MEMORY: source of truth is kaeru (MCP). On start call initiatives, then awake and overview. Write new facts/tasks to kaeru (jot/episode/cite/claim/task), not the local file store.'"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+A freshly-created `settings.json` may not be picked up until the
+runtime reloads its hook config (in Claude Code: open `/hooks` once, or
+restart). Keep the capture language native (see the cardinal rule
+above) — write the reminder in the user's language.
+
 ## Personas — same primitives, different uses
 
 The verb taxonomy looks research-flavoured (`claim` / `test` /

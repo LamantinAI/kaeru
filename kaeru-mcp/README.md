@@ -110,6 +110,22 @@ After restart, Claude sees the curator-API tools (`awake`, `drill`,
 `initiative` parameter; pass it on every call once you've picked a
 project.
 
+#### Make kaeru your memory of record
+
+Claude Code ships its own built-in auto-memory (an auto-loaded
+`MEMORY.md` plus a file store under
+`~/.claude/projects/<project>/memory/`) that competes with kaeru — left
+alone, the agent keeps writing there and knowledge forks across two
+systems. This is an integration gap, not a kaeru bug: a store baked into
+the runtime's system prompt can't be out-competed by an MCP server's
+instructions alone. Close it from the config side — rewrite the
+auto-loaded `MEMORY.md` into a directive pointing at kaeru, migrate
+existing notes in via `cite`, and optionally add a `SessionStart` hook
+that reminds the agent to consult kaeru first. Step-by-step recipe (with
+the hook JSON) is in
+[`skills/kaeru-skill/SKILL.md`](../skills/kaeru-skill/SKILL.md) under
+**"Memory of record"**.
+
 ### Other MCP runtimes
 
 Anything that speaks streamable HTTP MCP — Cursor, Continue, Goose,
