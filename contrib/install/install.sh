@@ -10,6 +10,12 @@
 #   KAERU_INSTALL_DIR    where to put the binaries (default: ~/.local/bin)
 #   KAERU_SETUP_DAEMON   yes (default) to install a user-level systemd /
 #                        launchd unit and start kaeru-mcp; "no" to skip
+#   KAERU_SETUP_CLAUDE_MEMORY
+#                        yes to make kaeru the primary agent memory for
+#                        Claude Code: disables Claude Code's built-in file
+#                        memory (autoMemoryEnabled=false) and adds a
+#                        SessionStart hook reminding the agent to use kaeru.
+#                        Default "no" — leaves ~/.claude untouched. Opt-in.
 #
 # Supported targets in this release:
 #   - linux  / x86_64  -> static musl binary, runs on any glibc or musl host
@@ -21,6 +27,7 @@ REPO="LamantinAI/kaeru"
 VERSION="${KAERU_VERSION:-latest}"
 INSTALL_DIR="${KAERU_INSTALL_DIR:-$HOME/.local/bin}"
 SETUP_DAEMON="${KAERU_SETUP_DAEMON:-yes}"
+SETUP_CLAUDE_MEMORY="${KAERU_SETUP_CLAUDE_MEMORY:-no}"
 
 say()  { printf '==> %s\n' "$*"; }
 warn() { printf '!!  %s\n' "$*" >&2; }
@@ -220,6 +227,77 @@ elif [[ "$os" == "Linux" ]]; then
     install_systemd_user_unit || true
 elif [[ "$os" == "Darwin" ]]; then
     install_launchd_user_agent || true
+fi
+
+# ------------------------------------------------------------------
+# Claude Code memory wiring (opt-in; no-op unless
+# KAERU_SETUP_CLAUDE_MEMORY=yes).
+#
+# Makes kaeru the primary memory for Claude Code by writing two keys
+# into ~/.claude/settings.json (honouring $CLAUDE_CONFIG_DIR):
+#   - autoMemoryEnabled=false — turns off Claude Code's built-in file
+#     memory so no second store competes with kaeru.
+#   - a SessionStart hook reminding the agent, every session, that
+#     kaeru is the source of truth.
+# Idempotent and non-destructive: merges into existing settings via jq,
+# backs the file up first, and skips the hook if it's already present.
+# ------------------------------------------------------------------
+
+setup_claude_memory() {
+    local cfg_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    local settings="$cfg_dir/settings.json"
+    local sentinel="source of truth is kaeru"
+    local hook_cmd="printf '%s\\n' 'MEMORY: source of truth is kaeru (MCP), not the local file store. On session start call initiatives, then awake and overview. Write new facts/tasks to kaeru (jot/episode/cite/claim/task).'"
+
+    if ! command -v jq >/dev/null 2>&1; then
+        warn "KAERU_SETUP_CLAUDE_MEMORY=yes needs jq to edit $settings safely; jq not found — skipping."
+        warn "Set by hand in $settings: \"autoMemoryEnabled\": false, plus a SessionStart hook running:"
+        warn "    $hook_cmd"
+        return
+    fi
+
+    mkdir -p "$cfg_dir"
+
+    local existing='{}'
+    if [[ -s "$settings" ]]; then
+        if ! jq -e . "$settings" >/dev/null 2>&1; then
+            warn "$settings exists but is not valid JSON — leaving it untouched. Edit by hand."
+            return
+        fi
+        existing=$(cat "$settings")
+        cp "$settings" "$settings.kaeru.bak"
+        say "backed up existing settings -> $settings.kaeru.bak"
+    fi
+
+    local updated
+    updated=$(printf '%s' "$existing" | jq \
+        --arg cmd "$hook_cmd" \
+        --arg sentinel "$sentinel" '
+        .autoMemoryEnabled = false
+        | .hooks = (.hooks // {})
+        | .hooks.SessionStart = (.hooks.SessionStart // [])
+        | ([ .hooks.SessionStart[] | (.hooks // [])[] | (.command // "") ]
+            | any(contains($sentinel))) as $present
+        | if $present then .
+          else .hooks.SessionStart += [
+              { matcher: "startup|resume|clear",
+                hooks: [ { type: "command", command: $cmd } ] }
+          ]
+          end
+    ') || { warn "failed to update $settings via jq — left unchanged"; return; }
+
+    printf '%s\n' "$updated" > "$settings"
+    say "configured Claude Code to use kaeru as primary memory -> $settings"
+    say "    - autoMemoryEnabled=false (built-in file memory off)"
+    say "    - SessionStart reminder hook installed (skipped if already present)"
+    say "    reload for effect: open /hooks in Claude Code once, or restart the app."
+}
+
+if [[ "$SETUP_CLAUDE_MEMORY" == "yes" ]]; then
+    echo
+    setup_claude_memory || true
+else
+    say "skipping Claude Code memory wiring (set KAERU_SETUP_CLAUDE_MEMORY=yes to enable)"
 fi
 
 echo
