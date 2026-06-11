@@ -49,6 +49,19 @@ pub struct KaeruMcpConfig {
     #[serde(default = "default_messages_path")]
     pub messages_path: String,
 
+    /// Extra `Host` header authorities to accept, on top of the
+    /// loopback set (`localhost`, `127.0.0.1`, `::1`) that rmcp's
+    /// Streamable HTTP transport allows by default as a DNS-rebinding
+    /// guard. When binding to a routable address (`0.0.0.0`) you MUST
+    /// list the host(s) clients put in their `Host` header here —
+    /// otherwise rmcp answers `403 Forbidden: Host header is not
+    /// allowed` and clients like Claude Code surface it as
+    /// "Needs authentication". Comma-separated, with or without port,
+    /// e.g. `KAERU_MCP_ALLOWED_HOSTS=192.0.2.10:9876,kaeru.lan`.
+    /// Empty (default) keeps the loopback-only behaviour.
+    #[serde(default = "default_allowed_hosts")]
+    pub allowed_hosts: String,
+
     /// Tracing log level (`error`, `warn`, `info`, `debug`, `trace`).
     /// Logs go to stderr only because stdout is reserved when MCP
     /// servers run over stdio elsewhere — kaeru-mcp itself uses HTTP,
@@ -101,6 +114,10 @@ fn default_sse_path() -> String {
 
 fn default_messages_path() -> String {
     "/messages".to_string()
+}
+
+fn default_allowed_hosts() -> String {
+    String::new()
 }
 
 fn default_log_level() -> String {

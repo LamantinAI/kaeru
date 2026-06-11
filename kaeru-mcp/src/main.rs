@@ -93,13 +93,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
         &mcp_config.sse_path,
         &mcp_config.messages_path,
     );
+    // rmcp's Streamable HTTP transport rejects any request whose `Host`
+    // header isn't in `allowed_hosts` (default: loopback only) as a
+    // DNS-rebinding guard — answering `403 Forbidden: Host header is not
+    // allowed`, which clients like Claude Code mislabel as "Needs
+    // authentication". When exposed on a routable address the operator
+    // must whitelist the host(s) clients use; we keep the loopback
+    // defaults so localhost sessions keep working regardless.
+    let default_config = StreamableHttpServerConfig::default();
+    let mut allowed_hosts = default_config.allowed_hosts.clone();
+    allowed_hosts.extend(
+        mcp_config
+            .allowed_hosts
+            .split(',')
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(str::to_string),
+    );
+    tracing::info!(?allowed_hosts, "host allow-list for inbound MCP requests");
+
     let service = StreamableHttpService::new(
         // Each MCP session reuses the same KaeruServer (and therefore
         // the same Arc<Store> / RocksDB lock); cloning the server is
         // cheap and shares state across sessions.
         move || Ok(server.clone()),
         Arc::new(session_manager),
-        StreamableHttpServerConfig::default()
+        default_config
+            .with_allowed_hosts(allowed_hosts)
             .with_cancellation_token(cancel.child_token()),
     );
 
