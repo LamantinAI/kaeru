@@ -32,6 +32,12 @@ RestartSec=2
 
 # kaeru-mcp tunables — uncomment / adjust as needed.
 #Environment=KAERU_MCP_LISTEN_ADDRESS=127.0.0.1
+# When binding to 0.0.0.0 you MUST also whitelist the Host authority
+# clients use, or rmcp's DNS-rebinding guard returns 403 "Host header
+# is not allowed" (Claude Code shows it as "Needs authentication").
+# Loopback hosts stay allowed automatically. Comma-separated, host or
+# host:port, e.g. 192.0.2.10:9876,kaeru.lan.
+#Environment=KAERU_MCP_ALLOWED_HOSTS=
 #Environment=KAERU_MCP_LISTEN_PORT=9876
 #Environment=KAERU_MCP_MOUNT_PATH=/mcp
 #Environment=KAERU_MCP_LOG_LEVEL=info

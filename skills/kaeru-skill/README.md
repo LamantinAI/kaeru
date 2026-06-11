@@ -36,7 +36,16 @@ The skill auto-triggers on memory-related phrases ("remember",
 "save this", "what did I think about X", …) and is user-invocable
 via `/kaeru`.
 
-### Cursor / Continue / OpenCode / other IDE-embedded agents
+### Opencode
+
+Opencode speaks MCP natively — see [`contrib/opencode/`](../../contrib/opencode/)
+for a turn-key wiring: an `AGENTS.kaeru.md` system-prompt include,
+slash commands (`/kaeru`, `/lesson`, `/recall`), an additive
+`opencode.kaeru.json` snippet that adds the daemon as a remote MCP
+server, and an installer that merges into your existing
+`opencode.json` without touching your model providers or API keys.
+
+### Cursor / Continue / other IDE-embedded agents
 
 These don't currently support a SKILL-MD format directly. Paste the
 **body of `SKILL.md`** (everything after the `---` frontmatter) into

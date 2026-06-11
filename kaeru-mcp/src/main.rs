@@ -19,6 +19,7 @@
 mod params;
 mod server;
 mod settings;
+mod sse;
 mod tools;
 mod utils;
 
@@ -74,6 +75,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server = KaeruServer::new(store);
 
     let cancel = CancellationToken::new();
+
     let mut session_manager = LocalSessionManager::default();
     // rmcp defaults to a 5-minute idle timeout that reaps Claude Code MCP
     // sessions during normal interactive pauses, surfacing as
@@ -85,22 +87,52 @@ async fn main() -> Result<(), Box<dyn Error>> {
         0 => None,
         secs => Some(Duration::from_secs(secs)),
     };
+
+    let sse_router = sse::router(
+        server.clone(),
+        &mcp_config.sse_path,
+        &mcp_config.messages_path,
+    );
+    // rmcp's Streamable HTTP transport rejects any request whose `Host`
+    // header isn't in `allowed_hosts` (default: loopback only) as a
+    // DNS-rebinding guard — answering `403 Forbidden: Host header is not
+    // allowed`, which clients like Claude Code mislabel as "Needs
+    // authentication". When exposed on a routable address the operator
+    // must whitelist the host(s) clients use; we keep the loopback
+    // defaults so localhost sessions keep working regardless.
+    let default_config = StreamableHttpServerConfig::default();
+    let mut allowed_hosts = default_config.allowed_hosts.clone();
+    allowed_hosts.extend(
+        mcp_config
+            .allowed_hosts
+            .split(',')
+            .map(str::trim)
+            .filter(|h| !h.is_empty())
+            .map(str::to_string),
+    );
+    tracing::info!(?allowed_hosts, "host allow-list for inbound MCP requests");
+
     let service = StreamableHttpService::new(
         // Each MCP session reuses the same KaeruServer (and therefore
         // the same Arc<Store> / RocksDB lock); cloning the server is
         // cheap and shares state across sessions.
         move || Ok(server.clone()),
         Arc::new(session_manager),
-        StreamableHttpServerConfig::default()
+        default_config
+            .with_allowed_hosts(allowed_hosts)
             .with_cancellation_token(cancel.child_token()),
     );
 
-    let router = axum::Router::new().nest_service(&mcp_config.mount_path, service);
+    let router = axum::Router::new()
+        .nest_service(&mcp_config.mount_path, service)
+        .merge(sse_router);
     let address = format!("{}:{}", mcp_config.listen_address, mcp_config.listen_port);
     let listener = TcpListener::bind(&address).await?;
 
     tracing::info!(
-        url = %format!("http://{address}{}", mcp_config.mount_path),
+        streamable_http = %format!("http://{address}{}", mcp_config.mount_path),
+        sse             = %format!("http://{address}{}", mcp_config.sse_path),
+        messages        = %format!("http://{address}{}", mcp_config.messages_path),
         "kaeru-mcp listening — point MCP clients here"
     );
 
