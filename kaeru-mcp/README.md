@@ -56,7 +56,16 @@ kaeru-mcp
 # stops on Ctrl-C
 ```
 
-By default it listens on `http://127.0.0.1:9876/mcp`.
+By default it listens on `http://127.0.0.1:9876` and exposes two MCP
+transports on the same port:
+
+- `http://127.0.0.1:9876/mcp` — **streamable HTTP** (current MCP spec, used
+  by Claude Code and most clients).
+- `http://127.0.0.1:9876/sse` + `http://127.0.0.1:9876/messages` — **legacy
+  HTTP+SSE** (2024-11-05 spec). Kept for clients that haven't migrated to
+  streamable HTTP yet — currently Opencode 1.15.x
+  ([opencode-ai/opencode#8058](https://github.com/anomalyco/opencode/issues/8058)).
+  Point such clients at the `/sse` URL.
 
 ## Configuration
 
@@ -68,7 +77,9 @@ Two layers, both env-driven:
 |------------------------------|---------------|---------------------------------------|
 | `KAERU_MCP_LISTEN_ADDRESS`   | `127.0.0.1`   | Bind IPv4. `0.0.0.0` = LAN-exposed (no auth!). |
 | `KAERU_MCP_LISTEN_PORT`      | `9876`        | TCP port.                             |
-| `KAERU_MCP_MOUNT_PATH`       | `/mcp`        | Axum mount path (must start with `/`).|
+| `KAERU_MCP_MOUNT_PATH`       | `/mcp`        | Streamable HTTP mount path (must start with `/`). |
+| `KAERU_MCP_SSE_PATH`         | `/sse`        | Legacy HTTP+SSE GET mount path.       |
+| `KAERU_MCP_MESSAGES_PATH`    | `/messages`   | Legacy HTTP+SSE POST mount path.      |
 | `KAERU_MCP_LOG_LEVEL`        | `info`        | `error` / `warn` / `info` / `debug` / `trace`. |
 
 **Substrate / curator-API caps** (`KAERU_*` — see
@@ -110,10 +121,19 @@ After restart, Claude sees the curator-API tools (`awake`, `drill`,
 `initiative` parameter; pass it on every call once you've picked a
 project.
 
+### Opencode
+
+Opencode 1.15.x speaks only the legacy HTTP+SSE transport (see
+[opencode-ai/opencode#8058](https://github.com/anomalyco/opencode/issues/8058)).
+Point its `mcp.kaeru.url` at `http://127.0.0.1:9876/sse` instead of
+`/mcp`. The `contrib/opencode/install-opencode.sh` installer ships a
+ready-made config snippet.
+
 ### Other MCP runtimes
 
 Anything that speaks streamable HTTP MCP — Cursor, Continue, Goose,
-mcp-inspector, etc. Format is the same; point the runtime at the URL.
+mcp-inspector, etc. Format is the same; point the runtime at `/mcp`.
+For clients still on legacy SSE, point them at `/sse`.
 
 For poking at it interactively, the official inspector handles HTTP:
 

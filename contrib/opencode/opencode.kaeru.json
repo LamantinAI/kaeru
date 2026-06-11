@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "kaeru": {
+      "type": "remote",
+      "url": "http://localhost:9876/sse",
+      "enabled": true
+    }
+  },
+  "instructions": [
+    "AGENTS.kaeru.md"
+  ]
+}

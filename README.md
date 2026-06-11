@@ -88,21 +88,21 @@ kaeru --initiative auth-rewrite export /tmp/auth-snapshot
 
 ## Connecting to an MCP-aware agent
 
-`kaeru-mcp` is a long-lived HTTP service: **one daemon per machine** owns the substrate, any number of agent sessions (Claude Code, Cursor, …) connect concurrently. This is intentional — RocksDB is single-writer, so a stdio MCP that forks a subprocess per session would hit lock contention. See `kaeru-mcp/README.md` for systemd / launchd unit templates and the full HTTP config.
+`kaeru-mcp` is a long-lived HTTP service: **one daemon per machine** owns the substrate, any number of agent sessions (Claude Code, Opencode, Cursor, …) connect concurrently. This is intentional — RocksDB is single-writer, so a stdio MCP that forks a subprocess per session would hit lock contention. See `kaeru-mcp/README.md` for systemd / launchd unit templates and the full HTTP config.
 
-Quick version (Linux + Claude Code):
+Run the daemon (or set up the systemd user unit from `contrib/install/`):
 
 ```bash
-# 1. Run the daemon (or set up the systemd user unit from contrib/).
 kaeru-mcp                                            # foreground, Ctrl-C to stop
-
-# 2. Tell Claude where to find it.
-claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp
 ```
 
-After restart the agent sees tools like `awake`, `drill`, `claim`, `at` natively. Each tool takes an optional `initiative` parameter.
+Then point your agent at it:
 
-For agent runtimes without MCP, the portable skill at `skills/kaeru-skill/` teaches them how to shell out to `kaeru-cli` instead — same workflow, slower transport.
+- **Claude Code**: `claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp` — see `skills/kaeru-skill/` for the portable system-prompt rules.
+- **Opencode**: `bash contrib/opencode/install-opencode.sh` — wires the daemon, drops `AGENTS.kaeru.md` rules into `~/.config/opencode/`, and installs `/kaeru` / `/lesson` / `/recall` slash commands. Designed to coexist with your existing OSS-model provider config (Qwen / DeepSeek / GLM / Ollama). See `contrib/opencode/README.md`.
+- **Cursor and other runtimes**: paste the body of `skills/kaeru-skill/SKILL.md` into your agent's rules / system-prompt section. For MCP-aware clients the daemon URL above works directly; for runtimes without MCP, the portable skill teaches them to shell out to `kaeru-cli` instead — same workflow, slower transport.
+
+After restart the agent sees tools like `awake`, `drill`, `claim`, `at` natively. Each tool takes an optional `initiative` parameter.
 
 ## Status
 
