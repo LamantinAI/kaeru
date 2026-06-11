@@ -76,6 +76,7 @@ Two layers, both env-driven:
 | Variable                     | Default       | Effect                                |
 |------------------------------|---------------|---------------------------------------|
 | `KAERU_MCP_LISTEN_ADDRESS`   | `127.0.0.1`   | Bind IPv4. `0.0.0.0` = LAN-exposed (no auth!). |
+| `KAERU_MCP_ALLOWED_HOSTS`    | *(empty)*     | Extra `Host` authorities to accept beyond loopback, comma-separated. **Required when binding to `0.0.0.0`** — see note below. |
 | `KAERU_MCP_LISTEN_PORT`      | `9876`        | TCP port.                             |
 | `KAERU_MCP_MOUNT_PATH`       | `/mcp`        | Streamable HTTP mount path (must start with `/`). |
 | `KAERU_MCP_SSE_PATH`         | `/sse`        | Legacy HTTP+SSE GET mount path.       |
@@ -168,6 +169,17 @@ with the inspector to see full param shapes.
 - **Auth.** None. `127.0.0.1` is fine for personal use; binding to
   `0.0.0.0` exposes the entire curator API to anyone who can reach
   the port. Add a reverse proxy if you need auth.
+- **LAN exposure needs `KAERU_MCP_ALLOWED_HOSTS`.** rmcp's Streamable
+  HTTP transport carries a DNS-rebinding guard that validates the
+  inbound `Host` header against an allow-list defaulting to loopback
+  only (`localhost`, `127.0.0.1`, `::1`). So `KAERU_MCP_LISTEN_ADDRESS=0.0.0.0`
+  on its own is **not enough** — a client connecting via the machine's
+  routable address gets `403 Forbidden: Host header is not allowed`,
+  and Claude Code mislabels that failed handshake as
+  *"Needs authentication"*. List the authority clients use (host or
+  `host:port`) so the guard lets it through:
+  `KAERU_MCP_ALLOWED_HOSTS=192.0.2.10:9876,kaeru.lan`. Loopback stays
+  allowed automatically.
 - **Updates.** After `cargo install --path kaeru-mcp`, restart the
   service so the new binary takes over: `systemctl --user restart
   kaeru-mcp` / `launchctl unload+load`.
