@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kaeru-core", "kaeru-cli", "kaeru-mcp"]
+members = ["kaeru-core", "kaeru-mcp"]
 
 [workspace.package]
 version = "0.1.0"

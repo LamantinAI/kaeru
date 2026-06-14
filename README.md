@@ -37,7 +37,6 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 kaeru/
 ├── Cargo.toml                  ← workspace root
 ├── kaeru-core/                 ← library: substrate, schema, primitives
-├── kaeru-cli/                  ← binary `kaeru`: CLI surface
 ├── kaeru-mcp/                  ← binary `kaeru-mcp`: Model Context Protocol server
 └── skills/
     └── kaeru-skill/            ← portable agent skill (Claude Code / etc.)
@@ -48,43 +47,41 @@ Future integration crates: `kaeru-langchain` (Python bridge), `kaeru-rig` (Rig f
 ## Install
 
 > **Pre-1.0 alpha.** Substrate schema may change between minor versions —
-> export to markdown (`kaeru export <dir>`) if you need to keep notes around.
+> export to markdown if you need to keep notes around.
 
-See [QUICK_START.md](QUICK_START.md) for prebuilt binaries (Linux x86_64, macOS aarch64), source builds, MCP daemon setup, and the re-entry ritual.
+See [QUICK_START.md](QUICK_START.md) for source builds, MCP daemon setup, and the re-entry ritual.
 
-## Quick tour (CLI)
+## Quick tour (MCP tools)
 
-```bash
+```
 # See what projects exist:
-kaeru initiatives
+initiatives
 
 # Re-entry ritual: process state + epistemic state.
-kaeru --initiative auth-rewrite awake
-kaeru --initiative auth-rewrite overview
+awake (initiative: "auth-rewrite")
+overview (initiative: "auth-rewrite")
 
 # Capture (auto-named):
-kaeru --initiative auth-rewrite jot 'noticed token expiry differs across platforms'
+jot (initiative: "auth-rewrite", body: "noticed token expiry differs across platforms")
 
 # Fuzzy lookup when you forgot the exact name:
-kaeru --initiative auth-rewrite search "expiry"
+search (initiative: "auth-rewrite", query: "expiry")
 
 # Drill into something:
-kaeru --initiative auth-rewrite drill noticed-token-expiry-differs-across-...
+drill (initiative: "auth-rewrite", name: "noticed-token-expiry-differs-across-...")
 
 # Hypothesis cycle:
-kaeru --initiative auth-rewrite claim "platform-aware policy is correct" --about <node>
-kaeru --initiative auth-rewrite test <hyp> --method "compared iOS / Android TTL"
-kaeru --initiative auth-rewrite confirm <hyp> --by <experiment>
+claim (initiative: "auth-rewrite", body: "platform-aware policy is correct", about: "<node>")
+test (initiative: "auth-rewrite", hypothesis: "<hyp>", method: "compared iOS / Android TTL")
+confirm (initiative: "auth-rewrite", hypothesis: "<hyp>", by: "<experiment>")
 
 # Time-travel:
-kaeru --initiative auth-rewrite at <name> --when 5m
-kaeru --initiative auth-rewrite history <name>
+at (initiative: "auth-rewrite", name: "<name>", when: "5m")
+history (initiative: "auth-rewrite", name: "<name>")
 
 # Snapshot to an Obsidian-friendly markdown vault:
-kaeru --initiative auth-rewrite export /tmp/auth-snapshot
+export (initiative: "auth-rewrite", path: "/tmp/auth-snapshot")
 ```
-
-`kaeru --help` walks through the typical workflow; `kaeru <command> --help` has full per-command docs.
 
 ## Connecting to an MCP-aware agent
 
@@ -100,13 +97,13 @@ Then point your agent at it:
 
 - **Claude Code**: `claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp` — see `skills/kaeru-skill/` for the portable system-prompt rules.
 - **Opencode**: `bash contrib/opencode/install-opencode.sh` — wires the daemon, drops `AGENTS.kaeru.md` rules into `~/.config/opencode/`, and installs `/kaeru` / `/lesson` / `/recall` slash commands. Designed to coexist with your existing OSS-model provider config (Qwen / DeepSeek / GLM / Ollama). See `contrib/opencode/README.md`.
-- **Cursor and other runtimes**: paste the body of `skills/kaeru-skill/SKILL.md` into your agent's rules / system-prompt section. For MCP-aware clients the daemon URL above works directly; for runtimes without MCP, the portable skill teaches them to shell out to `kaeru-cli` instead — same workflow, slower transport.
+- **Cursor and other runtimes**: paste the body of `skills/kaeru-skill/SKILL.md` into your agent's rules / system-prompt section. For MCP-aware clients the daemon URL above works directly.
 
 After restart the agent sees tools like `awake`, `drill`, `claim`, `at` natively. Each tool takes an optional `initiative` parameter.
 
 ## Status
 
-Pre-1.0. The substrate, curator API, CLI, MCP server, markdown export, and bi-temporal handle are implemented; the test suite is green. What still needs hardening:
+Pre-1.0. The substrate, curator API, MCP server, markdown export, and bi-temporal handle are implemented; the test suite is green. What still needs hardening:
 
 - Concurrency story for the MCP server when an agent batch-fires many calls — currently each call is atomic but reads can race ahead of pending writes.
 - Audit events are not yet attached to the initiative junction (their `LOG.md` filtering in export is by `affected_refs` intersection, which works but is a workaround).

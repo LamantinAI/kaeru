@@ -9,8 +9,7 @@ The workspace targets Rust `1.95+` with edition `2024` and uses a shared depende
 Workspace members:
 
 - `kaeru-core/` — library crate: substrate, schema, primitives.
-- `kaeru-cli/` — binary crate `kaeru`: CLI surface adapter.
-- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 1.6, stdio transport).
+- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 1.6, streamable HTTP transport).
 
 There is also a non-crate `skills/kaeru-skill/` directory with a portable
 agent skill (SKILL.md frontmatter + body). It's source for distribution
@@ -20,19 +19,18 @@ agent skill (SKILL.md frontmatter + body). It's source for distribution
 
 Before changing code, orient yourself by crate and responsibility:
 
-1. Identify the correct workspace member first — `kaeru-core`, `kaeru-cli`, or `kaeru-mcp`.
+1. Identify the correct workspace member first — `kaeru-core` or `kaeru-mcp`.
 2. Substrate, schema, primitives, curator API logic — `kaeru-core/`.
-3. CLI argument parsing, terminal output, command dispatch — `kaeru-cli/`.
-4. MCP tool definitions and rmcp wiring — `kaeru-mcp/`. Each verb is one `#[tool]` method on `KaeruServer`, output is `Content::text(...)` of a CLI-equivalent rendering.
-5. Shared dependencies live in the root `Cargo.toml` under `[workspace.dependencies]`. Add new deps there first; pull them into a crate with `dep.workspace = true`.
-6. Treat `kaeru-core` as the source of truth for shared types. Adapter crates (`kaeru-cli`, `kaeru-mcp`, future `kaeru-langchain`, `kaeru-rig`) consume `kaeru-core`; do not duplicate types.
-7. When adding or renaming a curator-API verb, update both `kaeru-cli`'s subcommand + handler AND the matching `#[tool]` in `kaeru-mcp/src/server.rs`. They expose the same surface.
+3. MCP tool definitions and rmcp wiring — `kaeru-mcp/`. Each verb is one `#[tool]` method on `KaeruServer`, output is `Content::text(...)`.
+4. Shared dependencies live in the root `Cargo.toml` under `[workspace.dependencies]`. Add new deps there first; pull them into a crate with `dep.workspace = true`.
+5. Treat `kaeru-core` as the source of truth for shared types. Adapter crates (`kaeru-mcp`, future `kaeru-langchain`, `kaeru-rig`) consume `kaeru-core`; do not duplicate types.
+6. When adding or renaming a curator-API verb, update the matching `#[tool]` in `kaeru-mcp/src/server.rs`.
 
 ## Local Runbook
 
 - `cargo check --workspace` — quick type-check after changes that touch more than one crate.
 - `cargo test --workspace` — run tests across the workspace.
-- `cargo run --bin kaeru` — run the CLI.
+- `cargo run --bin kaeru-mcp` — run the MCP server.
 
 The substrate stores its data under a platform-specific default path resolved at compile time (see `config::default_vault_path` for the cfg-gated branches): Linux `$XDG_DATA_HOME/kaeru` (fallback `$HOME/.local/share/kaeru`), macOS `$HOME/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`. Override via the `KAERU_VAULT_PATH` env var (auto-routed through `KaeruConfig::from_env`).
 
@@ -81,27 +79,8 @@ kaeru-core/src/
 ```
 
 ```
-kaeru-cli/src/
-├── main.rs                 ← Cli + Command enum + dispatch
-├── format.rs               ← print helpers
-├── parse.rs                ← parse_duration_secs, parse_tier, derive_auto_name, resolve_name(_or_id)
-└── commands/               ← one file per logical group, one fn per subcommand
-    ├── mod.rs
-    ├── session.rs          ← awake, overview, initiatives, recent, pin, unpin, config
-    ├── capture.rs          ← episode, jot, link, unlink, cite, supersede
-    ├── lookup.rs           ← recall, drill, trace, search, summary, ideas, outcomes, tagged, between
-    ├── temporal.rs         ← at, history
-    ├── hypothesis.rs       ← claim, test, confirm, refute
-    ├── review.rs           ← flag, resolve
-    ├── consolidate.rs      ← settle, reopen, synthesise
-    ├── metabolism.rs       ← forget, revise
-    ├── lint.rs
-    └── vault.rs            ← export
-```
-
-```
 kaeru-mcp/src/
-├── main.rs                 ← stdio + tokio + tracing init
+├── main.rs                 ← tokio + tracing init
 └── server.rs               ← KaeruServer + #[tool_router] with one #[tool] per verb (~36 tools)
 ```
 
@@ -130,17 +109,17 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 ## Development Notes
 
 - `cargo check --workspace` after changes that span crates.
-- When a type is used by both `kaeru-core` and `kaeru-cli` (or future adapter crates), define it in `kaeru-core` and re-export. Do not duplicate.
+- When a type is used by both `kaeru-core` and `kaeru-mcp` (or future adapter crates), define it in `kaeru-core` and re-export. Do not duplicate.
 - Bi-temporal `Validity` is core to the design — when introducing a new stored relation in `kaeru-core`, decide explicitly whether `Validity` belongs in the PK. Most domain relations do (`node`, `edge`); junction relations do not.
-- `audit_event` nodes are written automatically by every mutation primitive in `kaeru-core`. Do not bypass mutation primitives by writing to substrate directly from `kaeru-cli`.
-- The project is a **facilitator, not an enforcer**. CLI commands hint when context is missing (e.g. no active initiative); they do not block. Cognitive primitives are available tools, not mandatory protocol. Do not introduce required call sequences.
+- `audit_event` nodes are written automatically by every mutation primitive in `kaeru-core`. Do not bypass mutation primitives by writing to substrate directly from `kaeru-mcp`.
+- The project is a **facilitator, not an enforcer**. MCP tools hint when context is missing (e.g. no active initiative); they do not block. Cognitive primitives are available tools, not mandatory protocol. Do not introduce required call sequences.
 
 ## Backend Rules
 
-- All graph reads and writes go through `kaeru-core` primitives — never raw Cozo queries from `kaeru-cli`.
+- All graph reads and writes go through `kaeru-core` primitives — never raw Cozo queries from `kaeru-mcp`.
 - **No `anyhow`.** Errors are explicit: `kaeru-core` defines `Error` (thiserror enum) and `Result<T>`. Variants describe the failure mode (`Substrate`, `SchemaBootstrap`, `Invalid`, `NotFound`, `Io`, `Config`). Add new variants when a new failure mode arises; do not stuff context strings into existing ones.
 - Substrate errors funnel through the `From<cozo::Error> for Error` impl in `errors.rs`. Don't `format!("{e}")` cozo errors at call sites — let `?` propagate.
-- The CLI surfaces errors directly from `kaeru-core::Result`. No re-wrapping.
+- The MCP server surfaces errors directly from `kaeru-core::Result`. No re-wrapping.
 - The substrate is single-process embedded — no server, no network. Adapters wrap the in-process API; they do not expose a separate persistence path.
 
 ## Out Of Scope

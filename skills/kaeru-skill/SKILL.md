@@ -5,7 +5,7 @@ description: Cognitive memory layer for LLM agents — typed graph + bi-temporal
 allowed-tools: Bash
 ---
 
-# kaeru — agent memory CLI
+# kaeru — agent memory
 
 `kaeru` is a typed-graph memory the user has spent time building.
 Operational tier (cognitive / hippocampus) is fast working thought;
@@ -13,7 +13,7 @@ archival tier (recollection / cortex) is settled long-term knowledge.
 Every node and edge is bi-temporal — assertions and retractions live
 side-by-side, time-travel is native.
 
-You interact through `kaeru-cli` subprocesses. Substrate location is
+You interact through the MCP server. Substrate location is
 read from `KAERU_VAULT_PATH` (or the Linux default
 `~/.local/share/kaeru`); platform defaults handle macOS / Windows.
 

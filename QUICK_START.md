@@ -2,7 +2,7 @@
 
 > **Pre-1.0 alpha.** The substrate schema may change between minor versions.
 > Until 0.x → 1.0 stabilises, treat your vault as disposable — export to
-> markdown if you want to keep notes around (`kaeru export <dir>`).
+> markdown if you want to keep notes around.
 
 ## 1. Install
 
@@ -14,8 +14,8 @@ curl -fsSL https://raw.githubusercontent.com/LamantinAI/kaeru/main/contrib/insta
 
 What this does:
 
-1. Detects OS / arch, downloads the matching tarball from the latest GitHub release, unpacks `kaeru` and `kaeru-mcp` into `~/.local/bin`.
-2. On macOS clears the Gatekeeper quarantine bit on both binaries (they're cross-built from Linux and unsigned).
+1. Detects OS / arch, downloads the matching tarball from the latest GitHub release, unpacks `kaeru-mcp` into `~/.local/bin`.
+2. On macOS clears the Gatekeeper quarantine bit on the binary (it's cross-built from Linux and unsigned).
 3. Installs a **user-level** daemon — `~/.config/systemd/user/kaeru-mcp.service` on Linux, `~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist` on macOS — and starts it. No `sudo` involved; no system-wide files touched.
 
 Env knobs:
@@ -46,15 +46,13 @@ Prerequisites: Rust 1.95+ (edition 2024). On Linux you also need `libclang-dev` 
 git clone https://github.com/LamantinAI/kaeru.git
 cd kaeru
 cargo test --workspace
-cargo install --path kaeru-cli
 cargo install --path kaeru-mcp
 ```
 
-## 2. Verify the CLI
+## 2. Verify the daemon
 
 ```bash
-kaeru --version
-kaeru initiatives          # empty list on a fresh vault — that's fine
+kaeru-mcp --version
 ```
 
 The substrate lives at a platform-specific default: Linux `$XDG_DATA_HOME/kaeru` (typically `~/.local/share/kaeru`), macOS `~/Library/Application Support/ai.lamantin.kaeru`. Override with `KAERU_VAULT_PATH=/path/to/vault`.
@@ -110,17 +108,15 @@ Restart your opencode session. The agent will see kaeru tools as `kaeru_awake`, 
 
 ## 5. Re-entry ritual (every session)
 
-```bash
+```
 # pick a project
-kaeru initiatives
+initiatives
 
 # process state — what was open
-kaeru --initiative <name> awake
+awake (initiative: "<name>")
 
 # epistemic state — what the project knows
-kaeru --initiative <name> overview
+overview (initiative: "<name>")
 ```
 
-From there: `jot` / `episode` for working observations, `cite <name> --body "..."` (URL optional) for settled documents (ADRs, specs, persona records), `claim` → `test` → `confirm`/`refute` for hypotheses, `task` / `done` for actionable todos. Inquire with `drill`, `trace`, `search`, `tagged`. Time-travel with `at`, `history`.
-
-`kaeru --help` walks the typical workflow; `kaeru <command> --help` has full per-command docs.
+From there: `jot` / `episode` for working observations, `cite` (URL optional) for settled documents (ADRs, specs, persona records), `claim` → `test` → `confirm`/`refute` for hypotheses, `task` / `done` for actionable todos. Inquire with `drill`, `trace`, `search`, `tagged`. Time-travel with `at`, `history`.
