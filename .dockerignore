@@ -1,0 +1,8 @@
+target/
+.git/
+.github/
+.codex/
+*.md
+LICENSE
+contrib/
+skills/

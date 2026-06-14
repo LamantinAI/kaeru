@@ -1,8 +1,5 @@
 //! `set_layer` — change a node's memory layer.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
-use std::collections::BTreeMap;
 use std::str::FromStr;
 
 use crate::errors::Result;
