@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 
 use crate::errors::Result;
 use crate::graph::EpisodeKind;
+use crate::graph::Layer;
 use crate::graph::NodeId;
 use crate::graph::Significance;
 use crate::graph::audit::write_audit;
@@ -26,12 +27,26 @@ pub fn write_episode(
     name: &str,
     body: &str,
 ) -> Result<NodeId> {
+    write_episode_with_layer(store, kind, significance, name, body, Layer::default())
+}
+
+/// Writes an episode node with an explicit memory layer.
+/// Returns the new episode node id.
+pub fn write_episode_with_layer(
+    store: &Store,
+    kind: EpisodeKind,
+    significance: Significance,
+    name: &str,
+    body: &str,
+    layer: Layer,
+) -> Result<NodeId> {
     let id = new_node_id();
 
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
     params.insert("name".to_string(), DataValue::Str(name.into()));
     params.insert("body".to_string(), DataValue::Str(body.into()));
+    params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
     // Encode kind + significance into `tags`, plus auto-derive
     // `lang:*` (script heuristic) and `topic:<word>` tokens from the
@@ -47,9 +62,9 @@ pub fn write_episode(
     let now_secs = now_validity_seconds();
     let script = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );
     store
@@ -69,6 +84,11 @@ pub fn write_episode(
 /// For load-bearing episodes pick a deliberate name and call
 /// [`write_episode`] instead.
 pub fn jot(store: &Store, body: &str) -> Result<NodeId> {
+    jot_with_layer(store, body, Layer::default())
+}
+
+/// Low-friction episode write with an explicit memory layer.
+pub fn jot_with_layer(store: &Store, body: &str, layer: Layer) -> Result<NodeId> {
     let id = new_node_id();
     let name = derive_jot_name(body, &id);
 
@@ -76,6 +96,7 @@ pub fn jot(store: &Store, body: &str) -> Result<NodeId> {
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
     params.insert("name".to_string(), DataValue::Str(name.into()));
     params.insert("body".to_string(), DataValue::Str(body.into()));
+    params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
     let all_tags = build_body_tags(
         &["kind:observation", "sig:low", "role:jot"],
@@ -85,9 +106,9 @@ pub fn jot(store: &Store, body: &str) -> Result<NodeId> {
     let now_secs = now_validity_seconds();
     let script = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );
     store

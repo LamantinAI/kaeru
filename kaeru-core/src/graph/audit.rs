@@ -54,9 +54,9 @@ pub(crate) fn write_audit(
     let now_secs = now_validity_seconds();
     let script = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'audit_event', 'operational', $name, null, null, null, $properties]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, [{now_secs}.0, true], 'audit_event', 'operational', $name, null, null, null, $properties, 'warm']]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );
     db.run_script(&script, params, ScriptMutability::Mutable)?;

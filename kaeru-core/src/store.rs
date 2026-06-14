@@ -218,6 +218,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         tags: [String]?,
         initiatives: [String]?,
         properties: Json?,
+        layer: String default 'warm',
     }
     "#,
     r#"
@@ -256,6 +257,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "#,
     "::index create node:by_name { name }",
     "::index create node:by_tier_type { tier, type }",
+    "::index create node:by_layer { layer }",
     "::index create edge:by_src { src }",
     "::index create edge:by_dst { dst }",
     "::index create edge:by_edge_type { edge_type }",

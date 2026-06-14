@@ -185,3 +185,74 @@ impl Significance {
         }
     }
 }
+
+/// Memory layer — controls priority during context injection.
+///
+/// When an agent recalls, nodes are returned grouped by layer in order:
+/// `Core` → `Hot` → `Warm` → `Cold` → `Frozen`. This lets the agent
+/// (or a host application) fill the context window starting with the
+/// most critical memories.
+///
+/// Layers are orthogonal to `Tier` (operational/archival) and
+/// `Significance` (low/medium/high). A `Core` layer node might be an
+/// archival `Idea` that the user marked as always-relevant; a `Hot`
+/// layer might be a recent `Episode` the agent auto-promoted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Layer {
+    /// Always injected into context — system-level knowledge,
+    /// user preferences, standing instructions.
+    Core,
+    /// Frequently needed — injected first after Core.
+    Hot,
+    /// Relevant, default for most nodes.
+    Warm,
+    /// Archived — only retrieved on explicit recall.
+    Cold,
+    /// Forgotten but retrievable — stored, not surfaced by default.
+    Frozen,
+}
+
+impl Layer {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Layer::Core => "core",
+            Layer::Hot => "hot",
+            Layer::Warm => "warm",
+            Layer::Cold => "cold",
+            Layer::Frozen => "frozen",
+        }
+    }
+
+    /// Returns the ordinal priority (lower = higher priority).
+    pub fn priority(&self) -> u8 {
+        match self {
+            Layer::Core => 0,
+            Layer::Hot => 1,
+            Layer::Warm => 2,
+            Layer::Cold => 3,
+            Layer::Frozen => 4,
+        }
+    }
+}
+
+impl Default for Layer {
+    fn default() -> Self {
+        Layer::Warm
+    }
+}
+
+impl FromStr for Layer {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "core" => Ok(Layer::Core),
+            "hot" => Ok(Layer::Hot),
+            "warm" => Ok(Layer::Warm),
+            "cold" => Ok(Layer::Cold),
+            "frozen" => Ok(Layer::Frozen),
+            _ => Err(Error::Invalid(format!("unknown layer: {s}"))),
+        }
+    }
+}

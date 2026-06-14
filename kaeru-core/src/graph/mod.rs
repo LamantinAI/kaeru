@@ -15,6 +15,7 @@ pub mod temporal;
 pub use edge::EdgeType;
 pub use node::EpisodeKind;
 pub use node::HypothesisStatus;
+pub use node::Layer;
 pub use node::NodeId;
 pub use node::NodeType;
 pub use node::Significance;
