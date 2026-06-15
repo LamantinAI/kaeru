@@ -9,7 +9,8 @@ The workspace targets Rust `1.95+` with edition `2024` and uses a shared depende
 Workspace members:
 
 - `kaeru-core/` — library crate: substrate, schema, primitives.
-- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 1.6, streamable HTTP transport).
+- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 1.6, streamable HTTP transport). The agent's surface; also proxies into `kaeru-cloud` for sharing / recall.
+- `kaeru-cloud/` — binary crate `kaeru-cloud`: the shared cloud tier (Axum REST over `kaeru-core`, bearer-token auth). One per team; local daemons connect to it.
 
 There is also a non-crate `skills/kaeru-skill/` directory with a portable
 agent skill (SKILL.md frontmatter + body). It's source for distribution
@@ -19,12 +20,13 @@ agent skill (SKILL.md frontmatter + body). It's source for distribution
 
 Before changing code, orient yourself by crate and responsibility:
 
-1. Identify the correct workspace member first — `kaeru-core` or `kaeru-mcp`.
+1. Identify the correct workspace member first — `kaeru-core`, `kaeru-mcp`, or `kaeru-cloud`.
 2. Substrate, schema, primitives, curator API logic — `kaeru-core/`.
-3. MCP tool definitions and rmcp wiring — `kaeru-mcp/`. Each verb is one `#[tool]` method on `KaeruServer`, output is `Content::text(...)`.
-4. Shared dependencies live in the root `Cargo.toml` under `[workspace.dependencies]`. Add new deps there first; pull them into a crate with `dep.workspace = true`.
-5. Treat `kaeru-core` as the source of truth for shared types. Adapter crates (`kaeru-mcp`, future `kaeru-langchain`, `kaeru-rig`) consume `kaeru-core`; do not duplicate types.
-6. When adding or renaming a curator-API verb, update the matching `#[tool]` in `kaeru-mcp/src/server.rs`.
+3. MCP tool definitions and rmcp wiring — `kaeru-mcp/`. Each verb is one `#[tool]` method on `KaeruServer`, output is `Content::text(...)`. Cloud-facing tools call into `kaeru-cloud` through `cloud_client.rs`.
+4. Cloud REST handlers and Axum wiring — `kaeru-cloud/`. Handlers in `api/router/`, bearer-token extractor in `api/extractors.rs`, error → HTTP mapping in `api/errors.rs`.
+5. Shared dependencies live in the root `Cargo.toml` under `[workspace.dependencies]`. Add new deps there first; pull them into a crate with `dep.workspace = true`.
+6. Treat `kaeru-core` as the source of truth for shared types. Adapter crates (`kaeru-mcp`, `kaeru-cloud`, future `kaeru-langchain`, `kaeru-rig`) consume `kaeru-core`; do not duplicate types.
+7. When adding or renaming a curator-API verb, update the matching `#[tool]` in `kaeru-mcp/src/server.rs`.
 
 ## Local Runbook
 
@@ -80,8 +82,20 @@ kaeru-core/src/
 
 ```
 kaeru-mcp/src/
-├── main.rs                 ← tokio + tracing init
-└── server.rs               ← KaeruServer + #[tool_router] with one #[tool] per verb (~36 tools)
+├── main.rs                 ← tokio + tracing init; builds Store + optional CloudClient
+├── settings.rs             ← KaeruMcpConfig (KAERU_MCP_* env, incl. cloud_url / cloud_token)
+├── server.rs               ← KaeruServer + #[tool_router], one #[tool] per verb
+├── params.rs               ← Parameters<T> structs the tools deserialize
+├── utils.rs                ← output builders + input parsing (with_initiative, parse_*)
+├── cloud_client.rs         ← async reqwest client to kaeru-cloud
+└── tools/                  ← one module per verb group (capture, cloud, session, lookup, …)
+
+kaeru-cloud/src/
+├── main.rs                 ← thin entrypoint (config + tracing → run)
+├── lib.rs                  ← run(): build state, bind, serve
+├── config.rs               ← KaeruCloudConfig (KAERU_CLOUD_* env)
+├── errors.rs               ← ApiError + StartError (thiserror)
+└── api/                    ← state.rs, extractors.rs (bearer), errors.rs (IntoResponse), router/
 ```
 
 Triggers to refactor a flat file into a `mod.rs`-with-submodules layout:
@@ -116,7 +130,8 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 
 ## Backend Rules
 
-- All graph reads and writes go through `kaeru-core` primitives — never raw Cozo queries from `kaeru-mcp`.
+- All graph reads and writes go through `kaeru-core` primitives — never raw Cozo queries from an adapter (`kaeru-mcp`, `kaeru-cloud`).
+- **Cloud is reached only through `kaeru-mcp`'s `cloud_client.rs`** (sharing / recall). `kaeru-cloud` wraps the same `kaeru-core` behind Axum; it adds no separate persistence path. TLS is terminated by a reverse proxy — the service speaks plain HTTP.
 - **No `anyhow`.** Errors are explicit: `kaeru-core` defines `Error` (thiserror enum) and `Result<T>`. Variants describe the failure mode (`Substrate`, `SchemaBootstrap`, `Invalid`, `NotFound`, `Io`, `Config`). Add new variants when a new failure mode arises; do not stuff context strings into existing ones.
 - Substrate errors funnel through the `From<cozo::Error> for Error` impl in `errors.rs`. Don't `format!("{e}")` cozo errors at call sites — let `?` propagate.
 - The MCP server surfaces errors directly from `kaeru-core::Result`. No re-wrapping.

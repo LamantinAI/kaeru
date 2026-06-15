@@ -50,6 +50,51 @@ pub fn link(
     Ok(())
 }
 
+/// Creates a **soft link** from a local node to a node in the shared
+/// cloud: a normal edge but with `dst_store = cloud`. `dst` is the cloud
+/// node's UUIDv7 — it need not exist locally; the edge is resolved lazily
+/// through the cloud API at read time. Only `local → cloud` soft links
+/// exist (the cloud never sees local ids, so it can't link back).
+///
+/// Because the cloud `dst` is not attached to any local `node_initiative`,
+/// a local `walk` naturally never traverses into it — soft links are
+/// followed only by the explicit cloud-resolution path (`cloud_links`).
+pub fn link_remote(
+    store: &Store,
+    src: &NodeId,
+    dst_cloud_id: &NodeId,
+    edge_type: EdgeType,
+) -> Result<()> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("src".to_string(), DataValue::Str(src.clone().into()));
+    params.insert("dst".to_string(), DataValue::Str(dst_cloud_id.clone().into()));
+    params.insert(
+        "edge_type".to_string(),
+        DataValue::Str(edge_type.as_str().into()),
+    );
+
+    let now_secs = now_validity_seconds();
+    let script = format!(
+        r#"
+        ?[src, dst, edge_type, validity, weight, properties, dst_store] <-
+            [[$src, $dst, $edge_type, [{now_secs}.0, true], 1.0, null, 'cloud']]
+        :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}
+        "#
+    );
+    store
+        .db_ref()
+        .run_script(&script, params, ScriptMutability::Mutable)?;
+
+    attach_edge_to_initiative(store, src, dst_cloud_id, edge_type.as_str())?;
+    write_audit(
+        store.db_ref(),
+        "link_remote",
+        "system",
+        &[src.clone(), dst_cloud_id.clone()],
+    )?;
+    Ok(())
+}
+
 /// Retracts a previously-asserted edge through the bi-temporal substrate.
 /// The historical assertion stays in the graph (so `history`-style queries
 /// at earlier timestamps still see the edge); only reads at NOW or after

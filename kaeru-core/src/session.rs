@@ -14,7 +14,11 @@ use std::time::UNIX_EPOCH;
 
 use crate::graph::audit::write_audit;
 use crate::errors::Result;
+use crate::graph::Layer;
 use crate::graph::NodeId;
+use crate::recall::LayerBucket;
+use crate::recall::list_initiatives;
+use crate::recall::recall_by_layer;
 use crate::recall::recent_episodes;
 use crate::recall::under_review_pinned;
 use crate::store::Store;
@@ -73,6 +77,15 @@ pub struct AwakenedContext {
     /// Initiative active on the `Store` at the moment `awake` was called.
     /// `None` if no initiative was selected via `use_initiative`.
     pub initiative: Option<String>,
+    /// Every initiative the substrate knows (cross-initiative), so the
+    /// agent always sees which projects exist — not just the active one.
+    pub all_initiatives: Vec<String>,
+    /// Layer-prioritised view of the active initiative: `Core` (uncapped),
+    /// then `Hot`, then `Warm`, in that order. The whole `Core` loads
+    /// first, then the lower-priority layers — the re-entry context the
+    /// memory-layer system is built around. `Cold` / `Frozen` are not
+    /// surfaced here by design (explicit recall / not surfaced).
+    pub layered: Vec<LayerBucket>,
     /// Persisted session pins, newest-first. See [`active_window`].
     pub pinned: Vec<NodeId>,
     /// Episodes whose latest assertion is within
@@ -95,6 +108,8 @@ pub fn awake(store: &Store) -> Result<AwakenedContext> {
     let window = store.config().awake_default_window_secs;
     Ok(AwakenedContext {
         initiative: store.current_initiative(),
+        all_initiatives: list_initiatives(store)?,
+        layered: recall_by_layer(store, &[Layer::Core, Layer::Hot, Layer::Warm])?,
         pinned: active_window(store)?,
         recent: recent_episodes(store, window)?,
         under_review: under_review_pinned(store)?,

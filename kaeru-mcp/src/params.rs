@@ -10,6 +10,67 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct PolicyParams {
+    /// Initiative whose cloud sharing policy to read or set.
+    pub initiative: String,
+    /// New policy: `private` (default, never leaves), `team` (shared nodes
+    /// may sync), or `ask`. Omit to read the current policy.
+    #[serde(default)]
+    pub policy: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ShareParams {
+    /// Node name or UUIDv7 id to share to the team cloud.
+    pub name: String,
+    /// Initiative scope — required; sharing is gated by its `share_policy`.
+    pub initiative: String,
+    /// Override the pre-share secret guard when it flags content. Default false.
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PullParams {
+    /// UUIDv7 id of the cloud node to materialise into the local vault.
+    pub id: String,
+    /// Initiative to attach the pulled node to locally.
+    pub initiative: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CloudRecallParams {
+    /// Initiative to list shared cloud nodes for.
+    pub initiative: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct LinkCloudParams {
+    /// Local node name or UUIDv7 id to soft-link from.
+    pub name: String,
+    /// UUIDv7 id of the cloud node to link to.
+    pub cloud_id: String,
+    /// Edge type for the soft link. Defaults to `refers_to`.
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// Initiative scope (both sides share the same initiative name).
+    pub initiative: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct CloudLinksParams {
+    /// Local node name or UUIDv7 id whose cloud soft links to resolve.
+    pub name: String,
+    pub initiative: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SyncReviewParams {
+    /// Team initiative to review still-local nodes for.
+    pub initiative: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScopeOnly {
     /// Optional initiative to scope the operation to. When omitted,
     /// reads are cross-initiative; mutations end up un-tagged.
@@ -46,6 +107,11 @@ pub struct EpisodeParams {
     /// `cold`, or `frozen`. Defaults to `warm`.
     #[serde(default)]
     pub layer: Option<String>,
+    /// Optional visibility. `shared` marks team knowledge and — in a `team`
+    /// initiative with the secret guard clear — pushes it to the cloud in
+    /// this one call. Defaults to `local` (stays private).
+    #[serde(default)]
+    pub visibility: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -58,6 +124,11 @@ pub struct JotParams {
     /// `cold`, or `frozen`. Defaults to `warm`.
     #[serde(default)]
     pub layer: Option<String>,
+    /// Optional visibility. `shared` marks team knowledge and — in a `team`
+    /// initiative with the secret guard clear — pushes it to the cloud in
+    /// this one call. Defaults to `local` (stays private).
+    #[serde(default)]
+    pub visibility: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -267,6 +338,11 @@ pub struct CiteParams {
     /// `cold`, or `frozen`. Defaults to `warm`.
     #[serde(default)]
     pub layer: Option<String>,
+    /// Optional visibility. `shared` marks team knowledge and — in a `team`
+    /// initiative with the secret guard clear — pushes it to the cloud in
+    /// this one call. Defaults to `local` (stays private).
+    #[serde(default)]
+    pub visibility: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }

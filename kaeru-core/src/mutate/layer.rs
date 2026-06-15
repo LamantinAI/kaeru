@@ -51,8 +51,8 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
     // buggy `set_layer`), fall back to the most recent historical version
     // — re-running this verb on such a node restores it to NOW.
     let now_script = r#"
-        ?[validity, type, tier, name, body, tags, initiatives, properties] :=
-            *node{validity, type, tier, name, body, tags, initiatives, properties @ 'NOW'},
+        ?[validity, type, tier, name, body, tags, initiatives, properties, visibility] :=
+            *node{id, validity, type, tier, name, body, tags, initiatives, properties, visibility @ 'NOW'},
             id = $id
     "#;
     let mut current = store.db_ref().run_script(
@@ -63,8 +63,8 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
 
     if current.rows.is_empty() {
         let hist_script = r#"
-            ?[validity, type, tier, name, body, tags, initiatives, properties] :=
-                *node{validity, type, tier, name, body, tags, initiatives, properties},
+            ?[validity, type, tier, name, body, tags, initiatives, properties, visibility] :=
+                *node{id, validity, type, tier, name, body, tags, initiatives, properties, visibility},
                 id = $id
             :order -validity
             :limit 1
@@ -98,11 +98,12 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
     p.insert("tags".to_string(), row[5].clone());
     p.insert("initiatives".to_string(), row[6].clone());
     p.insert("properties".to_string(), row[7].clone());
+    p.insert("visibility".to_string(), row[8].clone());
     p.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
     let put_script = r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [[$id, $validity, $type, $tier, $name, $body, $tags, $initiatives, $properties, $layer]]
-        :put node {id, validity => type, tier, name, body, tags, initiatives, properties, layer}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
+            [[$id, $validity, $type, $tier, $name, $body, $tags, $initiatives, $properties, $visibility, $layer]]
+        :put node {id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}
     "#;
     store
         .db_ref()
@@ -117,7 +118,7 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
 pub fn get_layer(store: &Store, node_id: &NodeId) -> Result<Layer> {
     let script = format!(
         r#"
-        ?[layer] := *node{{layer @ 'NOW'}}, id = '{node_id}'
+        ?[layer] := *node{{id, layer @ 'NOW'}}, id = '{node_id}'
         "#
     );
     let rows = store.run_read(&script)?;

@@ -218,6 +218,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         tags: [String]?,
         initiatives: [String]?,
         properties: Json?,
+        visibility: String default 'local',
         layer: String default 'warm',
     }
     "#,
@@ -229,6 +230,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         validity: Validity default [floor_to_second(now()), true] =>
         weight: Float default 1.0,
         properties: Json?,
+        dst_store: String default 'local',
     }
     "#,
     r#"
@@ -245,6 +247,16 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         added_at: Float default now(),
     }
     "#,
+    // Initiatives carry a sticky `share_policy` (Gate 1). Not bi-temporal —
+    // sharing governance is policy, not knowledge history (same rationale
+    // as the junction relations).
+    r#"
+    :create initiative {
+        name: String =>
+        share_policy: String default 'private',
+        set_at: Float default now(),
+    }
+    "#,
     // Session pins are persisted in the substrate so a process restart
     // restores the active window. Not bi-temporal: pin/unpin is a session-
     // level concern, not a knowledge-level one.
@@ -258,9 +270,11 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "::index create node:by_name { name }",
     "::index create node:by_tier_type { tier, type }",
     "::index create node:by_layer { layer }",
+    "::index create node:by_visibility { visibility }",
     "::index create edge:by_src { src }",
     "::index create edge:by_dst { dst }",
     "::index create edge:by_edge_type { edge_type }",
+    "::index create edge:by_dst_store { dst_store }",
 ];
 
 /// FTS indexes — created lazily after `SCHEMA_STATEMENTS` so vaults
@@ -318,7 +332,7 @@ mod tests {
             .iter()
             .filter_map(|row| row.first().and_then(|v| v.get_str()).map(String::from))
             .collect();
-        for expected in ["node", "edge", "node_initiative", "edge_initiative", "session_pin"] {
+        for expected in ["node", "edge", "node_initiative", "edge_initiative", "session_pin", "initiative"] {
             assert!(
                 names.iter().any(|n| n == expected),
                 "{expected} relation must be present"

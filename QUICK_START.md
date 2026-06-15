@@ -192,7 +192,8 @@ Common moves:
 - `claim` -> `test` -> `confirm` / `refute` for hypotheses;
 - `task` / `done` for actionable todos;
 - `search`, `drill`, `trace`, `between`, `tagged` for recall;
-- `synthesise`, `settle`, `reopen`, `supersede` when knowledge changes shape.
+- `synthesise`, `settle`, `reopen`, `supersede` when knowledge changes shape;
+- `policy`, `share`, `cloud_recall`, `pull`, `sync_review` for team sharing (see §6).
 
 ## 4. Memory Layers
 
@@ -243,3 +244,57 @@ For each exported kaeru initiative under /tmp/kaeru-export:
 Do not re-import everything mechanically. The goal is to let the agent classify
 old memory into the new tier/layer model and drop stale operational noise while
 preserving settled knowledge and active work.
+
+## 6. Team Cloud (Sharing & Recall)
+
+By default everything stays on your machine. To share settled knowledge with a
+trusted group (a team, a family), run the shared `kaeru-cloud` service and point
+the daemon at it.
+
+### Run the stack
+
+The simplest way is docker-compose, which starts `kaeru-cloud` and a `kaeru-mcp`
+already wired to it:
+
+```bash
+KAERU_CLOUD_API_TOKEN=replace-with-a-long-random-secret docker compose up --build
+```
+
+Or run the cloud yourself and wire each daemon by env:
+
+```bash
+KAERU_CLOUD_API_TOKEN=<secret> kaeru-cloud        # the shared service (port 9877)
+
+# on each machine, point the local daemon at it:
+KAERU_MCP_CLOUD_URL=http://<cloud-host>:9877 \
+KAERU_MCP_CLOUD_TOKEN=<secret> \
+  kaeru-mcp
+```
+
+If the cloud is reachable beyond a trusted network, terminate TLS with a reverse
+proxy in front of it — the service speaks plain HTTP.
+
+### Sharing flow
+
+Sharing is explicit and gated; nothing leaves automatically.
+
+1. Mark an initiative shareable, once: `policy(initiative: "<proj>", policy: "team")`.
+   Default is `private` — personal initiatives never leave.
+2. Share a node: `share(name: "<node>", initiative: "<proj>")`. Two gates run —
+   the initiative policy, and a secret guard that blocks API keys / tokens /
+   private keys. The local node is marked `shared` only after the cloud accepts it.
+3. Or capture-and-share in one call: `episode(..., visibility: "shared", initiative: "<proj>")`
+   — also `jot` and `cite`.
+4. Batch review: `sync_review(initiative: "<proj>")` splits still-local nodes into
+   PROPOSE SHARE (guard-clean) vs KEEP LOCAL (guard-flagged). Review once, then
+   `share` the approved ones.
+
+### Recall flow
+
+- `cloud_recall(initiative: "<proj>")` — list what the team has shared.
+- `pull(id: "<id>", initiative: "<proj>")` — bring a shared node into your local graph.
+- `link_cloud(name: "<local>", cloud_id: "<id>")` then `cloud_links(name: "<local>")` —
+  reference a cloud node from a local one without copying, and resolve it on demand.
+
+Per-user / per-org isolation is a future addition; today the cloud is one shared
+space scoped by initiative.

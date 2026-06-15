@@ -37,7 +37,8 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 kaeru/
 ├── Cargo.toml                  ← workspace root
 ├── kaeru-core/                 ← library: substrate, schema, primitives
-├── kaeru-mcp/                  ← binary `kaeru-mcp`: Model Context Protocol server
+├── kaeru-mcp/                  ← binary `kaeru-mcp`: Model Context Protocol server (the agent's surface)
+├── kaeru-cloud/                ← binary `kaeru-cloud`: shared cloud tier (Axum REST over kaeru-core)
 └── skills/
     └── kaeru-skill/            ← portable agent skill (Claude Code / etc.)
 ```
@@ -101,9 +102,24 @@ Then point your agent at it:
 
 After restart the agent sees tools like `awake`, `drill`, `claim`, `at` natively. Each tool takes an optional `initiative` parameter.
 
+## Local & cloud — sharing memory across a team
+
+`kaeru` runs **local-first**: your vault lives on your machine and nothing leaves it by default. A second, optional tier — `kaeru-cloud` — is a shared store for a trusted group (a team, a family). Each initiative carries a sticky `share_policy`:
+
+- `private` (default) — nothing ever leaves; personal projects.
+- `team` — nodes you explicitly mark `shared` may sync to the cloud.
+
+Sharing is never automatic and passes two gates: the initiative policy, and a deterministic **pre-share secret guard** that blocks anything looking like an API key, token, or private key. The guard is silent on clean content and only interrupts on a real hit.
+
+Verbs (over MCP): `policy` (mark an initiative `team`), `share` (push a node), `cloud_recall` (see what the team has), `pull` (bring a shared node into your local graph), `link_cloud` / `cloud_links` (reference cloud nodes without copying), and `sync_review` (batch-review still-local nodes). Capture verbs (`episode` / `jot` / `cite`) take `visibility: shared` to capture-and-share in one call.
+
+Per-user / per-org isolation (multi-tenant) is a future addition; today the cloud is one shared space scoped by initiative. See [`kaeru-cloud/README.md`](kaeru-cloud/README.md).
+
 ## Status
 
-Pre-1.0. The substrate, curator API, MCP server, markdown export, and bi-temporal handle are implemented; the test suite is green. What still needs hardening:
+Pre-1.0. The substrate, curator API, MCP server, shared cloud tier (sharing & recall), markdown export, and bi-temporal handle are implemented; the test suite is green. What still needs hardening:
+
+- Cloud is one shared space scoped by initiative; per-user / per-org multi-tenant isolation is not built yet.
 
 - Concurrency story for the MCP server when an agent batch-fires many calls — currently each call is atomic but reads can race ahead of pending writes.
 - Audit events are not yet attached to the initiative junction (their `LOG.md` filtering in export is by `affected_refs` intersection, which works but is a workaround).

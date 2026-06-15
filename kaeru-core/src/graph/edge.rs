@@ -72,3 +72,49 @@ impl FromStr for EdgeType {
         }
     }
 }
+
+/// Destination store of an edge — where the `dst` node lives.
+///
+/// `Local` (default) is a normal intra-store edge: `dst` is a node in the
+/// same store. `Cloud` marks a **soft link** to a node in the shared cloud
+/// store within the same initiative; `dst` is still a plain UUIDv7
+/// (globally unique → resolves unambiguously in the cloud), looked up
+/// lazily through the cloud API. An enum rather than a bool leaves room to
+/// name *which* cloud once there is more than one, and indexes cleanly so
+/// a local `walk` can prune `Cloud` edges and stay fully local.
+///
+/// Soft links are one-directional: only `local → cloud` exists. The cloud
+/// never sees local ids, so it cannot reference them back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DstStore {
+    Local,
+    Cloud,
+}
+
+impl DstStore {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DstStore::Local => "local",
+            DstStore::Cloud => "cloud",
+        }
+    }
+}
+
+impl Default for DstStore {
+    fn default() -> Self {
+        DstStore::Local
+    }
+}
+
+impl FromStr for DstStore {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "local" => Ok(DstStore::Local),
+            "cloud" => Ok(DstStore::Cloud),
+            _ => Err(Error::Invalid(format!("unknown dst_store: {s}"))),
+        }
+    }
+}

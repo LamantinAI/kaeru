@@ -18,9 +18,33 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
         let ctx = kaeru_core::awake(store).map_err(to_mcp)?;
         let mut out = String::new();
         out.push_str(&format!(
-            "initiative: {}\n\n",
+            "initiative: {}\n",
             ctx.initiative.as_deref().unwrap_or("(none)")
         ));
+        out.push_str(&format!(
+            "available initiatives ({}): {}\n\n",
+            ctx.all_initiatives.len(),
+            if ctx.all_initiatives.is_empty() {
+                "(none)".to_string()
+            } else {
+                ctx.all_initiatives.join(", ")
+            }
+        ));
+
+        // Layer-prioritised re-entry context: whole Core first, then Hot,
+        // then Warm — load these into working context in this order.
+        for bucket in &ctx.layered {
+            out.push_str(&format!(
+                "{} layer ({}):\n",
+                bucket.layer.as_str(),
+                bucket.nodes.len()
+            ));
+            for b in &bucket.nodes {
+                out.push_str(&format!("  - {} ({}) — {}\n", b.name, b.node_type, b.id));
+            }
+        }
+        out.push('\n');
+
         out.push_str(&format!("pinned ({}):\n", ctx.pinned.len()));
         for id in &ctx.pinned {
             out.push_str(&format!("  - {id}{}\n", brief_suffix(store, id)));

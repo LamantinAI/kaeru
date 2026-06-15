@@ -17,6 +17,7 @@
 // `settings` rather than `config` — avoids a path-resolution clash
 // with the external `config` crate that this module imports from.
 mod auth;
+mod cloud_client;
 mod params;
 mod server;
 mod settings;
@@ -43,6 +44,7 @@ use tracing_subscriber::prelude::*;
 use kaeru_core::KaeruConfig;
 use kaeru_core::Store;
 
+use crate::cloud_client::CloudClient;
 use crate::server::KaeruServer;
 use crate::settings::KaeruMcpConfig;
 
@@ -73,7 +75,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let store = Store::open_with_config(store_config)?;
     tracing::info!(?vault_path, "kaeru substrate ready");
 
-    let server = KaeruServer::new(store);
+    // Optional bridge to the shared kaeru-cloud service. Absent → the
+    // cloud tools (share / pull / cloud_recall) report it's not configured.
+    let cloud = if mcp_config.cloud_url.trim().is_empty() {
+        tracing::info!("cloud sharing disabled (no KAERU_MCP_CLOUD_URL)");
+        None
+    } else {
+        tracing::info!(cloud_url = %mcp_config.cloud_url, "cloud sharing enabled");
+        Some(CloudClient::new(
+            mcp_config.cloud_url.clone(),
+            mcp_config.cloud_token.clone(),
+        ))
+    };
+
+    let server = KaeruServer::new(store, cloud);
 
     let cancel = CancellationToken::new();
 

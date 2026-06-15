@@ -242,6 +242,23 @@ pub fn parse_layer(s: Option<&str>) -> Result<Layer, McpError> {
     }
 }
 
+/// Parses an optional visibility string into "wants shared?". `shared` →
+/// true; absent / `local` → false; anything else is an error. Used by the
+/// capture verbs to decide whether to push a freshly-created node to the
+/// cloud in the same call.
+pub fn parse_wants_shared(s: Option<&str>) -> Result<bool, McpError> {
+    match s {
+        None => Ok(false),
+        Some(v) => match v.trim().to_lowercase().as_str() {
+            "" | "local" => Ok(false),
+            "shared" => Ok(true),
+            other => Err(to_mcp(Error::Invalid(format!(
+                "visibility must be `local` or `shared`, got {other:?}"
+            )))),
+        },
+    }
+}
+
 pub fn parse_tier(s: &str) -> Result<Tier, Error> {
     match s.to_lowercase().as_str() {
         "operational" | "op" => Ok(Tier::Operational),

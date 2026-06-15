@@ -1,0 +1,34 @@
+FROM rust:1.95-bookworm AS builder
+
+WORKDIR kaeru/
+
+RUN apt update && apt install -y \
+        pkg-config \
+        libssl-dev \
+        clang \
+        libclang-dev \
+        && rm -rf /var/lib/apt/lists/*
+
+COPY . .
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/kaeru/target \
+    cargo build -p kaeru-cloud --release && \
+    cp target/release/kaeru-cloud /usr/local/bin/kaeru-cloud
+
+FROM debian:bookworm-slim
+
+RUN apt update && apt install -y \
+        ca-certificates \
+        && rm -rf /var/lib/apt/lists/* \
+    && adduser --disabled-password --gecos '' kaeru \
+    && mkdir -p /home/kaeru/.local/share/kaeru \
+    && chown -R kaeru:kaeru /home/kaeru
+
+COPY --from=builder /usr/local/bin/kaeru-cloud /usr/local/bin/kaeru-cloud
+
+USER kaeru
+
+EXPOSE 9877
+
+ENTRYPOINT ["kaeru-cloud"]

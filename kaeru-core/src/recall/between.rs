@@ -81,3 +81,31 @@ pub fn between(store: &Store, a: &NodeId, b: &NodeId) -> Result<Vec<EdgeRow>> {
         .collect();
     Ok(edges)
 }
+
+/// Returns a node's **soft links** — outgoing edges with
+/// `dst_store = cloud` valid at NOW. Each entry is
+/// `(edge_type, cloud_dst_id)`; the dst is a cloud node id resolved
+/// separately through the cloud API. Empty when the node has no soft links.
+pub fn cloud_links(store: &Store, node_id: &NodeId) -> Result<Vec<(String, NodeId)>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
+
+    let script = r#"
+        ?[edge_type, dst] := *edge{src, dst, edge_type, dst_store @ 'NOW'},
+                             src = $nid, dst_store = 'cloud'
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+
+    let links = rows
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let edge_type = row.first().and_then(|v| v.get_str())?.to_string();
+            let dst = row.get(1).and_then(|v| v.get_str())?.to_string();
+            Some((edge_type, dst))
+        })
+        .collect();
+    Ok(links)
+}

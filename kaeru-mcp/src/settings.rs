@@ -84,6 +84,18 @@ pub struct KaeruMcpConfig {
     #[serde(default = "default_log_level")]
     pub log_level: String,
 
+    /// Base URL of the shared `kaeru-cloud` service this daemon proxies to
+    /// for sharing / recall (e.g. `http://127.0.0.1:9877`). Empty (default)
+    /// disables cloud tools — `share` / `pull` / `cloud_recall` then report
+    /// that the cloud is not configured. Env: `KAERU_MCP_CLOUD_URL`.
+    #[serde(default = "default_cloud_url")]
+    pub cloud_url: String,
+
+    /// Bearer token sent to `kaeru-cloud` on every request. Must match the
+    /// cloud's `KAERU_CLOUD_API_TOKEN`. Env: `KAERU_MCP_CLOUD_TOKEN`.
+    #[serde(default = "default_cloud_token")]
+    pub cloud_token: String,
+
     /// Idle timeout for rmcp MCP sessions, in seconds. After this
     /// many seconds without activity the session manager drops the
     /// session (rmcp's own default behaviour is 300s). Editor-attached
@@ -140,4 +152,12 @@ fn default_auth_token() -> String {
 
 fn default_log_level() -> String {
     "info".to_string()
+}
+
+fn default_cloud_url() -> String {
+    String::new()
+}
+
+fn default_cloud_token() -> String {
+    String::new()
 }

@@ -9,10 +9,13 @@
 
 pub mod audit;
 pub mod edge;
+pub mod initiative;
 pub mod node;
 pub mod temporal;
 
+pub use edge::DstStore;
 pub use edge::EdgeType;
+pub use initiative::SharePolicy;
 pub use node::EpisodeKind;
 pub use node::HypothesisStatus;
 pub use node::Layer;
@@ -20,6 +23,7 @@ pub use node::NodeId;
 pub use node::NodeType;
 pub use node::Significance;
 pub use node::Tier;
+pub use node::Visibility;
 pub use node::new_node_id;
 pub use temporal::NodeSnapshot;
 pub use temporal::Revision;

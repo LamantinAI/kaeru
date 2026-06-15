@@ -12,6 +12,7 @@ pub mod config;
 pub mod errors;
 pub mod export;
 pub mod graph;
+pub mod guard;
 pub mod mutate;
 pub mod recall;
 pub mod session;
@@ -22,10 +23,14 @@ pub use errors::Error;
 pub use errors::Result;
 pub use export::ExportSummary;
 pub use export::export_vault;
+pub use guard::GuardHit;
+pub use graph::DstStore;
 pub use graph::EdgeType;
 pub use graph::EpisodeKind;
 pub use graph::HypothesisStatus;
 pub use graph::Layer;
+pub use graph::SharePolicy;
+pub use graph::Visibility;
 pub use graph::NodeId;
 pub use graph::NodeSnapshot;
 pub use graph::NodeType;
@@ -44,34 +49,47 @@ pub use mutate::forget;
 pub use mutate::formulate_hypothesis;
 pub use mutate::formulate_hypothesis_with_layer;
 pub use mutate::get_layer;
+pub use mutate::get_share_policy;
+pub use mutate::get_visibility;
 pub use mutate::improve;
 pub use mutate::jot;
 pub use mutate::jot_with_layer;
 pub use mutate::link;
+pub use mutate::link_remote;
 pub use mutate::mark_resolved;
 pub use mutate::mark_under_review;
 pub use mutate::run_experiment;
 pub use mutate::set_layer;
+pub use mutate::set_share_policy;
+pub use mutate::set_visibility;
 pub use mutate::supersedes;
 pub use mutate::synthesise;
 pub use mutate::unlink;
 pub use mutate::update_hypothesis_status;
+pub use mutate::upsert_node;
 pub use mutate::write_episode;
 pub use mutate::write_episode_with_layer;
 pub use mutate::write_task;
 pub use mutate::write_task_with_layer;
+pub use recall::LayerBucket;
 pub use recall::LintReport;
 pub use recall::NodeBrief;
+pub use recall::NodeFull;
 pub use recall::SummaryView;
 pub use recall::FUZZY_RECALL_LIMIT_CAP;
 pub use recall::EdgeRow;
 pub use recall::between;
+pub use recall::cloud_links;
 pub use recall::count_by_type;
+pub use recall::local_nodes_for_review;
 pub use recall::fuzzy_recall;
 pub use recall::lint;
 pub use recall::list_initiatives;
+pub use recall::nodes_in_initiative;
 pub use recall::overview;
 pub use recall::node_brief_by_id;
+pub use recall::read_node_full;
+pub use recall::recall_by_layer;
 pub use recall::recall_id_by_name;
 pub use recall::recent_episodes;
 pub use recall::recollect_idea;
@@ -139,6 +157,11 @@ mod tests {
     use super::version;
     use super::walk;
     use super::write_episode;
+    use super::Visibility;
+    use super::cloud_links;
+    use super::link_remote;
+    use super::local_nodes_for_review;
+    use super::set_visibility;
 
     #[test]
     fn smoke_version() {
@@ -1411,5 +1434,48 @@ mod tests {
         let hist_old = history(&store, &old).expect("history old");
         assert!(hist_old.iter().any(|r| r.asserted));
         assert!(hist_old.iter().any(|r| !r.asserted));
+    }
+
+    /// A `link_remote` soft link to a cloud id is NOT followed by a local
+    /// `walk` (the cloud dst is not attached locally), but `cloud_links`
+    /// surfaces it for explicit resolution.
+    #[test]
+    fn soft_link_not_walked_but_listed_by_cloud_links() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("p");
+
+        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "local-a", "A").unwrap();
+        let cloud_id = "019eccee-0000-7000-8000-0000000ccccc".to_string();
+        link_remote(&store, &a, &cloud_id, EdgeType::RefersTo).unwrap();
+
+        // Local walk stays local — the cloud dst is never traversed.
+        let reached = walk(&store, &a, &[EdgeType::RefersTo], 1).unwrap();
+        assert!(reached.contains(&a));
+        assert!(!reached.contains(&cloud_id), "soft link not followed by local walk");
+
+        // cloud_links surfaces the soft link for explicit resolution.
+        let links = cloud_links(&store, &a).unwrap();
+        assert!(
+            links.iter().any(|(et, dst)| et == "refers_to" && dst == &cloud_id),
+            "cloud_links lists the soft link; got {links:?}"
+        );
+    }
+
+    /// `local_nodes_for_review` returns only `visibility = local` nodes —
+    /// already-shared nodes are excluded, so it is exactly the sync-review
+    /// work-list.
+    #[test]
+    fn local_nodes_for_review_excludes_shared() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("p");
+
+        let stay = write_episode(&store, EpisodeKind::Observation, Significance::Low, "stay-local", "local config noise").unwrap();
+        let shared = write_episode(&store, EpisodeKind::Observation, Significance::Low, "team-knowledge", "worth sharing").unwrap();
+        set_visibility(&store, &shared, Visibility::Shared).unwrap();
+
+        let review = local_nodes_for_review(&store, "p").unwrap();
+        let ids: Vec<&String> = review.iter().map(|n| &n.id).collect();
+        assert!(ids.contains(&&stay), "local node is in the review list");
+        assert!(!ids.contains(&&shared), "shared node excluded from review");
     }
 }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kaeru-core", "kaeru-mcp"]
+members = ["kaeru-core", "kaeru-mcp", "kaeru-cloud"]
 
 [workspace.package]
 version = "0.1.0"
@@ -48,6 +48,12 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 schemars = "1"
+
+# HTTP client (kaeru-mcp → kaeru-cloud). Plain HTTP by design — TLS is
+# terminated by a reverse proxy (nginx) in front of the cloud, and the
+# daemon↔cloud hop is internal. Add the `rustls-tls` feature only if the
+# daemon must reach the cloud over HTTPS directly.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 
 # Internal
 kaeru-core = { path = "kaeru-core" }

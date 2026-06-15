@@ -82,6 +82,14 @@ Two layers, both env-driven:
 | `KAERU_MCP_SSE_PATH`         | `/sse`        | Legacy HTTP+SSE GET mount path.       |
 | `KAERU_MCP_MESSAGES_PATH`    | `/messages`   | Legacy HTTP+SSE POST mount path.      |
 | `KAERU_MCP_LOG_LEVEL`        | `info`        | `error` / `warn` / `info` / `debug` / `trace`. |
+| `KAERU_MCP_AUTH_TOKEN`       | *(empty)*     | Bearer token required from inbound clients (covers `/mcp` + `/sse`). Empty = no inbound auth (fine on loopback). |
+
+**Cloud bridge** (`KAERU_MCP_CLOUD_*` — sharing / recall via `kaeru-cloud`):
+
+| Variable                  | Default     | Effect                                |
+|---------------------------|-------------|---------------------------------------|
+| `KAERU_MCP_CLOUD_URL`     | *(empty)*   | Base URL of the shared `kaeru-cloud` service (e.g. `http://cloud-host:9877`). Empty = cloud tools (`share` / `pull` / …) disabled. |
+| `KAERU_MCP_CLOUD_TOKEN`   | *(empty)*   | Bearer token sent to the cloud; must match its `KAERU_CLOUD_API_TOKEN`. |
 
 **Substrate / curator-API caps** (`KAERU_*` — see
 `kaeru-core/src/config.rs`): `KAERU_VAULT_PATH`,
@@ -90,7 +98,7 @@ Two layers, both env-driven:
 `KAERU_BODY_EXCERPT_CHARS`, `KAERU_PROVENANCE_MAX_HOPS`,
 `KAERU_DEFAULT_MAX_HOPS`, `KAERU_MAX_HOPS_CAP`.
 
-Run `kaeru config` (the CLI binary) to see resolved values.
+Call the `config` MCP tool to see resolved values.
 
 ## Connecting an MCP client
 
@@ -169,6 +177,7 @@ hypothesis         : claim, test, confirm, refute
 review             : flag, resolve
 consolidation      : settle, reopen, synthesise, supersede
 metabolism         : forget, revise
+cloud (sharing)    : policy, share, cloud_recall, pull, link_cloud, cloud_links, sync_review
 diagnostics        : lint
 snapshot           : export
 ```
@@ -182,9 +191,12 @@ with the inspector to see full param shapes.
   per vault. If you start a second instance pointing at the same
   vault path it will fail at startup with a RocksDB `LOCK` error —
   this is the substrate refusing to corrupt itself, not a kaeru bug.
-- **Auth.** None. `127.0.0.1` is fine for personal use; binding to
-  `0.0.0.0` exposes the entire curator API to anyone who can reach
-  the port. Add a reverse proxy if you need auth.
+- **Auth.** Optional bearer token via `KAERU_MCP_AUTH_TOKEN`. Token-less
+  on `127.0.0.1` is fine for personal use; when binding to `0.0.0.0`, set a
+  token (and `KAERU_MCP_ALLOWED_HOSTS`) — otherwise the port is open curator
+  access, and the daemon warns about it at startup. For exposure beyond a
+  trusted network, terminate TLS with a reverse proxy so the token isn't
+  sniffable.
 - **LAN exposure needs `KAERU_MCP_ALLOWED_HOSTS`.** rmcp's Streamable
   HTTP transport carries a DNS-rebinding guard that validates the
   inbound `Host` header against an allow-list defaulting to loopback

@@ -38,6 +38,18 @@ impl Tier {
     }
 }
 
+impl FromStr for Tier {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "operational" => Ok(Tier::Operational),
+            "archival" => Ok(Tier::Archival),
+            _ => Err(Error::Invalid(format!("unknown tier: {s}"))),
+        }
+    }
+}
+
 /// Node type — full taxonomy from the spec.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -253,6 +265,53 @@ impl FromStr for Layer {
             "cold" => Ok(Layer::Cold),
             "frozen" => Ok(Layer::Frozen),
             _ => Err(Error::Invalid(format!("unknown layer: {s}"))),
+        }
+    }
+}
+
+/// Visibility — controls whether a node may leave the local store for the
+/// shared cloud. Orthogonal to `Tier`, `Layer`, and `Significance`.
+///
+/// `Local` is the default and a hard floor: a `Local` node never syncs,
+/// regardless of its initiative's `SharePolicy`. Promotion `Local →
+/// Shared` is meant to be an explicit human act, never an automatic agent
+/// decision. Because rewrite primitives that drop the column reset it to
+/// `Local`, the failure direction is fail-safe (a node falls back to
+/// private, never leaks).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Visibility {
+    /// Never leaves the local store. Default. Personal configs, scratch,
+    /// secrets — anything not deliberately shared.
+    Local,
+    /// Eligible for the shared cloud — still gated by the initiative's
+    /// `SharePolicy` and the pre-share guard before it actually syncs.
+    Shared,
+}
+
+impl Visibility {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Visibility::Local => "local",
+            Visibility::Shared => "shared",
+        }
+    }
+}
+
+impl Default for Visibility {
+    fn default() -> Self {
+        Visibility::Local
+    }
+}
+
+impl FromStr for Visibility {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "local" => Ok(Visibility::Local),
+            "shared" => Ok(Visibility::Shared),
+            _ => Err(Error::Invalid(format!("unknown visibility: {s}"))),
         }
     }
 }

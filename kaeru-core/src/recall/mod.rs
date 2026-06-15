@@ -12,6 +12,7 @@ pub mod between;
 pub mod by_name;
 pub mod fts;
 pub mod initiatives;
+pub mod layered;
 pub mod lint;
 pub mod overview;
 pub mod recent;
@@ -23,12 +24,18 @@ pub mod walk;
 
 pub use between::EdgeRow;
 pub use between::between;
+pub use between::cloud_links;
 pub use by_name::count_by_type;
+pub use by_name::local_nodes_for_review;
 pub use by_name::node_brief_by_id;
+pub use by_name::read_node_full;
 pub use by_name::recall_id_by_name;
 pub use fts::FUZZY_RECALL_LIMIT_CAP;
 pub use fts::fuzzy_recall;
 pub use initiatives::list_initiatives;
+pub use initiatives::nodes_in_initiative;
+pub use layered::LayerBucket;
+pub use layered::recall_by_layer;
 pub use lint::LintReport;
 pub use lint::lint;
 pub use overview::overview;
@@ -51,6 +58,21 @@ pub struct NodeBrief {
     pub node_type: String,
     pub name: String,
     pub body_excerpt: Option<String>,
+}
+
+/// Full node record at NOW — every field a sharing / ingest path needs,
+/// with the body **untruncated** (unlike `NodeBrief`'s excerpt). Returned
+/// by `read_node_full`; the cloud adapter serialises this to push a shared
+/// node and to materialise one on pull.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NodeFull {
+    pub id: NodeId,
+    pub node_type: String,
+    pub tier: String,
+    pub name: String,
+    pub body: Option<String>,
+    pub tags: Vec<String>,
+    pub visibility: String,
 }
 
 /// Parses a Cozo result row of `[id, type, name, body, ...]` into a
