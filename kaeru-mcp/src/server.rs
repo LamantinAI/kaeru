@@ -250,6 +250,11 @@ impl KaeruServer {
         tools::metabolism::forget(&self.store, &p.name, p.initiative.as_deref())
     }
 
+    #[tool(description = "Set a node's memory layer — controls recall priority (injected Core → Hot → Warm → Cold → Frozen). Accepts name or id; layer one of core/hot/warm/cold/frozen.")]
+    fn layer(&self, Parameters(p): Parameters<LayerParams>) -> Result<CallToolResult, McpError> {
+        tools::metabolism::set_layer(&self.store, &p.name, &p.layer, p.initiative.as_deref())
+    }
+
     #[tool(description = "Rewrite a node's body and/or rename. Implemented as retract+reassert so history sees both versions.")]
     fn revise(&self, Parameters(p): Parameters<ReviseParams>) -> Result<CallToolResult, McpError> {
         tools::metabolism::revise(

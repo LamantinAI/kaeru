@@ -27,6 +27,16 @@ pub struct NameScope {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct LayerParams {
+    /// Node name or UUIDv7 id.
+    pub name: String,
+    /// Target memory layer: `core`, `hot`, `warm`, `cold`, or `frozen`.
+    pub layer: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct EpisodeParams {
     /// Short, recallable name.
     pub name: String,
