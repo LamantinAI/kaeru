@@ -19,7 +19,8 @@ use serde::Deserialize;
 pub struct KaeruMcpConfig {
     /// IPv4 the HTTP listener binds to. Defaults to loopback so the
     /// daemon is local-only out of the box; flip to `0.0.0.0` to
-    /// expose on a LAN (and add auth — there is none right now).
+    /// expose on a LAN — and set `auth_token` when you do, since a
+    /// routable port is otherwise open curator access to the vault.
     #[serde(default = "default_listen_address")]
     pub listen_address: Ipv4Addr,
 
@@ -61,6 +62,19 @@ pub struct KaeruMcpConfig {
     /// Empty (default) keeps the loopback-only behaviour.
     #[serde(default = "default_allowed_hosts")]
     pub allowed_hosts: String,
+
+    /// Shared secret required on every inbound MCP request. When
+    /// non-empty, clients must send `Authorization: Bearer <token>` and
+    /// the middleware in `auth.rs` rejects anything else with `401`;
+    /// the check covers both the streamable HTTP (`/mcp`) and legacy SSE
+    /// (`/sse`, `/messages`) transports. Empty (default) disables auth
+    /// entirely — acceptable for the loopback-only default bind, but you
+    /// should set this whenever `listen_address` is routable. Configure
+    /// a client with e.g.
+    /// `claude mcp add --transport http --header "Authorization: Bearer <token>" kaeru <url>`.
+    /// Env: `KAERU_MCP_AUTH_TOKEN`.
+    #[serde(default = "default_auth_token")]
+    pub auth_token: String,
 
     /// Tracing log level (`error`, `warn`, `info`, `debug`, `trace`).
     /// Logs go to stderr only because stdout is reserved when MCP
@@ -117,6 +131,10 @@ fn default_messages_path() -> String {
 }
 
 fn default_allowed_hosts() -> String {
+    String::new()
+}
+
+fn default_auth_token() -> String {
     String::new()
 }
 

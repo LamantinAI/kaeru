@@ -16,6 +16,7 @@
 
 // `settings` rather than `config` — avoids a path-resolution clash
 // with the external `config` crate that this module imports from.
+mod auth;
 mod params;
 mod server;
 mod settings;
@@ -126,6 +127,35 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let router = axum::Router::new()
         .nest_service(&mcp_config.mount_path, service)
         .merge(sse_router);
+
+    // Bearer-token gate, layered over the whole router so it covers the
+    // streamable HTTP and legacy SSE transports alike. Off when no token
+    // is configured — fine for the loopback default, loudly flagged when
+    // the daemon is reachable off-host without one.
+    let router = match mcp_config.auth_token.trim() {
+        "" => {
+            if mcp_config.listen_address.is_loopback() {
+                tracing::info!("bearer-token auth disabled (no KAERU_MCP_AUTH_TOKEN); loopback bind");
+            } else {
+                tracing::warn!(
+                    listen_address = %mcp_config.listen_address,
+                    "kaeru-mcp is bound to a non-loopback address with NO auth token — \
+                     anyone who can reach this port has full curator access. Set \
+                     KAERU_MCP_AUTH_TOKEN to require `Authorization: Bearer <token>`."
+                );
+            }
+            router
+        }
+        token => {
+            tracing::info!("bearer-token auth enabled for all inbound MCP requests");
+            let expected: Arc<str> = Arc::from(token);
+            router.layer(axum::middleware::from_fn_with_state(
+                expected,
+                auth::require_bearer,
+            ))
+        }
+    };
+
     let address = format!("{}:{}", mcp_config.listen_address, mcp_config.listen_port);
     let listener = TcpListener::bind(&address).await?;
 

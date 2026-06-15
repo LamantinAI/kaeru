@@ -88,6 +88,15 @@ tail -f ~/Library/Logs/kaeru-mcp.log
 claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp
 ```
 
+If the daemon enforces a token (see [Remote Or Docker Daemons](#remote-or-docker-daemons)),
+pass it as a header:
+
+```bash
+claude mcp add --transport http \
+  --header "Authorization: Bearer <token>" \
+  kaeru http://<host>:9876/mcp
+```
+
 Restart Claude Code. The agent should see MCP tools such as `awake`, `drill`,
 `jot`, `cite`, `claim`, `task`, `export`, and `overview`.
 
@@ -131,13 +140,21 @@ Other modern MCP clients usually want streamable HTTP:
 http://127.0.0.1:9876/mcp
 ```
 
+If the daemon enforces a token, add an `Authorization: Bearer <token>` header
+to the `mcp.kaeru` block in `~/.config/opencode/opencode.json` — the gate
+covers the SSE transport too.
+
 See `contrib/opencode/README.md` for the exact files and merge behaviour.
 
 ### Remote Or Docker Daemons
 
 If the daemon binds to anything other than loopback, remember:
 
-- kaeru has no built-in auth; put it behind your own trusted network or proxy;
+- set `KAERU_MCP_AUTH_TOKEN` to a shared secret. Once set, every request to
+  both transports (`/mcp` and `/sse` + `/messages`) must carry
+  `Authorization: Bearer <token>`; anything else gets `401`. Left unset on a
+  non-loopback bind, the port is open curator access to the vault — the daemon
+  logs a warning to that effect at startup;
 - set `KAERU_MCP_ALLOWED_HOSTS` to the hostnames or `host:port` values clients
   use, otherwise the streamable HTTP transport rejects non-loopback `Host`
   headers.
@@ -146,8 +163,14 @@ Example:
 
 ```bash
 KAERU_MCP_LISTEN_ADDRESS=0.0.0.0
-KAERU_MCP_ALLOWED_HOSTS=192.0.2.10:9876,kaeru.lan
+KAERU_MCP_AUTH_TOKEN=replace-with-a-long-random-secret
+KAERU_MCP_ALLOWED_HOSTS=192.0.2.10:9876,kaeru.example
 ```
+
+The token is a static shared secret, not OAuth — the minimal control for a
+single-operator daemon. It travels in plaintext over `http://`, so if the
+daemon is reachable beyond a trusted network, terminate TLS in front of it
+(reverse proxy) so the bearer token cannot be sniffed.
 
 ## 3. Re-Entry Ritual
 
