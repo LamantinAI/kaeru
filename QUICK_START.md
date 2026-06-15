@@ -1,67 +1,74 @@
 # Quick Start
 
 > **Pre-1.0 alpha.** The substrate schema may change between minor versions.
-> Until 0.x → 1.0 stabilises, treat your vault as disposable — export to
-> markdown if you want to keep notes around.
+> Until 1.0 stabilises, keep a markdown export before upgrades or large
+> migrations.
 
-## 1. Install
+`kaeru` runs as one long-lived MCP daemon per machine. Agents do not spawn it
+over stdio: the vault is backed by RocksDB, and only one process can own the
+writer lock safely.
 
-### Prebuilt binary (recommended)
+## 1. Install And Start The Daemon
+
+### Prebuilt binary
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LamantinAI/kaeru/main/contrib/install/install.sh | bash
 ```
 
-What this does:
+The installer downloads the latest release, installs `kaeru-mcp` into
+`~/.local/bin`, creates a user-level daemon, and starts it:
 
-1. Detects OS / arch, downloads the matching tarball from the latest GitHub release, unpacks `kaeru-mcp` into `~/.local/bin`.
-2. On macOS clears the Gatekeeper quarantine bit on the binary (it's cross-built from Linux and unsigned).
-3. Installs a **user-level** daemon — `~/.config/systemd/user/kaeru-mcp.service` on Linux, `~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist` on macOS — and starts it. No `sudo` involved; no system-wide files touched.
+- Linux: `~/.config/systemd/user/kaeru-mcp.service`
+- macOS: `~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist`
 
-Env knobs:
-- `KAERU_INSTALL_DIR=/usr/local/bin` — change the binary destination.
-- `KAERU_VERSION=v0.1.0` — pin a specific tag instead of `latest`.
-- `KAERU_SETUP_DAEMON=no` — skip the daemon step (you'll run `kaeru-mcp` manually).
+Useful install knobs:
 
-Currently shipped prebuilt targets:
+- `KAERU_INSTALL_DIR=/usr/local/bin` changes the binary destination.
+- `KAERU_VERSION=v0.1.0` pins a release tag instead of `latest`.
+- `KAERU_SETUP_DAEMON=no` installs the binary but skips daemon setup.
+- `KAERU_SETUP_CLAUDE_MEMORY=yes` also configures Claude Code to treat kaeru
+  as the memory of record: disables Claude's built-in auto-memory and adds a
+  `SessionStart` reminder hook. This is opt-in because it edits
+  `~/.claude/settings.json`.
 
-| OS    | Arch    | Notes                                                           |
-|-------|---------|-----------------------------------------------------------------|
-| Linux | x86_64  | static (musl), runs on any glibc/musl host                      |
-| macOS | aarch64 | Apple Silicon (M1/M2/M3); unsigned, installer clears Gatekeeper |
-
-For Intel Mac or Linux ARM, build from source (below).
-
-If `~/.local/bin` is not on your `PATH`, the installer reminds you:
+If `~/.local/bin` is not on your `PATH`, add it:
 
 ```bash
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 ```
 
+Supported prebuilt targets:
+
+| OS | Arch | Notes |
+| --- | --- | --- |
+| Linux | x86_64 | static musl binary |
+| macOS | aarch64 | Apple Silicon; unsigned, installer clears quarantine |
+
+For Intel Mac or Linux ARM, build from source.
+
 ### From source
 
-Prerequisites: Rust 1.95+ (edition 2024). On Linux you also need `libclang-dev` for the RocksDB build.
+Prerequisites: Rust 1.95+. On Linux you also need `libclang-dev` for the
+RocksDB build.
 
 ```bash
 git clone https://github.com/LamantinAI/kaeru.git
 cd kaeru
 cargo test --workspace
 cargo install --path kaeru-mcp
+kaeru-mcp
 ```
 
-## 2. Verify the daemon
+By default the daemon listens on `http://127.0.0.1:9876` and stores the vault
+under the platform default:
 
-```bash
-kaeru-mcp --version
-```
+- Linux: `$XDG_DATA_HOME/kaeru`, usually `~/.local/share/kaeru`
+- macOS: `~/Library/Application Support/ai.lamantin.kaeru`
 
-The substrate lives at a platform-specific default: Linux `$XDG_DATA_HOME/kaeru` (typically `~/.local/share/kaeru`), macOS `~/Library/Application Support/ai.lamantin.kaeru`. Override with `KAERU_VAULT_PATH=/path/to/vault`.
+Override the vault with `KAERU_VAULT_PATH=/path/to/vault`.
 
-## 3. Daemon
-
-`kaeru-mcp` is a long-lived HTTP service. **One daemon per machine** owns the substrate; any number of agent sessions (Claude Code, Cursor, …) connect concurrently. RocksDB is single-writer, so a stdio MCP that forks a subprocess per session would lose the lock race.
-
-If you ran the prebuilt installer, the daemon is already up — verify:
+Check the daemon:
 
 ```bash
 # Linux
@@ -73,50 +80,143 @@ launchctl list | grep kaeru-mcp
 tail -f ~/Library/Logs/kaeru-mcp.log
 ```
 
-If you skipped daemon setup (`KAERU_SETUP_DAEMON=no`) or built from source, run it in the foreground:
+## 2. Connect An Agent
 
-```bash
-kaeru-mcp
-# kaeru-mcp listening — point MCP clients here   url=http://127.0.0.1:9876/mcp
-```
-
-Ctrl-C to stop. Manual unit-file recipes live in `kaeru-mcp/contrib/systemd/` and `kaeru-mcp/contrib/launchd/`.
-
-## 4. Wire into Claude Code
+### Claude Code
 
 ```bash
 claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp
 ```
 
-Restart your Claude Code session. The agent will see ~38 tools (`awake`, `drill`, `claim`, `at`, `cite`, …) — each takes an optional `initiative` parameter. Tool descriptions and the server's `instructions` field map out when to use what.
+Restart Claude Code. The agent should see MCP tools such as `awake`, `drill`,
+`jot`, `cite`, `claim`, `task`, `export`, and `overview`.
 
-## 4b. Wire into Opencode
+For best results, make kaeru the only durable memory store. Either install with:
 
-If you use [Opencode](https://opencode.ai) (works well with Qwen 3.7 Max / DeepSeek V4 / GLM-5.1 and any OSS-model provider you already have configured):
+```bash
+curl -fsSL https://raw.githubusercontent.com/LamantinAI/kaeru/main/contrib/install/install.sh \
+  | KAERU_SETUP_CLAUDE_MEMORY=yes bash
+```
+
+or configure the same idea manually in Claude settings:
+
+- set `autoMemoryEnabled` to `false`;
+- add a session-start reminder telling the agent: source of truth is kaeru,
+  start with `initiatives` -> `awake` -> `overview`, and write durable facts back
+  to kaeru.
+
+The installer implementation is in `contrib/install/install.sh`.
+
+### Opencode
+
+First install and start `kaeru-mcp`, then from this repository run:
 
 ```bash
 bash contrib/opencode/install-opencode.sh
 ```
 
-What this does:
+This copies `AGENTS.kaeru.md`, installs `/kaeru`, `/lesson`, and `/recall`
+commands, and merges a small `mcp.kaeru` block into
+`~/.config/opencode/opencode.json`.
 
-1. Drops `AGENTS.kaeru.md` into `~/.config/opencode/` — kaeru's behaviour rules, loaded into every session's system prompt via the `instructions` config key.
-2. Drops `/kaeru`, `/lesson`, `/recall` slash commands into `~/.config/opencode/commands/`.
-3. Merges an `mcp.kaeru` block into your existing `~/.config/opencode/opencode.json` — additive, your providers and API keys are untouched. If your config is a symlink to `/etc/opencode/opencode.json`, the installer prints the `jq` + `sudo` merge command instead of elevating itself.
+Opencode 1.15.x still uses legacy HTTP+SSE, so the contrib config points at:
 
-Restart your opencode session. The agent will see kaeru tools as `kaeru_awake`, `kaeru_drill`, `kaeru_jot`, … See [`contrib/opencode/README.md`](contrib/opencode/README.md) for the design notes.
-
-## 5. Re-entry ritual (every session)
-
+```text
+http://localhost:9876/sse
 ```
-# pick a project
+
+Other modern MCP clients usually want streamable HTTP:
+
+```text
+http://127.0.0.1:9876/mcp
+```
+
+See `contrib/opencode/README.md` for the exact files and merge behaviour.
+
+### Remote Or Docker Daemons
+
+If the daemon binds to anything other than loopback, remember:
+
+- kaeru has no built-in auth; put it behind your own trusted network or proxy;
+- set `KAERU_MCP_ALLOWED_HOSTS` to the hostnames or `host:port` values clients
+  use, otherwise the streamable HTTP transport rejects non-loopback `Host`
+  headers.
+
+Example:
+
+```bash
+KAERU_MCP_LISTEN_ADDRESS=0.0.0.0
+KAERU_MCP_ALLOWED_HOSTS=192.0.2.10:9876,kaeru.lan
+```
+
+## 3. Re-Entry Ritual
+
+Do this at the start of every agent session:
+
+```text
 initiatives
-
-# process state — what was open
-awake (initiative: "<name>")
-
-# epistemic state — what the project knows
-overview (initiative: "<name>")
+awake(initiative: "<project>")
+overview(initiative: "<project>")
 ```
 
-From there: `jot` / `episode` for working observations, `cite` (URL optional) for settled documents (ADRs, specs, persona records), `claim` → `test` → `confirm`/`refute` for hypotheses, `task` / `done` for actionable todos. Inquire with `drill`, `trace`, `search`, `tagged`. Time-travel with `at`, `history`.
+After that, keep passing `initiative` on meaningful calls. Without it, reads are
+cross-initiative and writes become untagged.
+
+Common moves:
+
+- `jot` / `episode` for working observations;
+- `cite` for settled facts, specs, references, persona records, and decisions;
+- `claim` -> `test` -> `confirm` / `refute` for hypotheses;
+- `task` / `done` for actionable todos;
+- `search`, `drill`, `trace`, `between`, `tagged` for recall;
+- `synthesise`, `settle`, `reopen`, `supersede` when knowledge changes shape.
+
+## 4. Memory Layers
+
+Current kaeru memory has two orthogonal axes:
+
+- **Tier:** `operational` is working memory: observations, drafts, hypotheses,
+  open questions, and tasks. `archival` is settled memory: references, ideas,
+  outcomes, summaries, persona/entity records.
+- **Layer:** `core`, `hot`, `warm`, `cold`, `frozen` describe how aggressively
+  an item should be surfaced to future agents. New captures default to `warm`;
+  the agent should keep truly central material small and explicit, and let stale
+  or low-value material cool down instead of carrying everything into context.
+
+When capturing, choose the verb by epistemic status, not by length. If the fact
+is already settled, use `cite`; if it is still unfolding, use `episode` or
+`claim`. After capturing, search for related nodes and link them, otherwise the
+new node is easy to lose.
+
+## 5. Migration To The Layered Model
+
+The safe migration path is semantic, not a blind database rewrite:
+
+1. Upgrade and start the new `kaeru-mcp`.
+2. Ask the agent to list initiatives with `initiatives`.
+3. Export every current initiative to markdown:
+
+```text
+export(output_dir: "/tmp/kaeru-export/<initiative>", initiative: "<initiative>")
+```
+
+Repeat for each initiative. The export contains `README.md`, `INDEX.md`,
+`LOG.md`, and node pages grouped by tier/type.
+
+4. If you are rebuilding into a fresh vault, stop the daemon, point
+   `KAERU_VAULT_PATH` at a new empty directory, and start it again.
+5. Ask the agent to resynchronise from the exports. A useful prompt:
+
+```text
+For each exported kaeru initiative under /tmp/kaeru-export:
+- read README.md, INDEX.md, LOG.md, and the node pages;
+- recreate durable settled material with cite/synthesise/settle under the same initiative;
+- recreate only still-relevant open work as task, claim, or episode;
+- preserve important relationships with link;
+- keep routine stale observations out unless they are needed for provenance;
+- finish each initiative with awake, overview, and lint, then fix obvious orphaned important nodes.
+```
+
+Do not re-import everything mechanically. The goal is to let the agent classify
+old memory into the new tier/layer model and drop stale operational noise while
+preserving settled knowledge and active work.
