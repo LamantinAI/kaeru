@@ -30,6 +30,7 @@ pub mod synthesise;
 pub mod task;
 
 pub use cite::cite;
+pub use cite::cite_with_layer;
 pub use consolidate::consolidate_in;
 pub use consolidate::consolidate_out;
 pub use edge::link;
@@ -42,7 +43,9 @@ pub use layer::get_layer;
 pub use layer::set_layer;
 pub use task::complete_task;
 pub use task::write_task;
+pub use task::write_task_with_layer;
 pub use hypothesis::formulate_hypothesis;
+pub use hypothesis::formulate_hypothesis_with_layer;
 pub use hypothesis::run_experiment;
 pub use hypothesis::update_hypothesis_status;
 pub use metabolism::forget;

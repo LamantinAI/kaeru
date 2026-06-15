@@ -17,7 +17,10 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 use rmcp::model::Content;
 
+use std::str::FromStr;
+
 use kaeru_core::Error;
+use kaeru_core::Layer;
 use kaeru_core::NodeBrief;
 use kaeru_core::NodeId;
 use kaeru_core::Store;
@@ -227,6 +230,16 @@ fn format_iso_date(unix_secs: i64) -> String {
     DateTime::<Utc>::from_timestamp(unix_secs, 0)
         .map(|d| d.format("%Y-%m-%d").to_string())
         .unwrap_or_else(|| format!("t-{unix_secs}"))
+}
+
+/// Parses an optional layer string into a [`Layer`], defaulting to
+/// `Layer::default()` (warm) when absent or blank. Lets capture verbs
+/// stamp a memory layer at creation so a node is never born layer-less.
+pub fn parse_layer(s: Option<&str>) -> Result<Layer, McpError> {
+    match s {
+        Some(v) if !v.trim().is_empty() => Layer::from_str(v.trim()).map_err(to_mcp),
+        _ => Ok(Layer::default()),
+    }
 }
 
 pub fn parse_tier(s: &str) -> Result<Tier, Error> {

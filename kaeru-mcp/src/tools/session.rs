@@ -118,3 +118,55 @@ pub fn config(store: &Store) -> Result<CallToolResult, McpError> {
     );
     Ok(text(&out))
 }
+
+/// Static how-to-import guide. Returned verbatim so an agent about to
+/// bulk-load knowledge (e.g. from a markdown export) does the right
+/// thing without guessing: which verb matches which epistemic status,
+/// how to stamp the memory layer at creation, and to link after writing.
+pub fn import_guide() -> Result<CallToolResult, McpError> {
+    let guide = r#"# kaeru import guide
+
+Goal: load knowledge so a future agent recalls the right things first.
+
+## 1. Scope every call
+Pick/confirm the initiative first: `initiatives` -> `awake(initiative)` ->
+`overview(initiative)`. Pass `initiative` on EVERY create/link call —
+untagged writes are invisible to a scoped `overview`.
+
+## 2. Choose the verb by epistemic status (not by length)
+- `cite <name> --body ... [--url ...]`  -> settled facts, specs, decisions,
+  references, persona/entity records. Lands in archival/reference.
+- `episode <name> --body ...`           -> a named observation tied to work.
+- `jot --body ...`                      -> a fleeting note (auto-named).
+- `claim --text ... [--about X]`        -> a hypothesis under test
+  (then `test` -> `confirm`/`refute`).
+- `task --body ... [--due ...]` / `done`-> actionable todos.
+- `synthesise` -> `settle`              -> promote converged operational
+  seeds into one durable archival insight.
+
+## 3. Stamp the layer AT creation (importance => recall priority)
+Every create verb takes an optional `layer`. Injection order is
+core -> hot -> warm -> cold -> frozen. Set it now; don't rely on a
+later `layer` call.
+- core   : foundational truth, always in context (architecture, current status,
+           the one fact everything hinges on). Keep this set small.
+- hot    : active work and recent changes; open blocking tasks; live hypotheses.
+- warm   : default; useful reference, contacts, access points.
+- cold   : passed stages, completed tasks, superseded notes, old probes.
+- frozen : keep-for-the-record, do not surface.
+A wrong-but-present layer beats a missing one; refine later if needed.
+
+## 4. Link AFTER capturing
+A node with no edges is easy to lose. After writing, `search` for related
+nodes and `link from to --edge_type ...`
+(`refers_to` default; also `derived_from`, `supersedes`, `causal`,
+`part_of`, `blocks`, `contradicts`).
+
+## 5. Bulk import from a markdown export
+For each page: recreate it with the verb matching its tier/type and a
+layer from its importance; then recreate the `## Outgoing` / `## Incoming`
+edges with `link`. Don't import mechanically — drop stale operational
+noise, keep settled knowledge and active work.
+"#;
+    Ok(text(guide))
+}

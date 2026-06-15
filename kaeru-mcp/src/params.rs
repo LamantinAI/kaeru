@@ -42,6 +42,10 @@ pub struct EpisodeParams {
     pub name: String,
     /// Free-form body.
     pub body: String,
+    /// Optional memory layer stamped at creation: `core`, `hot`, `warm`,
+    /// `cold`, or `frozen`. Defaults to `warm`.
+    #[serde(default)]
+    pub layer: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -50,6 +54,10 @@ pub struct EpisodeParams {
 pub struct JotParams {
     /// Free-form body. Name is auto-derived from first words + id suffix.
     pub body: String,
+    /// Optional memory layer stamped at creation: `core`, `hot`, `warm`,
+    /// `cold`, or `frozen`. Defaults to `warm`.
+    #[serde(default)]
+    pub layer: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -130,6 +138,10 @@ pub struct ClaimParams {
     /// Optional existing node this claim is about (refers_to edge).
     #[serde(default)]
     pub about: Option<String>,
+    /// Optional memory layer stamped at creation: `core`, `hot`, `warm`,
+    /// `cold`, or `frozen`. Defaults to `warm`.
+    #[serde(default)]
+    pub layer: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -251,6 +263,10 @@ pub struct CiteParams {
     pub url: Option<String>,
     /// One-paragraph summary — what's at the link, or who this entity is.
     pub body: String,
+    /// Optional memory layer stamped at creation: `core`, `hot`, `warm`,
+    /// `cold`, or `frozen`. Defaults to `warm`.
+    #[serde(default)]
+    pub layer: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -290,6 +306,10 @@ pub struct TaskParams {
     /// for tasks without a deadline.
     #[serde(default)]
     pub due: Option<String>,
+    /// Optional memory layer stamped at creation: `core`, `hot`, `warm`,
+    /// `cold`, or `frozen`. Defaults to `warm`.
+    #[serde(default)]
+    pub layer: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }

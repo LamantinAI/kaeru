@@ -9,6 +9,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 use crate::errors::Result;
+use crate::graph::Layer;
 use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
 use crate::graph::new_node_id;
@@ -33,6 +34,19 @@ pub fn cite(
     url: Option<&str>,
     body: &str,
 ) -> Result<NodeId> {
+    cite_with_layer(store, name, url, body, Layer::default())
+}
+
+/// Creates an archival `Reference` node with an explicit memory layer.
+/// The layer is stamped at creation, so the node is born with its place
+/// in the recall priority order — no follow-up `set_layer` needed.
+pub fn cite_with_layer(
+    store: &Store,
+    name: &str,
+    url: Option<&str>,
+    body: &str,
+    layer: Layer,
+) -> Result<NodeId> {
     let id = new_node_id();
     let payload = match url {
         Some(u) => json!({ "url": u }),
@@ -48,14 +62,15 @@ pub fn cite(
         "properties".to_string(),
         DataValue::Json(JsonData(payload)),
     );
+    params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
     let all_tags = build_body_tags(&["kind:reference"], body);
     let tags = tags_literal(&all_tags);
     let script = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'reference', 'archival', $name, $body, {tags}, null, $properties]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, [{now_secs}.0, true], 'reference', 'archival', $name, $body, {tags}, null, $properties, $layer]]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );
     store

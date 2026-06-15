@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use crate::errors::Error;
 use crate::errors::Result;
 use crate::graph::HypothesisStatus;
+use crate::graph::Layer;
 use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
 use crate::graph::new_node_id;
@@ -25,6 +26,17 @@ use super::tags_literal;
 /// Creates a new hypothesis node carrying `claim` as its body.
 /// Initial status is `Open` (encoded in tags). Returns the hypothesis id.
 pub fn formulate_hypothesis(store: &Store, name: &str, claim: &str) -> Result<NodeId> {
+    formulate_hypothesis_with_layer(store, name, claim, Layer::default())
+}
+
+/// Creates a hypothesis node with an explicit memory layer, stamped at
+/// creation so the claim is born in the right recall priority band.
+pub fn formulate_hypothesis_with_layer(
+    store: &Store,
+    name: &str,
+    claim: &str,
+    layer: Layer,
+) -> Result<NodeId> {
     let id = new_node_id();
     let now_secs = now_validity_seconds();
 
@@ -32,14 +44,15 @@ pub fn formulate_hypothesis(store: &Store, name: &str, claim: &str) -> Result<No
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
     params.insert("name".to_string(), DataValue::Str(name.into()));
     params.insert("body".to_string(), DataValue::Str(claim.into()));
+    params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
     let all_tags = build_body_tags(&["status:open"], claim);
     let tags = tags_literal(&all_tags);
     let script = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'hypothesis', 'operational', $name, $body, {tags}, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, [{now_secs}.0, true], 'hypothesis', 'operational', $name, $body, {tags}, null, null, $layer]]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );
     store

@@ -86,15 +86,20 @@ impl KaeruServer {
         tools::session::config(&self.store)
     }
 
+    #[tool(description = "Read FIRST before bulk-importing knowledge. Returns the import playbook: scope by initiative, pick the verb by epistemic status, stamp the memory layer at creation by importance, and link after capturing.")]
+    fn import(&self) -> Result<CallToolResult, McpError> {
+        tools::session::import_guide()
+    }
+
     // ----- Capture -------------------------------------------------------
     #[tool(description = "Write a deliberately-named operational episode. Use when you know you'll want to recall by exact name.")]
     fn episode(&self, Parameters(p): Parameters<EpisodeParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::episode(&self.store, &p.name, &p.body, p.initiative.as_deref())
+        tools::capture::episode(&self.store, &p.name, &p.body, p.layer.as_deref(), p.initiative.as_deref())
     }
 
     #[tool(description = "Low-friction episode write — auto-named from body's first words plus a unique id suffix. Defaults to observation/low.")]
     fn jot(&self, Parameters(p): Parameters<JotParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::jot(&self.store, &p.body, p.initiative.as_deref())
+        tools::capture::jot(&self.store, &p.body, p.layer.as_deref(), p.initiative.as_deref())
     }
 
     #[tool(description = "Create a typed edge between two named nodes. Edge type defaults to `refers_to`.")]
@@ -109,7 +114,7 @@ impl KaeruServer {
 
     #[tool(description = "Record an archival reference. Two flavours: external source (pass `url` for papers / gists / dashboards) OR persona / entity (skip `url` for people, places, books without links). Both land in archival tier — long-term recall.")]
     fn cite(&self, Parameters(p): Parameters<CiteParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::cite(&self.store, &p.name, p.url.as_deref(), &p.body, p.initiative.as_deref())
+        tools::capture::cite(&self.store, &p.name, p.url.as_deref(), &p.body, p.layer.as_deref(), p.initiative.as_deref())
     }
 
     // ----- Lookup --------------------------------------------------------
@@ -167,7 +172,7 @@ impl KaeruServer {
     // ----- Hypothesis cycle ---------------------------------------------
     #[tool(description = "Formulate a hypothesis. Auto-named. Optional `about` links via refers_to.")]
     fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, McpError> {
-        tools::hypothesis::claim(&self.store, &p.text, p.about.as_deref(), p.initiative.as_deref())
+        tools::hypothesis::claim(&self.store, &p.text, p.about.as_deref(), p.layer.as_deref(), p.initiative.as_deref())
     }
 
     #[tool(description = "Run an experiment against an open hypothesis. Auto-named from the method body.")]
@@ -236,7 +241,7 @@ impl KaeruServer {
     // ----- Tasks (todos) -------------------------------------------------
     #[tool(description = "Capture a todo as a Task node. Auto-named from body. Tags: kind:task, status:open, optional due:YYYY-MM-DD. `due` accepts ISO date, RFC-3339, or future duration like `3d`/`2w`.")]
     fn task(&self, Parameters(p): Parameters<TaskParams>) -> Result<CallToolResult, McpError> {
-        tools::task::task(&self.store, &p.body, p.due.as_deref(), p.initiative.as_deref())
+        tools::task::task(&self.store, &p.body, p.due.as_deref(), p.layer.as_deref(), p.initiative.as_deref())
     }
 
     #[tool(description = "Mark a task done — RMW retract+reassert with status:done, preserving id and name. Accepts task name or UUIDv7 id.")]

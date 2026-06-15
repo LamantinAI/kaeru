@@ -1,14 +1,17 @@
 //! `set_layer` — change a node's memory layer.
 
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
+use cozo::DataValue;
+use cozo::ScriptMutability;
+
+use crate::errors::Error;
 use crate::errors::Result;
 use crate::graph::Layer;
 use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
 use crate::store::Store;
-
-use super::now_validity_seconds;
 
 /// Changes the memory layer of an existing node.
 ///
@@ -19,61 +22,93 @@ use super::now_validity_seconds;
 /// - `Cold` — archived, explicit recall only
 /// - `Frozen` — stored but not surfaced
 ///
-/// This performs a bi-temporal retract+reassert on the `layer` column
-/// only, preserving all other node attributes. An audit event is
-/// written for the operation.
+/// Changes a node's `layer`, preserving every other attribute.
+///
+/// Implemented as an in-place rewrite: the node's current row is read
+/// together with its exact `validity` key and re-`:put` with only the
+/// `layer` value changed. Because no new validity version is minted, the
+/// `@ 'NOW'` travel can never resolve to two competing versions — the
+/// failure that previously hid the node (while its edges survived).
+/// Trade-off: the layer change itself is not separately versioned in
+/// history; the node keeps the validity of whatever version it had.
+///
+/// Field values round-trip as Cozo parameters (`$body`, `$tags`, …)
+/// rather than being string-formatted into the script — `DataValue`s
+/// read out go straight back in, so bodies/lists never need escaping.
+///
+/// The read prefers the `@ 'NOW'` view; if the node is not visible at
+/// NOW (e.g. a node left invisible by the older buggy `set_layer`), it
+/// falls back to the latest historical version, so re-running this verb
+/// also *recovers* such nodes.
 pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
-    // Read current node state to preserve all fields
-    let read_script = format!(
-        r#"
-        ?[type, tier, name, body, tags, initiatives, properties, layer] :=
-            *node{{type, tier, name, body, tags, initiatives, properties, layer}}, id = '{node_id}'
-        "#
-    );
-    let current = store.run_read(&read_script)?;
+    let mut read_params: BTreeMap<String, DataValue> = BTreeMap::new();
+    read_params.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
 
-    let row = current.rows.first().ok_or_else(|| {
-        crate::errors::Error::NotFound(format!("node not found: {node_id}"))
-    })?;
-
-    let node_type = row[0].get_str().unwrap_or("episode");
-    let tier = row[1].get_str().unwrap_or("operational");
-    let name = row[2].get_str().unwrap_or("");
-    let body_raw = format!("{:?}", row[3]);
-    let tags_raw = format!("{:?}", row[4]);
-    let initiatives_raw = format!("{:?}", row[5]);
-    let properties_raw = format!("{:?}", row[6]);
-    let old_layer = row[7].get_str().unwrap_or("warm");
-
-    let now_secs = now_validity_seconds();
-    let new_layer_str = layer.as_str();
-
-    // Retract current assertion — use the old layer value (non-null column)
-    let retract_script = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [['{node_id}', [{now_secs}.0, false], '{node_type}', '{tier}', '{name}', {body_raw}, {tags_raw}, {initiatives_raw}, {properties_raw}, '{old_layer}']]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
-        "#
-    );
-    store.run(&retract_script)?;
-
-    // Re-assert with new layer
-    let reassert_script = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [['{node_id}', [{now_secs}.0, true], '{node_type}', '{tier}', '{name}', {body_raw}, {tags_raw}, {initiatives_raw}, {properties_raw}, '{new_layer_str}']]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
-        "#
-    );
-    store.run(&reassert_script)?;
-
-    write_audit(
-        store.db_ref(),
-        "set_layer",
-        "system",
-        &[node_id.clone()],
+    // Read the *current* row together with its exact `validity` key, so
+    // the rewrite below can overwrite that same row in place rather than
+    // asserting a new validity version. The `@ 'NOW'` view is preferred;
+    // if the node is not valid at NOW (e.g. left invisible by the older
+    // buggy `set_layer`), fall back to the most recent historical version
+    // — re-running this verb on such a node restores it to NOW.
+    let now_script = r#"
+        ?[validity, type, tier, name, body, tags, initiatives, properties] :=
+            *node{validity, type, tier, name, body, tags, initiatives, properties @ 'NOW'},
+            id = $id
+    "#;
+    let mut current = store.db_ref().run_script(
+        now_script,
+        read_params.clone(),
+        ScriptMutability::Immutable,
     )?;
+
+    if current.rows.is_empty() {
+        let hist_script = r#"
+            ?[validity, type, tier, name, body, tags, initiatives, properties] :=
+                *node{validity, type, tier, name, body, tags, initiatives, properties},
+                id = $id
+            :order -validity
+            :limit 1
+        "#;
+        current = store.db_ref().run_script(
+            hist_script,
+            read_params,
+            ScriptMutability::Immutable,
+        )?;
+    }
+
+    let row = current
+        .rows
+        .first()
+        .ok_or_else(|| Error::NotFound(format!("node not found: {node_id}")))?;
+
+    // In-place rewrite: re-`:put` the SAME (id, validity) primary key with
+    // only the `layer` value changed. No new validity is minted, so the
+    // `@ 'NOW'` travel can never resolve to two competing versions — the
+    // failure mode that previously hid nodes (their edges survived) while
+    // a fresh-assertion approach left a stray duplicate row on RocksDB.
+    // Values round-trip as Cozo parameters (`$validity`, `$body`, …), so
+    // the Validity key and any lists/JSON are preserved byte-for-byte.
+    let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+    p.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
+    p.insert("validity".to_string(), row[0].clone());
+    p.insert("type".to_string(), row[1].clone());
+    p.insert("tier".to_string(), row[2].clone());
+    p.insert("name".to_string(), row[3].clone());
+    p.insert("body".to_string(), row[4].clone());
+    p.insert("tags".to_string(), row[5].clone());
+    p.insert("initiatives".to_string(), row[6].clone());
+    p.insert("properties".to_string(), row[7].clone());
+    p.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
+    let put_script = r#"
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, $validity, $type, $tier, $name, $body, $tags, $initiatives, $properties, $layer]]
+        :put node {id, validity => type, tier, name, body, tags, initiatives, properties, layer}
+    "#;
+    store
+        .db_ref()
+        .run_script(put_script, p, ScriptMutability::Mutable)?;
+
+    write_audit(store.db_ref(), "set_layer", "system", &[node_id.clone()])?;
 
     Ok(())
 }
@@ -135,6 +170,37 @@ mod tests {
         set_layer(&store, &id, Layer::Frozen).unwrap();
         let layer = get_layer(&store, &id).unwrap();
         assert_eq!(layer, Layer::Frozen);
+    }
+
+    #[test]
+    fn set_layer_keeps_node_visible_when_changed_later() {
+        // Regression: changing a layer at a whole-second *after* the node
+        // was written must not make it invisible at NOW. The earlier impl
+        // emitted a same-second retract that won the validity tie-break and
+        // hid the node from `@ 'NOW'` reads (while edges survived).
+        let store = Store::open_in_memory().expect("open");
+
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "later-layer",
+            "body that should survive a later layer change",
+        )
+        .unwrap();
+
+        // Force a distinct, later validity second for the layer change.
+        std::thread::sleep(std::time::Duration::from_millis(1_100));
+        set_layer(&store, &id, Layer::Core).unwrap();
+
+        // The node must still resolve at NOW...
+        let visible = crate::mutate::read_name_body_now(&store, &id).unwrap();
+        assert!(
+            visible.is_some(),
+            "node went invisible at NOW after a later set_layer"
+        );
+        // ...and carry the new layer.
+        assert_eq!(get_layer(&store, &id).unwrap(), Layer::Core);
     }
 
     #[test]

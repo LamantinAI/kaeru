@@ -8,6 +8,7 @@ use kaeru_core::HypothesisStatus;
 use kaeru_core::Store;
 
 use crate::utils::derive_auto_name;
+use crate::utils::parse_layer;
 use crate::utils::resolve_name;
 use crate::utils::text;
 use crate::utils::to_mcp;
@@ -17,11 +18,13 @@ pub fn claim(
     store: &Store,
     text_arg: &str,
     about: Option<&str>,
+    layer: Option<&str>,
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let auto_name = derive_auto_name(text_arg, "claim");
-        let id = kaeru_core::formulate_hypothesis(store, &auto_name, text_arg)
+        let layer = parse_layer(layer)?;
+        let id = kaeru_core::formulate_hypothesis_with_layer(store, &auto_name, text_arg, layer)
             .map_err(to_mcp)?;
         if let Some(a) = about {
             let target = resolve_name(store, a)?;

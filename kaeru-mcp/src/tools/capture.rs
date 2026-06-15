@@ -8,6 +8,7 @@ use kaeru_core::EpisodeKind;
 use kaeru_core::Significance;
 use kaeru_core::Store;
 
+use crate::utils::parse_layer;
 use crate::utils::resolve_name;
 use crate::utils::text;
 use crate::utils::to_mcp;
@@ -17,24 +18,33 @@ pub fn episode(
     store: &Store,
     name: &str,
     body: &str,
+    layer: Option<&str>,
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
-        let id = kaeru_core::write_episode(
+        let layer = parse_layer(layer)?;
+        let id = kaeru_core::write_episode_with_layer(
             store,
             EpisodeKind::Observation,
             Significance::Medium,
             name,
             body,
+            layer,
         )
         .map_err(to_mcp)?;
         Ok(text(&format!("wrote episode: {id}")))
     })
 }
 
-pub fn jot(store: &Store, body: &str, initiative: Option<&str>) -> Result<CallToolResult, McpError> {
+pub fn jot(
+    store: &Store,
+    body: &str,
+    layer: Option<&str>,
+    initiative: Option<&str>,
+) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
-        let id = kaeru_core::jot(store, body).map_err(to_mcp)?;
+        let layer = parse_layer(layer)?;
+        let id = kaeru_core::jot_with_layer(store, body, layer).map_err(to_mcp)?;
         let name = kaeru_core::node_brief_by_id(store, &id)
             .ok()
             .flatten()
@@ -87,10 +97,12 @@ pub fn cite(
     name: &str,
     url: Option<&str>,
     body: &str,
+    layer: Option<&str>,
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
-        let id = kaeru_core::cite(store, name, url, body).map_err(to_mcp)?;
+        let layer = parse_layer(layer)?;
+        let id = kaeru_core::cite_with_layer(store, name, url, body, layer).map_err(to_mcp)?;
         let label = match url {
             Some(u) => format!("cited: {name} ({u}) — {id}"),
             None => format!("cited: {name} — {id}"),

@@ -17,6 +17,7 @@ use std::collections::BTreeMap;
 
 use crate::errors::Error;
 use crate::errors::Result;
+use crate::graph::Layer;
 use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
 use crate::graph::new_node_id;
@@ -36,6 +37,18 @@ use super::tags_literal;
 /// / MCP layer parses user input into this canonical form before
 /// calling. Pass `None` for tasks without a deadline.
 pub fn write_task(store: &Store, body: &str, due_iso: Option<&str>) -> Result<NodeId> {
+    write_task_with_layer(store, body, due_iso, Layer::default())
+}
+
+/// Captures a `Task` node with an explicit memory layer, stamped at
+/// creation so the todo lands in the right recall priority band without
+/// a follow-up `set_layer`.
+pub fn write_task_with_layer(
+    store: &Store,
+    body: &str,
+    due_iso: Option<&str>,
+    layer: Layer,
+) -> Result<NodeId> {
     let id = new_node_id();
     let name = derive_task_name(body, &id);
 
@@ -43,6 +56,7 @@ pub fn write_task(store: &Store, body: &str, due_iso: Option<&str>) -> Result<No
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
     params.insert("name".to_string(), DataValue::Str(name.into()));
     params.insert("body".to_string(), DataValue::Str(body.into()));
+    params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
     let due_tag;
     let mut fixed: Vec<&str> = vec!["kind:task", "status:open"];
@@ -56,9 +70,9 @@ pub fn write_task(store: &Store, body: &str, due_iso: Option<&str>) -> Result<No
     let now_secs = now_validity_seconds();
     let script = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{now_secs}.0, true], 'task', 'operational', $name, $body, {tags}, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, [{now_secs}.0, true], 'task', 'operational', $name, $body, {tags}, null, null, $layer]]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );
     store

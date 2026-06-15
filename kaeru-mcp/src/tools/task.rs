@@ -6,6 +6,7 @@ use rmcp::model::CallToolResult;
 use kaeru_core::Store;
 
 use crate::utils::parse_due_to_iso;
+use crate::utils::parse_layer;
 use crate::utils::resolve_name_or_id;
 use crate::utils::text;
 use crate::utils::to_mcp;
@@ -15,6 +16,7 @@ pub fn task(
     store: &Store,
     body: &str,
     due: Option<&str>,
+    layer: Option<&str>,
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
@@ -22,7 +24,9 @@ pub fn task(
             Some(d) => Some(parse_due_to_iso(d)?),
             None => None,
         };
-        let id = kaeru_core::write_task(store, body, due_iso.as_deref()).map_err(to_mcp)?;
+        let layer = parse_layer(layer)?;
+        let id = kaeru_core::write_task_with_layer(store, body, due_iso.as_deref(), layer)
+            .map_err(to_mcp)?;
         let name = kaeru_core::node_brief_by_id(store, &id)
             .ok()
             .flatten()
