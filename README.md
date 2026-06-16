@@ -1,8 +1,8 @@
 # 蛙 kaeru
 
-`kaeru` is a cognitive memory layer for LLM agents — a typed graph that an agent can think in, plus a recollection layer for long-term ideas and outcomes.
+`kaeru` is a **cross-agent cognitive engine** for LLM agents — a typed graph that agents think in, plus a recollection layer for long-term ideas and outcomes. Local-first for each agent, with an optional shared cloud tier so a whole team of agents and people build on one another's memory.
 
-Designed for **multi-session continuity**: when an agent opens a project, it has full context of what was being thought about, can follow provenance chains, and can consolidate outcomes into stable long-term knowledge.
+Designed for **multi-session, multi-agent continuity**: when an agent opens a project, it has full context of what was being thought about, can follow provenance chains, can consolidate outcomes into stable long-term knowledge, and can pull in what the rest of the team has shared.
 
 Inspired by the LLM-wiki pattern (Karpathy, gist `442a6bf555914893e9891c11519de94f`), the bi-temporal knowledge graph approach of Graphiti / Zep, the curator-driven knowledge engine of Cognee, and the reasoning-based hierarchical-summary navigation pattern from PageIndex. Two-tier design grounded in the hippocampus / cortex split.
 
@@ -19,7 +19,17 @@ Every node and edge is **bi-temporal** — the substrate stores assertion / retr
 
 Per-initiative subgraphs through a junction-relation pattern: one substrate, many initiatives, multi-membership. An agent working on project A asks "what was I doing here last time?" and gets an answer scoped to A. The same node can belong to several initiatives at once.
 
-`kaeru` is a **facilitator, not an enforcer**. The curator API exposes ~36 primitives (`awake`, `recall`, `drill`, `claim`, `synthesise`, `at`, `history`, `consolidate_out`, …) as available tools. The agent and user choose when to invoke them; the CLI hints but doesn't block.
+`kaeru` is a **facilitator, not an enforcer**. The curator API exposes ~40 primitives (`awake`, `recall`, `drill`, `claim`, `synthesise`, `at`, `history`, `consolidate_out`, …) as available tools. The agent and user choose when to invoke them; the daemon hints but doesn't block.
+
+## Features
+
+- **Two-tier graph** — operational (cognitive / hippocampus) for active thinking; archival (recollection / cortex) for settled knowledge. `consolidate_out` promotes across the boundary, preserving provenance.
+- **Bi-temporal** — native assertion / retraction history. `at` reads a node in full as it is now or as-of any past moment; conflicts are non-destructive (the old version is invalidated, not deleted).
+- **Per-initiative scoping + layered re-entry** — one substrate, many projects. `awake` restores a project's working context by memory layer (Core → Hot → Warm); `surface` reaches the archived Cold / Frozen on demand.
+- **Cross-agent sharing** — local-first by default; an optional `kaeru-cloud` tier lets a trusted team share settled knowledge through two safety gates (initiative policy + a deterministic secret guard). See [Local & cloud](#local--cloud--sharing-memory-across-a-team).
+- **Structural recall** — exact name lookup, typed `walk` / `drill` / `trace`, `between`, FTS fuzzy fallback. Vectors are not the primary mode.
+- **Initiative management** — `rename` / `delete` an initiative, locally or team-wide.
+- **Markdown export** — Obsidian-friendly snapshot of any initiative.
 
 ## Architecture Notes
 
@@ -115,16 +125,24 @@ Verbs (over MCP): `policy` (mark an initiative `team`), `share` (push a node), `
 
 Per-user / per-org isolation (multi-tenant) is a future addition; today the cloud is one shared space scoped by initiative. See [`kaeru-cloud/README.md`](kaeru-cloud/README.md).
 
+## Roadmap
+
+- **Knowledge chains** *(next)* — agent-weighted edges + shortest-path traversal, so recall returns a connected reasoning trail instead of isolated, context-poor nodes. Edge weight is the model's own judgment at `link` time; saved "chains" become first-class, recallable paths. (See [#9](https://github.com/LamantinAI/kaeru/issues/9).)
+- **Initiative onboarding** — a generated "what is this initiative, and what's in it" briefing the first time an agent enters a project, in the spirit of the `import` guide — an instruction over the collected context, not graph machinery.
+- **PostgreSQL backend** — a server-mode substrate alongside the embedded RocksDB default.
+- **Multi-tenant + isolation** — per-user / per-org separation in the shared cloud.
+- **Cross-initiative links** — edges and recall that span initiatives (everything is initiative-scoped today).
+
 ## Status
 
-Pre-1.0. The substrate, curator API, MCP server, shared cloud tier (sharing & recall), markdown export, and bi-temporal handle are implemented; the test suite is green. What still needs hardening:
+Pre-1.0. Implemented and covered by a green test suite: the substrate and curator API, memory layers with layered re-entry (`awake` / `surface`), bi-temporal time-travel (`at` / `history`), per-initiative scoping with `rename` / `delete`, the MCP server, the shared `kaeru-cloud` tier (sharing, recall, soft links, sync-review), and markdown export. What still needs hardening:
 
-- Cloud is one shared space scoped by initiative; per-user / per-org multi-tenant isolation is not built yet.
-
-- Concurrency story for the MCP server when an agent batch-fires many calls — currently each call is atomic but reads can race ahead of pending writes.
-- Audit events are not yet attached to the initiative junction (their `LOG.md` filtering in export is by `affected_refs` intersection, which works but is a workaround).
-- No integration adapters for LangChain / Rig yet.
-- Whole-second `Validity` resolution means `link` followed by an immediate `unlink` against the same edge in the same second resolves ambiguously. Test code sleeps between operations; interactive use is fine because human pacing always crosses the boundary.
+- **Multi-tenant.** The cloud is one shared space scoped by initiative; per-user / per-org isolation isn't built yet.
+- **MCP concurrency.** Each call is atomic, but when an agent batch-fires many calls, reads can race ahead of pending writes.
+- **Whole-second `Validity` resolution.** Two opposing mutations on the same node/edge within one second (e.g. `link` then an immediate `unlink`, or a `forget` right after a write) resolve ambiguously. Interactive use is fine — human pacing always crosses the boundary; the test suite sleeps between such operations.
+- **Audit events** aren't attached to the initiative junction yet (export filters them by `affected_refs` intersection — a working workaround).
+- **No LangChain / Rig adapters** yet.
+- **No migrations.** The vault schema can change between pre-1.0 versions — export to markdown before upgrading, or recreate the vault.
 
 ## Contributing
 

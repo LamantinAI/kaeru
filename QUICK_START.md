@@ -98,7 +98,7 @@ claude mcp add --transport http \
 ```
 
 Restart Claude Code. The agent should see MCP tools such as `awake`, `drill`,
-`jot`, `cite`, `claim`, `task`, `export`, and `overview`.
+`at`, `jot`, `cite`, `claim`, `task`, `surface`, `export`, and `overview`.
 
 For best results, make kaeru the only durable memory store. Either install with:
 
@@ -191,10 +191,13 @@ Common moves:
 - `cite` for settled facts, specs, references, persona records, and decisions;
 - `claim` -> `test` -> `confirm` / `refute` for hypotheses;
 - `task` / `done` for actionable todos;
-- `search`, `drill`, `trace`, `between`, `tagged` for recall; `surface` to pull
-  archived `cold` / `frozen` layers that `awake` doesn't load;
+- `search`, `drill`, `trace`, `between`, `tagged` for recall; `at <name>` to read a
+  node IN FULL (whole body + every field — `drill` / `search` only show excerpts);
+  `surface` to pull archived `cold` / `frozen` layers that `awake` doesn't load;
 - `synthesise`, `settle`, `reopen`, `supersede` when knowledge changes shape;
-- `policy`, `share`, `cloud_recall`, `pull`, `sync_review` for team sharing (see §6).
+- `policy`, `share`, `cloud_recall`, `pull`, `sync_review` for team sharing (see §6);
+- `rename_initiative` / `delete_initiative` to reorganise or drop a project — local
+  by default, `cloud=true` to apply it team-wide.
 
 ## 4. Memory Layers
 
@@ -215,9 +218,11 @@ is already settled, use `cite`; if it is still unfolding, use `episode` or
 `claim`. After capturing, search for related nodes and link them, otherwise the
 new node is easy to lose.
 
-## 5. Migration To The Layered Model
+## 5. Rebuilding A Vault Across Schema Changes
 
-The safe migration path is semantic, not a blind database rewrite:
+There are no automatic migrations yet — the vault schema can change between
+pre-1.0 versions. When an upgrade needs a fresh vault, rebuild it semantically
+rather than with a blind database rewrite:
 
 1. Upgrade and start the new `kaeru-mcp`.
 2. Ask the agent to list initiatives with `initiatives`.
@@ -245,7 +250,7 @@ For each exported kaeru initiative under /tmp/kaeru-export:
 ```
 
 Do not re-import everything mechanically. The goal is to let the agent classify
-old memory into the new tier/layer model and drop stale operational noise while
+old memory into the tier/layer model and drop stale operational noise while
 preserving settled knowledge and active work.
 
 ## 6. Team Cloud (Sharing & Recall)
