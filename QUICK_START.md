@@ -191,7 +191,8 @@ Common moves:
 - `cite` for settled facts, specs, references, persona records, and decisions;
 - `claim` -> `test` -> `confirm` / `refute` for hypotheses;
 - `task` / `done` for actionable todos;
-- `search`, `drill`, `trace`, `between`, `tagged` for recall;
+- `search`, `drill`, `trace`, `between`, `tagged` for recall; `surface` to pull
+  archived `cold` / `frozen` layers that `awake` doesn't load;
 - `synthesise`, `settle`, `reopen`, `supersede` when knowledge changes shape;
 - `policy`, `share`, `cloud_recall`, `pull`, `sync_review` for team sharing (see §6).
 
@@ -203,9 +204,11 @@ Current kaeru memory has two orthogonal axes:
   open questions, and tasks. `archival` is settled memory: references, ideas,
   outcomes, summaries, persona/entity records.
 - **Layer:** `core`, `hot`, `warm`, `cold`, `frozen` describe how aggressively
-  an item should be surfaced to future agents. New captures default to `warm`;
-  the agent should keep truly central material small and explicit, and let stale
-  or low-value material cool down instead of carrying everything into context.
+  an item should be surfaced to future agents. Stamp it **at creation** —
+  `episode`/`jot`/`cite`/`task`/`claim` all take an optional `layer` (default
+  `warm`) — so a node is born with its priority. Keep truly central material
+  (`core`) small and explicit, and let stale material cool down. `awake` loads
+  `core → hot → warm`; reach `cold` / `frozen` on demand with `surface`.
 
 When capturing, choose the verb by epistemic status, not by length. If the fact
 is already settled, use `cite`; if it is still unfolding, use `episode` or
@@ -271,8 +274,14 @@ KAERU_MCP_CLOUD_TOKEN=<secret> \
   kaeru-mcp
 ```
 
+`KAERU_CLOUD_API_TOKEN` is **mandatory** for any non-loopback bind: with an
+empty token on a routable address `kaeru-cloud` refuses to start (an empty
+token disables auth, which would leave the shared store open). Empty is allowed
+only on `127.0.0.1` for local dev.
+
 If the cloud is reachable beyond a trusted network, terminate TLS with a reverse
-proxy in front of it — the service speaks plain HTTP.
+proxy in front of it — the service speaks plain HTTP. The proxy must forward all
+paths (`/health`, `/api/v1/*`), not just one prefix.
 
 ### Sharing flow
 
