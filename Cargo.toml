@@ -49,11 +49,12 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 schemars = "1"
 
-# HTTP client (kaeru-mcp → kaeru-cloud). Plain HTTP by design — TLS is
-# terminated by a reverse proxy (nginx) in front of the cloud, and the
-# daemon↔cloud hop is internal. Add the `rustls-tls` feature only if the
-# daemon must reach the cloud over HTTPS directly.
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+# HTTP client (kaeru-mcp → kaeru-cloud). `rustls-tls` is on because the
+# common topology points each local daemon at the cloud's public HTTPS
+# endpoint (TLS terminated by a reverse proxy, e.g. Traefik). rustls keeps
+# it self-contained — no system OpenSSL needed at build or run time. A
+# plain-HTTP internal hop still works; HTTPS just also works.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Internal
 kaeru-core = { path = "kaeru-core" }
