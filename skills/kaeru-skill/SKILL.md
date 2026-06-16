@@ -361,6 +361,34 @@ kaeru --initiative X export /tmp/kaeru-snap
 Useful when the user wants to read offline, share a frozen view, or
 when you want a flat-file overview without doing many CLI calls.
 
+## Local vs cloud (team sharing)
+
+Two-tier memory: your **local** vault (personal, default) and an
+optional **team cloud**. There is no auto-routing — you decide which
+tools to call. Routing policy:
+
+- **Read.** `awake` / `search` see the **local** graph only. Team
+  knowledge lives in the cloud and is invisible until you fetch it: on
+  re-entry to a team initiative also run `cloud_recall <initiative>` to
+  discover shared nodes, then `pull <id> <initiative>` to bring one
+  local. Don't recreate something the team already shared — pull it.
+- **Write — keep local by default.** Personal, draft, exploratory, or
+  half-formed thoughts stay local (the default `local` visibility). Do
+  not share them.
+- **Write — share what's settled and useful to the team.** Capture with
+  `visibility: shared` (on `episode` / `jot` / `cite`), or `share <name>
+  <initiative>` an existing node. Once per initiative, enable it with
+  `policy <initiative> team`.
+- **Layer at creation.** Pass `layer: core|hot|warm|cold|frozen` by
+  importance when you capture; `awake` loads core→hot→warm, reach
+  archived `cold`/`frozen` on demand with `surface`.
+
+Fail-safe by design: default is `local`, and `share` runs two gates —
+the initiative policy and a secret scanner — so a wrong call errors
+safe (worst case you don't pull something; secrets/personal don't
+leak). Sharing and recall are always explicit tool calls; nothing
+syncs in the background.
+
 ## Conventions and gotchas
 
 - **One initiative per project.** Mixing initiatives makes `awake`
