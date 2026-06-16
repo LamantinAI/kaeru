@@ -65,8 +65,11 @@ codegen-units = 1
 
 # graph_builder 0.4.1 (transitive via cozo's graph-algo feature) fails to
 # compile on rayon 1.10+ / rustc 1.85+ due to `into_par_iter().copied()`
-# moving from `&Box<[T]>`. Upstream PR #144 (lawless-m/graph) fixes by
-# replacing with `par_iter().copied()`. Pin until merged + released.
-# https://github.com/neo4j-labs/graph/pull/144
+# moving from `&Box<[T]>`. Fixed by `par_iter().copied()` in the lawless-m
+# fork. Pinned to an exact `rev`, NOT a branch: the `fix/edgelist-par-iter`
+# branch was deleted upstream, so a `branch = …` patch fails to resolve on a
+# clean clone (`failed to find branch …`). A commit sha is immutable; this is
+# the same commit Cargo.lock already locked. Drop the patch once the fix
+# ships in a released graph_builder (see neo4j-labs/graph PR #144).
 [patch.crates-io]
-graph_builder = { git = "https://github.com/lawless-m/graph", branch = "fix/edgelist-par-iter" }
+graph_builder = { git = "https://github.com/lawless-m/graph", rev = "790ef623533fa39574ddd11308e3abc3993c0994" }

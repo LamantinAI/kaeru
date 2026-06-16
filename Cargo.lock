@@ -1139,7 +1139,7 @@ dependencies = [
 [[package]]
 name = "graph_builder"
 version = "0.4.1"
-source = "git+https://github.com/lawless-m/graph?branch=fix%2Fedgelist-par-iter#790ef623533fa39574ddd11308e3abc3993c0994"
+source = "git+https://github.com/lawless-m/graph?rev=790ef623533fa39574ddd11308e3abc3993c0994#790ef623533fa39574ddd11308e3abc3993c0994"
 dependencies = [
  "atoi",
  "atomic 0.5.3",
