@@ -6,8 +6,7 @@
 //! cover this directly because they don't enumerate edges between a
 //! specific pair.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
+use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
 
 use crate::errors::Result;
@@ -77,6 +76,38 @@ pub fn between(store: &Store, a: &NodeId, b: &NodeId) -> Result<Vec<EdgeRow>> {
             let edge_type = row.first().and_then(|v| v.get_str())?.to_string();
             let a_to_b = row.get(1).and_then(|v| v.get_bool())?;
             Some(EdgeRow { edge_type, a_to_b })
+        })
+        .collect();
+    Ok(edges)
+}
+
+/// Returns every `local` edge connected to `node_id` at NOW, in either
+/// direction, as `(src, dst, edge_type)`. Soft links (`dst_store = cloud`)
+/// are excluded — those point at cloud ids and are not real local edges.
+/// Used by the sharing path to find edges whose other endpoint is also
+/// shared, so they can be pushed to the cloud alongside the nodes.
+pub fn edges_of(store: &Store, node_id: &NodeId) -> Result<Vec<(NodeId, NodeId, String)>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
+
+    let script = r#"
+        ?[src, dst, edge_type] := *edge{src, dst, edge_type, dst_store @ 'NOW'},
+                                  src = $nid, dst_store = 'local'
+        ?[src, dst, edge_type] := *edge{src, dst, edge_type, dst_store @ 'NOW'},
+                                  dst = $nid, dst_store = 'local'
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+
+    let edges = rows
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let src = row.first().and_then(|v| v.get_str())?.to_string();
+            let dst = row.get(1).and_then(|v| v.get_str())?.to_string();
+            let edge_type = row.get(2).and_then(|v| v.get_str())?.to_string();
+            Some((src, dst, edge_type))
         })
         .collect();
     Ok(edges)

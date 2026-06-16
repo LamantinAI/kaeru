@@ -12,24 +12,13 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::Json;
-use axum::Router;
-use axum::extract::Path;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::get;
-use axum::routing::post;
-use serde::Deserialize;
-use serde::Serialize;
+use axum::routing::{get, post};
+use axum::{Json, Router};
+use serde::{Deserialize, Serialize};
 
-use kaeru_core::Layer;
-use kaeru_core::NodeFull;
-use kaeru_core::NodeType;
-use kaeru_core::Store;
-use kaeru_core::Tier;
-use kaeru_core::Visibility;
-use kaeru_core::read_node_full;
-use kaeru_core::upsert_node;
+use kaeru_core::{Layer, NodeFull, NodeType, Store, Tier, Visibility, read_node_full, upsert_node};
 
 use crate::api::extractors::Authenticated;
 use crate::api::state::AppState;

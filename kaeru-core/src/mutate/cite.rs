@@ -2,23 +2,16 @@
 //! Habr article, …) as an archival-tier `Reference` node with the
 //! URL stored in the `properties` JSON field for clean access.
 
-use cozo::DataValue;
-use cozo::JsonData;
-use cozo::ScriptMutability;
+use cozo::{DataValue, JsonData, ScriptMutability};
 use serde_json::json;
 use std::collections::BTreeMap;
 
 use crate::errors::Result;
-use crate::graph::Layer;
-use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
-use crate::graph::new_node_id;
+use crate::graph::{Layer, NodeId, new_node_id};
 use crate::store::Store;
 
-use super::attach_node_to_initiative;
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::tags_literal;
+use super::{attach_node_to_initiative, build_body_tags, now_validity_seconds, tags_literal};
 
 /// Creates an archival `Reference` node carrying `body` as its summary
 /// and an optional `url` in `properties.url`. Returns the new node id.

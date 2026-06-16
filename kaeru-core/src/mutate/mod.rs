@@ -31,37 +31,22 @@ pub mod supersedes;
 pub mod synthesise;
 pub mod task;
 
-pub use cite::cite;
-pub use cite::cite_with_layer;
-pub use consolidate::consolidate_in;
-pub use consolidate::consolidate_out;
-pub use edge::link;
-pub use edge::link_remote;
-pub use edge::unlink;
-pub use episode::jot;
-pub use episode::jot_with_layer;
-pub use episode::write_episode;
-pub use episode::write_episode_with_layer;
-pub use ingest::upsert_node;
-pub use layer::get_layer;
-pub use layer::set_layer;
-pub use sharing::get_share_policy;
-pub use sharing::get_visibility;
-pub use sharing::set_share_policy;
-pub use sharing::set_visibility;
-pub use task::complete_task;
-pub use task::write_task;
-pub use task::write_task_with_layer;
-pub use hypothesis::formulate_hypothesis;
-pub use hypothesis::formulate_hypothesis_with_layer;
-pub use hypothesis::run_experiment;
-pub use hypothesis::update_hypothesis_status;
-pub use metabolism::forget;
-pub use metabolism::improve;
-pub use review::mark_resolved;
-pub use review::mark_under_review;
+pub use cite::{cite, cite_with_layer};
+pub use consolidate::{consolidate_in, consolidate_out};
+pub use edge::{link, link_remote, unlink};
+pub use episode::{jot, jot_with_layer, write_episode, write_episode_with_layer};
+pub use hypothesis::{
+    formulate_hypothesis, formulate_hypothesis_with_layer, run_experiment,
+    update_hypothesis_status,
+};
+pub use ingest::{upsert_edge, upsert_node};
+pub use layer::{get_layer, set_layer};
+pub use metabolism::{forget, improve};
+pub use review::{mark_resolved, mark_under_review};
+pub use sharing::{get_share_policy, get_visibility, set_share_policy, set_visibility};
 pub use supersedes::supersedes;
 pub use synthesise::synthesise;
+pub use task::{complete_task, write_task, write_task_with_layer};
 
 /// Cozo coerces `[float, bool]` to `Validity` only when the float is integer-
 /// valued (whole seconds). Sub-second precision via fractional float fails

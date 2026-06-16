@@ -10,19 +10,13 @@
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use kaeru_core::EdgeType;
-use kaeru_core::EpisodeKind;
-use kaeru_core::Significance;
-use kaeru_core::Store;
+use kaeru_core::{EdgeType, EpisodeKind, Significance, Store};
 
 use crate::cloud_client::CloudClient;
 use crate::tools::cloud::push_to_cloud;
-use crate::utils::parse_layer;
-use crate::utils::parse_wants_shared;
-use crate::utils::resolve_name;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{
+    parse_layer, parse_wants_shared, resolve_name, text, to_mcp, with_initiative,
+};
 
 /// When `want_share`, attempts to push the just-created node `id` to the
 /// cloud and appends the outcome to `msg`. Needs both a configured cloud

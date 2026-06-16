@@ -11,23 +11,18 @@
 //! so `recall` / `drill` continue to work; `history` shows the
 //! transition; `tagged "status:open"` no longer surfaces the task.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
+use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
 
-use crate::errors::Error;
-use crate::errors::Result;
-use crate::graph::Layer;
-use crate::graph::NodeId;
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
-use crate::graph::new_node_id;
+use crate::graph::{Layer, NodeId, new_node_id};
 use crate::store::Store;
 
-use super::attach_node_to_initiative;
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::read_name_body_now;
-use super::tags_literal;
+use super::{
+    attach_node_to_initiative, build_body_tags, now_validity_seconds, read_name_body_now,
+    tags_literal,
+};
 
 /// Auto-derives a name from the body's first words (mirrors `jot`),
 /// then captures a `Task` node with `kind:task` + `status:open` +

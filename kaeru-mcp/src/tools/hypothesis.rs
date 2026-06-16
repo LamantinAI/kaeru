@@ -3,16 +3,9 @@
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use kaeru_core::EdgeType;
-use kaeru_core::HypothesisStatus;
-use kaeru_core::Store;
+use kaeru_core::{EdgeType, HypothesisStatus, Store};
 
-use crate::utils::derive_auto_name;
-use crate::utils::parse_layer;
-use crate::utils::resolve_name;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{derive_auto_name, parse_layer, resolve_name, text, to_mcp, with_initiative};
 
 pub fn claim(
     store: &Store,

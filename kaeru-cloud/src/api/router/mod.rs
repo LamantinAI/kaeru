@@ -3,6 +3,7 @@
 //! themselves with the `Authenticated` extractor. State is attached once,
 //! at the top.
 
+pub mod edges;
 pub mod health;
 pub mod initiatives;
 pub mod nodes;
@@ -18,6 +19,7 @@ pub const API_PREFIX: &str = "/api/v1";
 pub fn api_router(state: AppState) -> Router {
     let v1 = Router::new()
         .nest("/nodes", nodes::nodes_router())
+        .nest("/edges", edges::edges_router())
         .nest("/initiatives", initiatives::initiatives_router());
 
     Router::new()

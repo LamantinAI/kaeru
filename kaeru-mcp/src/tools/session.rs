@@ -6,15 +6,11 @@ use std::str::FromStr;
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use kaeru_core::Layer;
-use kaeru_core::Store;
+use kaeru_core::{Layer, Store};
 
-use crate::utils::brief_suffix;
-use crate::utils::parse_duration_secs;
-use crate::utils::resolve_name_or_id;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{
+    brief_suffix, parse_duration_secs, resolve_name_or_id, text, to_mcp, with_initiative,
+};
 
 pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {

@@ -11,15 +11,11 @@
 
 use std::error::Error;
 
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt;
-use tracing_subscriber::prelude::*;
+use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 
-use kaeru_core::KaeruConfig;
-use kaeru_core::Store;
+use kaeru_core::{KaeruConfig, Store};
 
-use kaeru_cloud::config::KaeruCloudConfig;
-use kaeru_cloud::run;
+use kaeru_cloud::{config::KaeruCloudConfig, run};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

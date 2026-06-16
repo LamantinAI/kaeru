@@ -17,20 +17,10 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 use serde_json::Value;
 
-use kaeru_core::EdgeType;
-use kaeru_core::Error;
-use kaeru_core::Layer;
-use kaeru_core::NodeType;
-use kaeru_core::SharePolicy;
-use kaeru_core::Store;
-use kaeru_core::Tier;
-use kaeru_core::Visibility;
+use kaeru_core::{EdgeType, Error, Layer, NodeType, SharePolicy, Store, Tier, Visibility};
 
 use crate::cloud_client::CloudClient;
-use crate::utils::resolve_name_or_id;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
 
 fn not_configured() -> McpError {
     McpError::internal_error(
@@ -122,12 +112,40 @@ pub async fn push_to_cloud(
         .await
         .map_err(|e| McpError::internal_error(format!("cloud POST failed: {e}"), None))?;
 
-    if (200..300).contains(&code) {
-        kaeru_core::set_visibility(store, &full.id, Visibility::Shared).map_err(to_mcp)?;
-        Ok(format!("shared `{}` → cloud (id {})", full.name, full.id))
-    } else {
-        Ok(format!("not shared: cloud rejected ({code}): {resp}"))
+    if !(200..300).contains(&code) {
+        return Ok(format!("not shared: cloud rejected ({code}): {resp}"));
     }
+    kaeru_core::set_visibility(store, &full.id, Visibility::Shared).map_err(to_mcp)?;
+
+    // Push edges to/from already-shared neighbours so the cloud keeps the
+    // graph structure, not just the nodes. An edge whose other endpoint is
+    // still local is skipped — it gets pushed when that endpoint is shared.
+    let edges = kaeru_core::edges_of(store, &full.id).map_err(to_mcp)?;
+    let mut edges_pushed = 0;
+    for (src, dst, edge_type) in &edges {
+        let other = if *src == full.id { dst } else { src };
+        if kaeru_core::get_visibility(store, other).map_err(to_mcp)? != Visibility::Shared {
+            continue;
+        }
+        let ebody = serde_json::json!({ "src": src, "dst": dst, "edge_type": edge_type });
+        let (ecode, _) = cloud
+            .post_edge(&ebody)
+            .await
+            .map_err(|e| McpError::internal_error(format!("cloud POST edge failed: {e}"), None))?;
+        if (200..300).contains(&ecode) {
+            edges_pushed += 1;
+        }
+    }
+
+    let edge_note = if edges_pushed > 0 {
+        format!(" (+{edges_pushed} edge(s))")
+    } else {
+        String::new()
+    };
+    Ok(format!(
+        "shared `{}` → cloud (id {}){edge_note}",
+        full.name, full.id
+    ))
 }
 
 /// Shares an existing node by name/id to the team cloud (both gates → push).
@@ -244,9 +262,69 @@ pub async fn pull(
     )
     .map_err(to_mcp)?;
 
+    // Rebuild structure: recreate every cloud edge of this initiative whose
+    // BOTH endpoints already exist locally. Pulling more nodes fills in more
+    // edges over time; an edge to a not-yet-pulled node is simply skipped.
+    let edges_recreated = recreate_local_edges(store, cloud, initiative).await?;
+    let edge_note = if edges_recreated > 0 {
+        format!(" (+{edges_recreated} edge(s) linked)")
+    } else {
+        String::new()
+    };
+
     Ok(text(&format!(
-        "pulled `{name}` from cloud into local initiative `{initiative}` (id {id})"
+        "pulled `{name}` from cloud into local initiative `{initiative}` (id {id}){edge_note}"
     )))
+}
+
+/// Fetches the initiative's edges from the cloud and `link`s locally every
+/// one whose both endpoints are already present in the local vault.
+/// Idempotent at NOW (re-linking an existing edge is harmless).
+async fn recreate_local_edges(
+    store: &Store,
+    cloud: &CloudClient,
+    initiative: &str,
+) -> Result<usize, McpError> {
+    let (code, resp) = cloud
+        .list_edges(initiative)
+        .await
+        .map_err(|e| McpError::internal_error(format!("cloud list edges failed: {e}"), None))?;
+    if !(200..300).contains(&code) {
+        return Ok(0);
+    }
+    let items: Vec<Value> = serde_json::from_str::<Value>(&resp)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+
+    let mut linked = 0;
+    for it in &items {
+        let src = it.get("src").and_then(|x| x.as_str()).unwrap_or("");
+        let dst = it.get("dst").and_then(|x| x.as_str()).unwrap_or("");
+        let et = it.get("edge_type").and_then(|x| x.as_str()).unwrap_or("");
+        if src.is_empty() || dst.is_empty() || et.is_empty() {
+            continue;
+        }
+        let both_local = kaeru_core::node_brief_by_id(store, &src.to_string())
+            .ok()
+            .flatten()
+            .is_some()
+            && kaeru_core::node_brief_by_id(store, &dst.to_string())
+                .ok()
+                .flatten()
+                .is_some();
+        if !both_local {
+            continue;
+        }
+        let Ok(edge) = et.parse::<EdgeType>() else {
+            continue;
+        };
+        with_initiative(store, Some(initiative), || {
+            kaeru_core::link(store, &src.to_string(), &dst.to_string(), edge).map_err(to_mcp)
+        })?;
+        linked += 1;
+    }
+    Ok(linked)
 }
 
 /// Creates a soft link from a local node to a cloud node by id

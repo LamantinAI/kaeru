@@ -10,20 +10,14 @@
 
 use std::collections::BTreeMap;
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
+use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
-use crate::graph::Layer;
-use crate::graph::NodeId;
-use crate::graph::NodeType;
-use crate::graph::Tier;
-use crate::graph::Visibility;
 use crate::graph::audit::write_audit;
+use crate::graph::{EdgeType, Layer, NodeId, NodeType, Tier, Visibility};
 use crate::store::Store;
 
-use super::now_validity_seconds;
-use super::tags_literal;
+use super::{now_validity_seconds, tags_literal};
 
 /// Upserts a node under an explicit `id`, asserting a new bi-temporal
 /// version at NOW. Attaches it to `initiative` (when given) through the
@@ -92,6 +86,48 @@ pub fn upsert_node(
     }
 
     write_audit(store.db_ref(), "upsert_node", "system", &[id.clone()])?;
+    Ok(())
+}
+
+/// Upserts a `local` edge between two node ids, asserting a new
+/// bi-temporal version at NOW. The id-preserving counterpart of
+/// [`upsert_node`] for the sharing path: the cloud ingests edges between
+/// shared nodes so the graph structure survives `share` / `pull`, not
+/// just the nodes. No initiative junction is written — edges are scoped
+/// by their endpoints' `node_initiative` membership (both endpoints in
+/// the initiative), exactly as `export` and `between` scope them.
+pub fn upsert_edge(
+    store: &Store,
+    src: &NodeId,
+    dst: &NodeId,
+    edge_type: EdgeType,
+) -> Result<()> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("src".to_string(), DataValue::Str(src.clone().into()));
+    params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+    params.insert(
+        "edge_type".to_string(),
+        DataValue::Str(edge_type.as_str().into()),
+    );
+
+    let now_secs = now_validity_seconds();
+    let script = format!(
+        r#"
+        ?[src, dst, edge_type, validity, weight, properties] <-
+            [[$src, $dst, $edge_type, [{now_secs}.0, true], 1.0, null]]
+        :put edge {{src, dst, edge_type, validity => weight, properties}}
+        "#
+    );
+    store
+        .db_ref()
+        .run_script(&script, params, ScriptMutability::Mutable)?;
+
+    write_audit(
+        store.db_ref(),
+        "upsert_edge",
+        "system",
+        &[src.clone(), dst.clone()],
+    )?;
     Ok(())
 }
 

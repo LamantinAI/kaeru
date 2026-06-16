@@ -5,12 +5,9 @@ use rmcp::model::CallToolResult;
 
 use kaeru_core::Store;
 
-use crate::utils::parse_due_to_iso;
-use crate::utils::parse_layer;
-use crate::utils::resolve_name_or_id;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{
+    parse_due_to_iso, parse_layer, resolve_name_or_id, text, to_mcp, with_initiative,
+};
 
 pub fn task(
     store: &Store,

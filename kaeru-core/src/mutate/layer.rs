@@ -3,14 +3,11 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
+use cozo::{DataValue, ScriptMutability};
 
-use crate::errors::Error;
-use crate::errors::Result;
-use crate::graph::Layer;
-use crate::graph::NodeId;
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
+use crate::graph::{Layer, NodeId};
 use crate::store::Store;
 
 /// Changes the memory layer of an existing node.

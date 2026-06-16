@@ -10,22 +10,13 @@
 //! Nothing in here knows about specific MCP tools; it's pure glue.
 //! Call sites live in `tools/<group>.rs`.
 
-use chrono::DateTime;
-use chrono::NaiveDate;
-use chrono::Utc;
+use chrono::{DateTime, NaiveDate, Utc};
 use rmcp::ErrorData as McpError;
-use rmcp::model::CallToolResult;
-use rmcp::model::Content;
+use rmcp::model::{CallToolResult, Content};
 
 use std::str::FromStr;
 
-use kaeru_core::Error;
-use kaeru_core::Layer;
-use kaeru_core::NodeBrief;
-use kaeru_core::NodeId;
-use kaeru_core::Store;
-use kaeru_core::SummaryView;
-use kaeru_core::Tier;
+use kaeru_core::{Error, Layer, NodeBrief, NodeId, Store, SummaryView, Tier};
 
 // =========================================================================
 // Output builders

@@ -3,25 +3,18 @@
 //! tags, retract, re-assert with new status tag) plus an optional
 //! `verifies` / `falsifies` edge.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
+use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
 
-use crate::errors::Error;
-use crate::errors::Result;
-use crate::graph::HypothesisStatus;
-use crate::graph::Layer;
-use crate::graph::NodeId;
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
-use crate::graph::new_node_id;
+use crate::graph::{HypothesisStatus, Layer, NodeId, new_node_id};
 use crate::store::Store;
 
-use super::attach_edge_to_initiative;
-use super::attach_node_to_initiative;
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::read_name_body_now;
-use super::tags_literal;
+use super::{
+    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
+    read_name_body_now, tags_literal,
+};
 
 /// Creates a new hypothesis node carrying `claim` as its body.
 /// Initial status is `Open` (encoded in tags). Returns the hypothesis id.

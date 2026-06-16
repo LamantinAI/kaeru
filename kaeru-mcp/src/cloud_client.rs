@@ -49,9 +49,31 @@ impl CloudClient {
         self.get(&url).await
     }
 
+    /// `POST /api/v1/edges` — push an edge between two shared nodes.
+    pub async fn post_edge(&self, body: &Value) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/edges", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.token)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok((code, text))
+    }
+
     /// `GET /api/v1/initiatives/{name}/nodes` — list shared briefs.
     pub async fn list_initiative(&self, initiative: &str) -> Result<(u16, String), String> {
         let url = format!("{}/api/v1/initiatives/{initiative}/nodes", self.base_url);
+        self.get(&url).await
+    }
+
+    /// `GET /api/v1/initiatives/{name}/edges` — list shared edges.
+    pub async fn list_edges(&self, initiative: &str) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/initiatives/{initiative}/edges", self.base_url);
         self.get(&url).await
     }
 

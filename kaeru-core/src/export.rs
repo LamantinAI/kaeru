@@ -11,16 +11,11 @@
 //! covers only that initiative's nodes and edges (both endpoints in
 //! scope). Without an active initiative, the whole substrate is dumped.
 
-use chrono::DateTime;
-use chrono::Utc;
-use cozo::DataValue;
-use cozo::ScriptMutability;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use chrono::{DateTime, Utc};
+use cozo::{DataValue, ScriptMutability};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use crate::errors::Result;
 use crate::graph::temporal::parse_validity;
@@ -132,6 +127,7 @@ struct NodeRow {
     name: String,
     body: Option<String>,
     tags: Vec<String>,
+    layer: String,
 }
 
 #[derive(Debug)]
@@ -159,8 +155,8 @@ fn read_nodes(store: &Store, initiative: Option<&str>) -> Result<Vec<NodeRow>> {
         Some(init) => {
             params.insert("init".to_string(), DataValue::Str(init.to_string().into()));
             r#"
-                ?[id, type, tier, name, body, tags] :=
-                    *node{id, type, tier, name, body, tags @ 'NOW'},
+                ?[id, type, tier, name, body, tags, layer] :=
+                    *node{id, type, tier, name, body, tags, layer @ 'NOW'},
                     type != 'audit_event',
                     *node_initiative{initiative, node_id: id},
                     initiative = $init
@@ -168,8 +164,8 @@ fn read_nodes(store: &Store, initiative: Option<&str>) -> Result<Vec<NodeRow>> {
         }
         None => {
             r#"
-                ?[id, type, tier, name, body, tags] :=
-                    *node{id, type, tier, name, body, tags @ 'NOW'},
+                ?[id, type, tier, name, body, tags, layer] :=
+                    *node{id, type, tier, name, body, tags, layer @ 'NOW'},
                     type != 'audit_event'
             "#
         }
@@ -197,6 +193,11 @@ fn read_nodes(store: &Store, initiative: Option<&str>) -> Result<Vec<NodeRow>> {
                     _ => Vec::new(),
                 })
                 .unwrap_or_default();
+            let layer = row
+                .get(6)
+                .and_then(|v| v.get_str())
+                .map(String::from)
+                .unwrap_or_else(|| "warm".to_string());
             Some(NodeRow {
                 id,
                 node_type,
@@ -204,6 +205,7 @@ fn read_nodes(store: &Store, initiative: Option<&str>) -> Result<Vec<NodeRow>> {
                 name,
                 body,
                 tags,
+                layer,
             })
         })
         .collect();
@@ -407,6 +409,7 @@ fn render_node(
     out.push_str(&format!("id: {}\n", node.id));
     out.push_str(&format!("type: {}\n", node.node_type));
     out.push_str(&format!("tier: {}\n", node.tier));
+    out.push_str(&format!("layer: {}\n", node.layer));
     if !initiatives.is_empty() {
         out.push_str("initiatives:\n");
         for init in initiatives {
@@ -506,8 +509,8 @@ authoritative — re-run `kaeru export` to refresh.
 
 Layout:
 - Pages live under `<tier>/<type>/<sanitized-name>.md`.
-- Each page has YAML frontmatter (id, type, tier, initiatives, tags),
-  a body, and optional `## Outgoing` / `## Incoming` sections of
+- Each page has YAML frontmatter (id, type, tier, layer, initiatives,
+  tags), a body, and optional `## Outgoing` / `## Incoming` sections of
   `[[wikilink]]` references grouped by edge type.
 
 See [[INDEX]] for navigation across every exported page, and [[LOG]]

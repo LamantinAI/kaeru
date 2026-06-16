@@ -3,15 +3,14 @@
 //! to. Mutations populate `node_initiative` automatically when the
 //! `Store` has a `current_initiative` set.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
+use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
 
 use crate::errors::Result;
+use crate::graph::NodeId;
 use crate::store::Store;
 
-use super::NodeBrief;
-use super::parse_brief;
+use super::{NodeBrief, parse_brief};
 
 /// Returns every initiative name that has at least one node attached
 /// through the `node_initiative` junction. Sorted alphabetically.
@@ -57,4 +56,41 @@ pub fn nodes_in_initiative(store: &Store, initiative: &str) -> Result<Vec<NodeBr
         .map(|row| parse_brief(row.as_slice(), excerpt_chars))
         .collect();
     Ok(briefs)
+}
+
+/// Returns every `local` edge whose **both** endpoints are attached to
+/// `initiative` at NOW, as `(src, dst, edge_type)`. Explicit initiative
+/// argument (not `Store::current_initiative`) for concurrency safety. The
+/// cloud serves this so a puller can rebuild the graph structure among
+/// the nodes it materialises. Mirrors `export`'s both-endpoints scoping.
+pub fn edges_in_initiative(
+    store: &Store,
+    initiative: &str,
+) -> Result<Vec<(NodeId, NodeId, String)>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("init".to_string(), DataValue::Str(initiative.into()));
+
+    let script = r#"
+        ?[src, dst, edge_type] := *edge{src, dst, edge_type, dst_store @ 'NOW'},
+                                  dst_store = 'local',
+                                  *node_initiative{initiative, node_id: src},
+                                  initiative = $init,
+                                  *node_initiative{initiative: i2, node_id: dst},
+                                  i2 = $init
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+
+    let edges = rows
+        .rows
+        .iter()
+        .filter_map(|row| {
+            let src = row.first().and_then(|v| v.get_str())?.to_string();
+            let dst = row.get(1).and_then(|v| v.get_str())?.to_string();
+            let edge_type = row.get(2).and_then(|v| v.get_str())?.to_string();
+            Some((src, dst, edge_type))
+        })
+        .collect();
+    Ok(edges)
 }

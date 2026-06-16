@@ -19,91 +19,30 @@ pub mod session;
 pub mod store;
 
 pub use config::KaeruConfig;
-pub use errors::Error;
-pub use errors::Result;
-pub use export::ExportSummary;
-pub use export::export_vault;
+pub use errors::{Error, Result};
+pub use export::{ExportSummary, export_vault};
 pub use guard::GuardHit;
-pub use graph::DstStore;
-pub use graph::EdgeType;
-pub use graph::EpisodeKind;
-pub use graph::HypothesisStatus;
-pub use graph::Layer;
-pub use graph::SharePolicy;
-pub use graph::Visibility;
-pub use graph::NodeId;
-pub use graph::NodeSnapshot;
-pub use graph::NodeType;
-pub use graph::Revision;
-pub use graph::Significance;
-pub use graph::Tier;
-pub use graph::at;
-pub use graph::history;
-pub use graph::new_node_id;
-pub use mutate::cite;
-pub use mutate::cite_with_layer;
-pub use mutate::complete_task;
-pub use mutate::consolidate_in;
-pub use mutate::consolidate_out;
-pub use mutate::forget;
-pub use mutate::formulate_hypothesis;
-pub use mutate::formulate_hypothesis_with_layer;
-pub use mutate::get_layer;
-pub use mutate::get_share_policy;
-pub use mutate::get_visibility;
-pub use mutate::improve;
-pub use mutate::jot;
-pub use mutate::jot_with_layer;
-pub use mutate::link;
-pub use mutate::link_remote;
-pub use mutate::mark_resolved;
-pub use mutate::mark_under_review;
-pub use mutate::run_experiment;
-pub use mutate::set_layer;
-pub use mutate::set_share_policy;
-pub use mutate::set_visibility;
-pub use mutate::supersedes;
-pub use mutate::synthesise;
-pub use mutate::unlink;
-pub use mutate::update_hypothesis_status;
-pub use mutate::upsert_node;
-pub use mutate::write_episode;
-pub use mutate::write_episode_with_layer;
-pub use mutate::write_task;
-pub use mutate::write_task_with_layer;
-pub use recall::LayerBucket;
-pub use recall::LintReport;
-pub use recall::NodeBrief;
-pub use recall::NodeFull;
-pub use recall::SummaryView;
-pub use recall::FUZZY_RECALL_LIMIT_CAP;
-pub use recall::EdgeRow;
-pub use recall::between;
-pub use recall::cloud_links;
-pub use recall::count_by_type;
-pub use recall::local_nodes_for_review;
-pub use recall::fuzzy_recall;
-pub use recall::lint;
-pub use recall::list_initiatives;
-pub use recall::nodes_in_initiative;
-pub use recall::overview;
-pub use recall::node_brief_by_id;
-pub use recall::read_node_full;
-pub use recall::recall_by_layer;
-pub use recall::recall_id_by_name;
-pub use recall::recent_episodes;
-pub use recall::recollect_idea;
-pub use recall::recollect_outcome;
-pub use recall::recollect_provenance;
-pub use recall::summary_view;
-pub use recall::tagged;
-pub use recall::under_review_pinned;
-pub use recall::walk;
-pub use session::AwakenedContext;
-pub use session::active_window;
-pub use session::awake;
-pub use session::pin;
-pub use session::unpin;
+pub use graph::{
+    DstStore, EdgeType, EpisodeKind, HypothesisStatus, Layer, NodeId, NodeSnapshot, NodeType,
+    Revision, SharePolicy, Significance, Tier, Visibility, at, history, new_node_id,
+};
+pub use mutate::{
+    cite, cite_with_layer, complete_task, consolidate_in, consolidate_out, forget,
+    formulate_hypothesis, formulate_hypothesis_with_layer, get_layer, get_share_policy,
+    get_visibility, improve, jot, jot_with_layer, link, link_remote, mark_resolved,
+    mark_under_review, run_experiment, set_layer, set_share_policy, set_visibility, supersedes,
+    synthesise, unlink, update_hypothesis_status, upsert_edge, upsert_node, write_episode,
+    write_episode_with_layer, write_task, write_task_with_layer,
+};
+pub use recall::{
+    EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull, SummaryView,
+    between, cloud_links, count_by_type, edges_in_initiative, edges_of, fuzzy_recall,
+    list_initiatives, lint, local_nodes_for_review, node_brief_by_id, nodes_in_initiative,
+    overview, read_node_full, recall_by_layer, recall_id_by_name, recent_episodes,
+    recollect_idea, recollect_outcome, recollect_provenance, summary_view, tagged,
+    under_review_pinned, walk,
+};
+pub use session::{AwakenedContext, active_window, awake, pin, unpin};
 pub use store::Store;
 
 /// Returns the package version as declared in Cargo.toml.
