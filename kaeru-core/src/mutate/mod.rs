@@ -23,6 +23,7 @@ pub mod edge;
 pub mod episode;
 pub mod hypothesis;
 pub mod ingest;
+pub mod initiative;
 pub mod layer;
 pub mod metabolism;
 pub mod review;
@@ -40,6 +41,7 @@ pub use hypothesis::{
     update_hypothesis_status,
 };
 pub use ingest::{upsert_edge, upsert_node};
+pub use initiative::{DeleteStats, RenameStats, delete_initiative, rename_initiative};
 pub use layer::{get_layer, set_layer};
 pub use metabolism::{forget, improve};
 pub use review::{mark_resolved, mark_under_review};

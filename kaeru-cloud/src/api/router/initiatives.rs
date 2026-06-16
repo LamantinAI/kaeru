@@ -11,10 +11,12 @@ use axum::Json;
 use axum::Router;
 use axum::extract::Path;
 use axum::extract::State;
-use axum::routing::get;
-use serde::Serialize;
+use axum::routing::{delete, get, post};
+use serde::{Deserialize, Serialize};
 
-use kaeru_core::{Store, edges_in_initiative, nodes_in_initiative};
+use kaeru_core::{
+    Error, Store, delete_initiative, edges_in_initiative, nodes_in_initiative, rename_initiative,
+};
 
 use crate::api::extractors::Authenticated;
 use crate::api::router::edges::EdgeView;
@@ -25,6 +27,55 @@ pub fn initiatives_router() -> Router<AppState> {
     Router::new()
         .route("/{name}/nodes", get(list_nodes))
         .route("/{name}/edges", get(list_edges))
+        .route("/{name}/rename", post(rename))
+        .route("/{name}", delete(remove))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RenameReq {
+    pub new: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RenameResp {
+    pub nodes: usize,
+    pub edges: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DeleteResp {
+    pub unscoped: usize,
+    pub forgotten: usize,
+}
+
+/// Renames an initiative across the whole shared store — team-wide.
+async fn rename(
+    _: Authenticated,
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+    Json(req): Json<RenameReq>,
+) -> Result<Json<RenameResp>, ApiError> {
+    let stats = rename_initiative(&store, &name, &req.new).map_err(|e| match e {
+        Error::Invalid(m) => ApiError::BadRequest(m),
+        other => ApiError::Core(other),
+    })?;
+    Ok(Json(RenameResp {
+        nodes: stats.nodes,
+        edges: stats.edges,
+    }))
+}
+
+/// Deletes an initiative from the whole shared store — team-wide.
+async fn remove(
+    _: Authenticated,
+    State(store): State<Arc<Store>>,
+    Path(name): Path<String>,
+) -> Result<Json<DeleteResp>, ApiError> {
+    let stats = delete_initiative(&store, &name)?;
+    Ok(Json(DeleteResp {
+        unscoped: stats.unscoped,
+        forgotten: stats.forgotten,
+    }))
 }
 
 /// Compact node view for discovery listings.

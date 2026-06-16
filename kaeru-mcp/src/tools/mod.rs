@@ -9,6 +9,7 @@
 pub mod capture;
 pub mod cloud;
 pub mod consolidate;
+pub mod initiative;
 pub mod hypothesis;
 pub mod lint;
 pub mod lookup;

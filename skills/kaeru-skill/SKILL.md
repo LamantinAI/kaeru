@@ -193,11 +193,14 @@ something once" and "next session can find it via three different paths".
   it. Costs one CLI call per edge. Pays off every time someone
   navigates in.
 
-- **Don't `search` what you just `recalled`.** `recall <name>` returns
-  the id; full content is `drill <name>`. Re-issuing `search "<same
-  words>"` after a successful `recall` is a redundant round-trip that
-  queries a different index for the same answer. If you want neighbors,
-  use `drill` (1-hop) or `between A B`.
+- **Know the three read depths.** `recall <name>` returns just the id;
+  `drill <name>` gives a short body **excerpt** plus 1-hop neighbors; and
+  `at <name>` reads the node **in full** — the whole untruncated body and
+  every field (type, tier, layer, visibility, tags). `drill` / `search` /
+  `recall` all truncate the body, so when you actually need a node's
+  complete content, reach for `at`. (Add `--when 5m` / `2h` / a date to
+  see how it looked at a past moment.) Don't re-`search` words you just
+  `recalled` — it queries a different index for the same answer.
 
 - **Refine, don't stampede.** If `search "X"` doesn't surface what you
   want in the top 3 hits, the next call should be a *different shape* —
@@ -245,7 +248,9 @@ kaeru --initiative X link from-name to-name --type causal
 
 ```bash
 kaeru --initiative X recall <name>            # name → id (exact match)
-kaeru --initiative X drill <name>             # name + 1-hop drill-down
+kaeru --initiative X drill <name>             # name + 1-hop drill-down (body excerpt)
+kaeru --initiative X at <name>                # read the node IN FULL (whole body + all fields)
+kaeru --initiative X at <name> --when 2h      # ...as it was 2h ago (time-travel)
 kaeru --initiative X search "<query>"         # FTS across name+body
 kaeru --initiative X search "<query>*"        # prefix-match (handles word forms)
 kaeru --initiative X trace <name>             # walk derived_from ancestors

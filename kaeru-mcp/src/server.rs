@@ -164,6 +164,16 @@ impl KaeruServer {
         tools::cloud::sync_review(&self.store, &p.initiative)
     }
 
+    #[tool(description = "Rename an initiative — moves all its nodes, edges, and sharing policy to the new name (fails if the new name already exists). Local by default; pass cloud=true to ALSO rename it in the shared cloud (team-wide, affects everyone).")]
+    async fn rename_initiative(&self, Parameters(p): Parameters<RenameInitiativeParams>) -> Result<CallToolResult, McpError> {
+        tools::initiative::rename_initiative(&self.store, self.cloud.as_ref(), &p.old, &p.new, p.cloud).await
+    }
+
+    #[tool(description = "Delete an initiative — drops its scoping and forgets nodes exclusive to it (bi-temporal: recoverable via `at` at a past time). Nodes shared with other initiatives only lose this membership. Local by default; pass cloud=true to ALSO delete it from the shared cloud (team-wide, removes it for everyone).")]
+    async fn delete_initiative(&self, Parameters(p): Parameters<DeleteInitiativeParams>) -> Result<CallToolResult, McpError> {
+        tools::initiative::delete_initiative(&self.store, self.cloud.as_ref(), &p.name, p.cloud).await
+    }
+
     // ----- Lookup --------------------------------------------------------
     #[tool(description = "Look up a node id by exact name. Returns the id or `(not found)`.")]
     fn recall(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
@@ -206,9 +216,9 @@ impl KaeruServer {
     }
 
     // ----- Bi-temporal ---------------------------------------------------
-    #[tool(description = "Time-travel: return what a node looked like at a past moment. `when` accepts unix seconds, RFC-3339, or duration ago (`5m`, `2h`).")]
+    #[tool(description = "Read a node IN FULL — every field plus the complete, untruncated body. `drill` / `search` / `recall` only show short excerpts; reach for `at` when you need a node's whole content. Optional `when` time-travels to a past moment (unix seconds, RFC-3339, or `5m` / `2h` ago); omit it for the node as it is now.")]
     fn at(&self, Parameters(p): Parameters<AtParams>) -> Result<CallToolResult, McpError> {
-        tools::temporal::at(&self.store, &p.name, &p.when, p.initiative.as_deref())
+        tools::temporal::at(&self.store, &p.name, p.when.as_deref(), p.initiative.as_deref())
     }
 
     #[tool(description = "Print every assertion / retraction recorded for a node, chronologically. + means asserted, - means retracted.")]

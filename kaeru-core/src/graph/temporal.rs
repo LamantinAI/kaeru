@@ -16,11 +16,19 @@ use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
 
-/// Snapshot of a node's user-visible fields at a given Unix timestamp.
+/// Full snapshot of a node at a given moment — every user-visible field
+/// plus the **untruncated** body. `at` returns this, which makes it the
+/// way to read a node *in full*: `drill` / `search` / `recall` only show
+/// short body excerpts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodeSnapshot {
+    pub node_type: String,
+    pub tier: String,
     pub name: String,
     pub body: Option<String>,
+    pub tags: Vec<String>,
+    pub layer: String,
+    pub visibility: String,
 }
 
 /// One row in a node's bi-temporal history, ordered by validity.
@@ -34,15 +42,17 @@ pub struct Revision {
     pub body: Option<String>,
 }
 
-/// Returns name + body of a node as-of `at_seconds` (Unix seconds), or
-/// `None` if no row was valid at that time.
+/// Returns the **full** node as-of `at_seconds` (Unix seconds) — every
+/// field plus the untruncated body — or `None` if no row was valid at that
+/// time. Pass the current time to read the node as it is now.
 pub fn at(store: &Store, id: &NodeId, at_seconds: f64) -> Result<Option<NodeSnapshot>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
 
     let script = format!(
         r#"
-        ?[name, body] := *node{{id, name, body @ {at_seconds}}}, id = $id
+        ?[type, tier, name, body, tags, layer, visibility] :=
+            *node{{id, type, tier, name, body, tags, layer, visibility @ {at_seconds}}}, id = $id
         "#
     );
     let rows = store
@@ -50,15 +60,43 @@ pub fn at(store: &Store, id: &NodeId, at_seconds: f64) -> Result<Option<NodeSnap
         .run_script(&script, params, ScriptMutability::Immutable)?;
 
     let result = rows.rows.first().map(|row| {
-        let name = row
-            .first()
-            .and_then(|v| v.get_str())
-            .map(String::from)
-            .unwrap_or_default();
-        let body = row.get(1).and_then(|v| v.get_str()).map(String::from);
-        NodeSnapshot { name, body }
+        let s = |i: usize| {
+            row.get(i)
+                .and_then(|v| v.get_str())
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        NodeSnapshot {
+            node_type: s(0),
+            tier: s(1),
+            name: s(2),
+            body: row.get(3).and_then(|v| v.get_str()).map(String::from),
+            tags: row.get(4).map(snapshot_tags).unwrap_or_default(),
+            layer: row
+                .get(5)
+                .and_then(|v| v.get_str())
+                .map(String::from)
+                .unwrap_or_else(|| "warm".to_string()),
+            visibility: row
+                .get(6)
+                .and_then(|v| v.get_str())
+                .map(String::from)
+                .unwrap_or_else(|| "local".to_string()),
+        }
     });
     Ok(result)
+}
+
+/// Extracts a `Vec<String>` from a Cozo list column value (`tags`);
+/// non-list (e.g. `null`) yields an empty vec.
+fn snapshot_tags(v: &DataValue) -> Vec<String> {
+    match v {
+        DataValue::List(items) => items
+            .iter()
+            .filter_map(|x| x.get_str().map(String::from))
+            .collect(),
+        _ => Vec::new(),
+    }
 }
 
 /// Full assertion / retraction history of a node, ordered by validity ascending.

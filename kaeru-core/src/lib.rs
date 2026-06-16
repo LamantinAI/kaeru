@@ -33,6 +33,7 @@ pub use mutate::{
     mark_under_review, run_experiment, set_layer, set_share_policy, set_visibility, supersedes,
     synthesise, unlink, update_hypothesis_status, upsert_edge, upsert_node, write_episode,
     write_episode_with_layer, write_task, write_task_with_layer,
+    DeleteStats, RenameStats, delete_initiative, rename_initiative,
 };
 pub use recall::{
     EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull, SummaryView,

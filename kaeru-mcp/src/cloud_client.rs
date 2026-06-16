@@ -77,6 +77,39 @@ impl CloudClient {
         self.get(&url).await
     }
 
+    /// `POST /api/v1/initiatives/{old}/rename` — rename an initiative
+    /// team-wide in the shared cloud.
+    pub async fn rename_initiative(&self, old: &str, new: &str) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/initiatives/{old}/rename", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({ "new": new }))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok((code, text))
+    }
+
+    /// `DELETE /api/v1/initiatives/{name}` — delete an initiative team-wide
+    /// from the shared cloud.
+    pub async fn delete_initiative(&self, name: &str) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/initiatives/{name}", self.base_url);
+        let resp = self
+            .client
+            .delete(&url)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok((code, text))
+    }
+
     async fn get(&self, url: &str) -> Result<(u16, String), String> {
         let resp = self
             .client

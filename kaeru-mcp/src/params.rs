@@ -71,6 +71,28 @@ pub struct SyncReviewParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct RenameInitiativeParams {
+    /// Current initiative name.
+    pub old: String,
+    /// New initiative name (must not already exist).
+    pub new: String,
+    /// Also rename it in the shared cloud — team-wide, affects everyone.
+    /// Default false (local only).
+    #[serde(default)]
+    pub cloud: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DeleteInitiativeParams {
+    /// Initiative to delete.
+    pub name: String,
+    /// Also delete it from the shared cloud — team-wide, removes it for
+    /// everyone. Default false (local only).
+    #[serde(default)]
+    pub cloud: bool,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScopeOnly {
     /// Optional initiative to scope the operation to. When omitted,
     /// reads are cross-initiative; mutations end up un-tagged.
@@ -203,11 +225,13 @@ fn default_search_limit() -> usize {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AtParams {
-    /// Node name.
+    /// Node name or UUIDv7 id.
     pub name: String,
-    /// Moment to query — Unix seconds, RFC-3339 (`2026-05-06T12:00:00Z`),
-    /// or duration suffix (`5m`, `2h`, `3d` = "ago").
-    pub when: String,
+    /// Optional moment to time-travel to — Unix seconds, RFC-3339
+    /// (`2026-05-06T12:00:00Z`), or duration suffix (`5m`, `2h`, `3d` =
+    /// "ago"). Omit to read the node as it is NOW.
+    #[serde(default)]
+    pub when: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
