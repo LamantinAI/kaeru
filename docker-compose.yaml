@@ -10,9 +10,10 @@ services:
       dockerfile: docker/Dockerfile.cloud
     environment:
       KAERU_CLOUD_LISTEN_ADDRESS: "0.0.0.0"
-      # Bearer token required on every request. Empty = auth disabled
-      # (dev only). Set a long random secret for any real deployment.
-      KAERU_CLOUD_API_TOKEN: "${KAERU_CLOUD_API_TOKEN:-}"
+      # Bearer token — MANDATORY. The service binds 0.0.0.0 here and refuses
+      # to start with an empty token on a non-loopback address. Put a long
+      # random secret in a `.env` next to this file (KAERU_CLOUD_API_TOKEN=...).
+      KAERU_CLOUD_API_TOKEN: "${KAERU_CLOUD_API_TOKEN:?set KAERU_CLOUD_API_TOKEN in .env}"
       RUST_LOG: "${RUST_LOG:-info}"
     volumes:
       - kaeru_cloud_data:/home/kaeru/.local/share/kaeru
@@ -42,7 +43,7 @@ services:
       # decoupled so you can `docker compose up kaeru-mcp` on its own (cloud
       # elsewhere) without dragging a local cloud along.
       KAERU_MCP_CLOUD_URL: "${KAERU_MCP_CLOUD_URL:-http://kaeru-cloud:9877}"
-      KAERU_MCP_CLOUD_TOKEN: "${KAERU_CLOUD_API_TOKEN:-}"
+      KAERU_MCP_CLOUD_TOKEN: "${KAERU_CLOUD_API_TOKEN:?set KAERU_CLOUD_API_TOKEN in .env}"
       RUST_LOG: "${RUST_LOG:-info}"
     volumes:
       - kaeru_data:/home/kaeru/.local/share/kaeru

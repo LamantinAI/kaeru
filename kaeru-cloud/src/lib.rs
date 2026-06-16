@@ -31,6 +31,13 @@ use crate::errors::StartError;
 /// shutdown signal arrives. The `store` is the cloud substrate, opened by
 /// the caller (usually `Store::open_with_config(KaeruConfig::from_env())`).
 pub async fn run(cloud_config: KaeruCloudConfig, store: Store) -> Result<(), StartError> {
+    // A token is mandatory whenever the service is reachable off-host: an
+    // empty token disables auth, so an unauthenticated routable bind is an
+    // open store. Loopback (dev) is the only place an empty token is allowed.
+    if cloud_config.api_token.trim().is_empty() && !cloud_config.listen_address.is_loopback() {
+        return Err(StartError::InsecureBind(cloud_config.listen_address));
+    }
+
     let state = AppState {
         api_token: Arc::from(cloud_config.api_token.as_str()),
         store: Arc::new(store),

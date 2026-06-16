@@ -1,9 +1,12 @@
 //! Session-restoration & vault-meta tools: `awake`, `overview`,
 //! `initiatives`, `recent`, `pin`, `unpin`, `config`.
 
+use std::str::FromStr;
+
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
+use kaeru_core::Layer;
 use kaeru_core::Store;
 
 use crate::utils::brief_suffix;
@@ -141,6 +144,45 @@ pub fn config(store: &Store) -> Result<CallToolResult, McpError> {
         c.max_hops_cap,
     );
     Ok(text(&out))
+}
+
+/// Explicit layered recall — surfaces nodes from the requested memory
+/// layers, on demand. `awake` only loads Core/Hot/Warm; this is how you
+/// reach `cold` / `frozen` (archived / not-surfaced-by-default) when you
+/// know you need them. `layers` is a comma/space list (e.g. `cold,frozen`);
+/// defaults to `cold,frozen`. Scoped to the active initiative when given.
+pub fn surface(
+    store: &Store,
+    layers: Option<&str>,
+    initiative: Option<&str>,
+) -> Result<CallToolResult, McpError> {
+    with_initiative(store, initiative, || {
+        let spec = layers.unwrap_or("cold,frozen");
+        let mut parsed: Vec<Layer> = Vec::new();
+        for tok in spec.split([',', ' ']).map(str::trim).filter(|s| !s.is_empty()) {
+            parsed.push(Layer::from_str(tok).map_err(to_mcp)?);
+        }
+        if parsed.is_empty() {
+            parsed = vec![Layer::Cold, Layer::Frozen];
+        }
+
+        let buckets = kaeru_core::recall_by_layer(store, &parsed).map_err(to_mcp)?;
+        let mut out = String::new();
+        for bucket in &buckets {
+            out.push_str(&format!(
+                "{} layer ({}):\n",
+                bucket.layer.as_str(),
+                bucket.nodes.len()
+            ));
+            for b in &bucket.nodes {
+                out.push_str(&format!("  - {} ({}) — {}\n", b.name, b.node_type, b.id));
+            }
+        }
+        if out.is_empty() {
+            out.push_str("(no nodes in the requested layers)");
+        }
+        Ok(text(&out))
+    })
 }
 
 /// Static how-to-import guide. Returned verbatim so an agent about to

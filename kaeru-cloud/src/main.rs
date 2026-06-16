@@ -10,9 +10,7 @@
 //!   distinct from any local vault.
 
 use std::error::Error;
-use std::str::FromStr;
 
-use tracing::Level;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
@@ -27,9 +25,12 @@ use kaeru_cloud::run;
 async fn main() -> Result<(), Box<dyn Error>> {
     let cloud_config = KaeruCloudConfig::from_env()?;
 
-    let level = Level::from_str(&cloud_config.log_level)?;
+    // Prefer the standard `RUST_LOG` env (so the compose `RUST_LOG` knob and
+    // per-target filters work); fall back to `KAERU_CLOUD_LOG_LEVEL`.
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(&cloud_config.log_level));
     tracing_subscriber::registry()
-        .with(EnvFilter::from(level.as_str()))
+        .with(filter)
         .with(
             fmt::layer()
                 .with_writer(std::io::stderr)

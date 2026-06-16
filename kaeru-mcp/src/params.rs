@@ -79,6 +79,16 @@ pub struct ScopeOnly {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct SurfaceParams {
+    /// Comma/space-separated memory layers to surface, e.g. `cold,frozen`
+    /// or `cold`. Defaults to `cold,frozen` when omitted.
+    #[serde(default)]
+    pub layers: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct NameScope {
     /// Node name (also accepts a UUIDv7 id where the verb supports
     /// polymorphic resolution).

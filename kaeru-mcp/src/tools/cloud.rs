@@ -19,6 +19,7 @@ use serde_json::Value;
 
 use kaeru_core::EdgeType;
 use kaeru_core::Error;
+use kaeru_core::Layer;
 use kaeru_core::NodeType;
 use kaeru_core::SharePolicy;
 use kaeru_core::Store;
@@ -114,6 +115,7 @@ pub async fn push_to_cloud(
         "body": full.body,
         "tags": full.tags,
         "initiative": initiative,
+        "layer": full.layer,
     });
     let (code, resp) = cloud
         .post_node(&body)
@@ -218,6 +220,12 @@ pub async fn pull(
         .and_then(|x| x.as_array())
         .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
         .unwrap_or_default();
+    // Preserve the cloud node's layer so pull keeps its recall priority.
+    let layer = v
+        .get("layer")
+        .and_then(|x| x.as_str())
+        .map(|s| Layer::from_str(s).unwrap_or_default())
+        .unwrap_or_default();
 
     let node_type = NodeType::from_str(node_type_s).map_err(to_mcp)?;
     let tier = Tier::from_str(tier_s).map_err(to_mcp)?;
@@ -232,6 +240,7 @@ pub async fn pull(
         &tags,
         Some(initiative),
         Visibility::Shared,
+        layer,
     )
     .map_err(to_mcp)?;
 

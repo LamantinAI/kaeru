@@ -73,6 +73,9 @@ pub struct NodeFull {
     pub body: Option<String>,
     pub tags: Vec<String>,
     pub visibility: String,
+    /// Memory layer (`core`/`hot`/`warm`/`cold`/`frozen`) — carried through
+    /// share/pull so a node keeps its recall priority across the cloud.
+    pub layer: String,
 }
 
 /// Parses a Cozo result row of `[id, type, name, body, ...]` into a

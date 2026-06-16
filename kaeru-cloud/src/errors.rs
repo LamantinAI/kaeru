@@ -32,4 +32,12 @@ pub enum StartError {
 
     #[error(transparent)]
     Core(#[from] kaeru_core::Error),
+
+    /// Refuse to start an unauthenticated service on a routable address.
+    /// An empty `KAERU_CLOUD_API_TOKEN` is only tolerated on loopback.
+    #[error(
+        "refusing to start: KAERU_CLOUD_API_TOKEN is empty while binding to {0}, \
+         which is not loopback — set a token, or bind to 127.0.0.1 for local dev"
+    )]
+    InsecureBind(std::net::IpAddr),
 }

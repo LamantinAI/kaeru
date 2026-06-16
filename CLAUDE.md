@@ -137,6 +137,24 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 - The MCP server surfaces errors directly from `kaeru-core::Result`. No re-wrapping.
 - The substrate is single-process embedded — no server, no network. Adapters wrap the in-process API; they do not expose a separate persistence path.
 
+## Sharing & Cloud — Known Limitations
+
+These are deliberate gaps in the local/cloud split, not bugs — documented so
+they are not mistaken for safety guarantees:
+
+- **The pre-share secret guard scans `name` + `body` only.** `tags` and
+  `properties` are pushed/ingested but NOT scanned, and PII (emails, phones)
+  is not flagged at all. A secret placed in a tag or in properties will leak
+  on share. Treat the guard as a backstop for the common case, not a
+  complete DLP boundary. Widening coverage (tags/properties, PII rules) is
+  future work — see `kaeru-core/src/guard.rs`.
+- **There is no un-share / retract path.** Once a node is `shared` (pushed to
+  the cloud), nothing flips it back to `local` or deletes it from the cloud;
+  there is no `DELETE` on the cloud API and no `unshare` verb. A soft link to
+  a removed cloud node can dangle (shows "unresolved" via `cloud_links`).
+  Re-sharing/pulling the same id upserts in place (last-writer-wins, no
+  version reconciliation).
+
 ## Out Of Scope
 
 - Vector embeddings as the primary recall mode — Cozo HNSW is available but kept as fallback for cold queries; structural retrieval is the main mode.

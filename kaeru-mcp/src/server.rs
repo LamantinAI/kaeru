@@ -97,6 +97,11 @@ impl KaeruServer {
         tools::session::import_guide()
     }
 
+    #[tool(description = "Explicit layered recall — surface nodes from specific memory layers (default `cold,frozen`) that `awake` does not load. Use when you deliberately need archived/not-surfaced material. `layers` is a comma/space list; scoped to `initiative` when given.")]
+    fn surface(&self, Parameters(p): Parameters<SurfaceParams>) -> Result<CallToolResult, McpError> {
+        tools::session::surface(&self.store, p.layers.as_deref(), p.initiative.as_deref())
+    }
+
     // ----- Capture -------------------------------------------------------
     #[tool(description = "Write a deliberately-named operational episode. Use when you know you'll want to recall by exact name. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call.")]
     async fn episode(&self, Parameters(p): Parameters<EpisodeParams>) -> Result<CallToolResult, McpError> {

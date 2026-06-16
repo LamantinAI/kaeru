@@ -235,17 +235,6 @@ impl Layer {
             Layer::Frozen => "frozen",
         }
     }
-
-    /// Returns the ordinal priority (lower = higher priority).
-    pub fn priority(&self) -> u8 {
-        match self {
-            Layer::Core => 0,
-            Layer::Hot => 1,
-            Layer::Warm => 2,
-            Layer::Cold => 3,
-            Layer::Frozen => 4,
-        }
-    }
 }
 
 impl Default for Layer {

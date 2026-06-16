@@ -22,6 +22,7 @@ use axum::routing::post;
 use serde::Deserialize;
 use serde::Serialize;
 
+use kaeru_core::Layer;
 use kaeru_core::NodeFull;
 use kaeru_core::NodeType;
 use kaeru_core::Store;
@@ -55,6 +56,10 @@ pub struct NodeIngestReq {
     /// Initiative this node belongs to — the shared scope on both sides.
     #[serde(default)]
     pub initiative: Option<String>,
+    /// Memory layer (`core`/`hot`/`warm`/`cold`/`frozen`). Preserved across
+    /// the cloud so recall priority survives share/pull. Defaults to `warm`.
+    #[serde(default)]
+    pub layer: Option<String>,
 }
 
 /// Full node view returned to the caller — the **untruncated** body and
@@ -68,6 +73,7 @@ pub struct NodeView {
     pub body: Option<String>,
     pub tags: Vec<String>,
     pub visibility: String,
+    pub layer: String,
 }
 
 async fn ingest_node(
@@ -83,6 +89,13 @@ async fn ingest_node(
         return Err(ApiError::BadRequest("name must not be empty".to_string()));
     }
 
+    let layer = match req.layer.as_deref() {
+        Some(s) if !s.trim().is_empty() => {
+            Layer::from_str(s.trim()).map_err(|e| ApiError::BadRequest(e.to_string()))?
+        }
+        _ => Layer::default(),
+    };
+
     // A node living in the cloud is shared by definition.
     upsert_node(
         &store,
@@ -94,6 +107,7 @@ async fn ingest_node(
         &req.tags,
         req.initiative.as_deref(),
         Visibility::Shared,
+        layer,
     )?;
 
     let full = read_node_full(&store, &req.id)?.ok_or(ApiError::NotFound)?;
@@ -118,5 +132,6 @@ fn full_to_view(full: NodeFull) -> NodeView {
         body: full.body,
         tags: full.tags,
         visibility: full.visibility,
+        layer: full.layer,
     }
 }

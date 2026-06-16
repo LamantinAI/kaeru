@@ -116,14 +116,18 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
 
 /// Returns the current layer of a node.
 pub fn get_layer(store: &Store, node_id: &NodeId) -> Result<Layer> {
-    let script = format!(
-        r#"
-        ?[layer] := *node{{id, layer @ 'NOW'}}, id = '{node_id}'
-        "#
-    );
-    let rows = store.run_read(&script)?;
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
+    let script = r#"
+        ?[layer] := *node{id, layer @ 'NOW'}, id = $id
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
 
-    let layer_str = rows.rows.first()
+    let layer_str = rows
+        .rows
+        .first()
         .and_then(|row| row.first())
         .and_then(|v| v.get_str())
         .unwrap_or("warm");
