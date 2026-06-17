@@ -76,14 +76,13 @@ say "extracting"
 tar -xzf "$tmp/$archive" -C "$tmp"
 
 mkdir -p "$INSTALL_DIR"
-mv "$tmp/kaeru" "$tmp/kaeru-mcp" "$INSTALL_DIR/"
-chmod +x "$INSTALL_DIR/kaeru" "$INSTALL_DIR/kaeru-mcp"
+mv "$tmp/kaeru-mcp" "$INSTALL_DIR/"
+chmod +x "$INSTALL_DIR/kaeru-mcp"
 
-# Strip macOS Gatekeeper quarantine bit. Binaries are unsigned (we cross-build
+# Strip macOS Gatekeeper quarantine bit. The binary is unsigned (we cross-build
 # from Linux) so without this the user gets a "cannot be opened because the
 # developer cannot be verified" dialog on first run.
 if [[ "$os" == "Darwin" ]]; then
-    xattr -d com.apple.quarantine "$INSTALL_DIR/kaeru"     2>/dev/null || true
     xattr -d com.apple.quarantine "$INSTALL_DIR/kaeru-mcp" 2>/dev/null || true
 fi
 
@@ -98,8 +97,9 @@ case ":$PATH:" in
         ;;
 esac
 
-echo
-"$INSTALL_DIR/kaeru" --version || true
+# Note: kaeru-mcp is a long-lived HTTP server, not a one-shot CLI — running it
+# starts the daemon (no --version probe here, it would just block). The daemon
+# setup below launches it under systemd/launchd.
 echo
 
 # ------------------------------------------------------------------

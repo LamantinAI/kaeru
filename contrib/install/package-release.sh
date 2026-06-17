@@ -21,8 +21,11 @@
 #
 #   The script auto-discovers MacOSX*.sdk under that dir; override with SDKROOT.
 #
+# Ships only the client daemon `kaeru-mcp`. The shared `kaeru-cloud` server is
+# distributed via Docker (one per team), not as a per-user prebuilt.
+#
 # Upload everything in dist/ as release assets. install.sh expects this
-# exact archive layout (top-level kaeru and kaeru-mcp inside the tar).
+# exact archive layout (top-level kaeru-mcp inside the tar).
 
 set -euo pipefail
 
@@ -59,14 +62,13 @@ mkdir -p "$DIST"
 
 for target in "${TARGETS[@]}"; do
     echo "==> building $target"
-    cargo zigbuild --release --target "$target" --bin kaeru --bin kaeru-mcp
+    cargo zigbuild --release --target "$target" --bin kaeru-mcp
 
     stage=$(mktemp -d)
-    cp "target/$target/release/kaeru"     "$stage/"
     cp "target/$target/release/kaeru-mcp" "$stage/"
 
     archive="kaeru-${TAG}-${target}.tar.gz"
-    tar -C "$stage" -czf "$DIST/$archive" kaeru kaeru-mcp
+    tar -C "$stage" -czf "$DIST/$archive" kaeru-mcp
     rm -rf "$stage"
 
     echo "    -> dist/$archive"
