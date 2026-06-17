@@ -13,6 +13,7 @@ pub mod errors;
 pub mod export;
 pub mod graph;
 pub mod guard;
+mod migrate;
 pub mod mutate;
 pub mod recall;
 pub mod session;
@@ -29,18 +30,18 @@ pub use graph::{
 pub use mutate::{
     cite, cite_with_layer, complete_task, consolidate_in, consolidate_out, forget,
     formulate_hypothesis, formulate_hypothesis_with_layer, get_layer, get_share_policy,
-    get_visibility, improve, jot, jot_with_layer, link, link_remote, mark_resolved,
+    get_visibility, improve, jot, jot_with_layer, link, link_remote, link_remote_to, mark_resolved,
     mark_under_review, run_experiment, set_layer, set_share_policy, set_visibility, supersedes,
     synthesise, unlink, update_hypothesis_status, upsert_edge, upsert_node, write_episode,
     write_episode_with_layer, write_task, write_task_with_layer,
-    DeleteStats, RenameStats, delete_initiative, rename_initiative,
+    DeleteStats, RenameStats, create_chain, delete_initiative, link_with_weight, rename_initiative,
 };
 pub use recall::{
     EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull, SummaryView,
-    between, cloud_links, count_by_type, edges_in_initiative, edges_of, fuzzy_recall,
+    between, chains_of, cloud_links, count_by_type, edges_in_initiative, edges_of, fuzzy_recall,
     list_initiatives, lint, local_nodes_for_review, node_brief_by_id, nodes_in_initiative,
-    overview, read_node_full, recall_by_layer, recall_id_by_name, recent_episodes,
-    recollect_idea, recollect_outcome, recollect_provenance, summary_view, tagged,
+    overview, read_chain, read_node_full, recall_by_layer, recall_id_by_name, recent_episodes,
+    recollect_idea, recollect_outcome, recollect_provenance, shortest_path, summary_view, tagged,
     under_review_pinned, walk,
 };
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};
@@ -1393,11 +1394,37 @@ mod tests {
         assert!(reached.contains(&a));
         assert!(!reached.contains(&cloud_id), "soft link not followed by local walk");
 
-        // cloud_links surfaces the soft link for explicit resolution.
+        // cloud_links surfaces the soft link for explicit resolution; the
+        // default cloud has no name.
         let links = cloud_links(&store, &a).unwrap();
         assert!(
-            links.iter().any(|(et, dst)| et == "refers_to" && dst == &cloud_id),
+            links
+                .iter()
+                .any(|(et, cloud, dst)| et == "refers_to" && cloud.is_none() && dst == &cloud_id),
             "cloud_links lists the soft link; got {links:?}"
+        );
+    }
+
+    /// A soft link created against a *named* cloud round-trips its name
+    /// through `cloud_links` so a multi-cloud daemon can route resolution.
+    #[test]
+    fn named_soft_link_round_trips_cloud_name() {
+        use super::link_remote_to;
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("p");
+
+        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "local-a", "A").unwrap();
+        let cloud_id = "019eccee-0000-7000-8000-0000000ddddd".to_string();
+        link_remote_to(&store, &a, &cloud_id, EdgeType::RefersTo, Some("work")).unwrap();
+
+        let links = cloud_links(&store, &a).unwrap();
+        assert!(
+            links
+                .iter()
+                .any(|(et, cloud, dst)| et == "refers_to"
+                    && cloud.as_deref() == Some("work")
+                    && dst == &cloud_id),
+            "named cloud round-trips; got {links:?}"
         );
     }
 

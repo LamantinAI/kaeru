@@ -7,6 +7,8 @@
 //! every request; an empty token still sends `Bearer ` (the cloud treats an
 //! empty *expected* token as auth-disabled).
 
+use std::collections::HashMap;
+
 use serde_json::Value;
 
 /// Holds the cloud base URL, the bearer token, and a reusable reqwest
@@ -121,5 +123,130 @@ impl CloudClient {
         let code = resp.status().as_u16();
         let text = resp.text().await.map_err(|e| e.to_string())?;
         Ok((code, text))
+    }
+}
+
+/// Named clouds this daemon can reach, plus which one is the default.
+///
+/// Multi-cloud support: one local daemon may proxy into several
+/// `kaeru-cloud` endpoints (e.g. `family`, `work`). Cloud tools resolve a
+/// client by explicit `--cloud <name>`, falling back to the default (or the
+/// sole configured cloud). Soft links remember their cloud by name
+/// (`dst_store = cloud:<name>`); [`Self::get`] with that parsed name routes
+/// resolution back to the right endpoint.
+#[derive(Clone, Default)]
+pub struct CloudRegistry {
+    clients: HashMap<String, CloudClient>,
+    default: Option<String>,
+}
+
+impl CloudRegistry {
+    /// Builds a registry from named clients and an optional default name.
+    /// If `default` is unset but exactly one client exists, that one becomes
+    /// the implicit default.
+    pub fn new(clients: HashMap<String, CloudClient>, default: Option<String>) -> Self {
+        let default = default
+            .filter(|d| clients.contains_key(d))
+            .or_else(|| {
+                if clients.len() == 1 {
+                    clients.keys().next().cloned()
+                } else {
+                    None
+                }
+            });
+        Self { clients, default }
+    }
+
+    /// No clouds configured at all — cloud tools should report "not configured".
+    pub fn is_empty(&self) -> bool {
+        self.clients.is_empty()
+    }
+
+    /// Whether a cloud of this exact name is configured.
+    pub fn contains(&self, name: &str) -> bool {
+        self.clients.contains_key(name)
+    }
+
+    /// The default cloud's name, if one is resolvable.
+    pub fn default_name(&self) -> Option<&str> {
+        self.default.as_deref()
+    }
+
+    /// Sorted list of configured cloud names — for error messages / discovery.
+    pub fn names(&self) -> Vec<&str> {
+        let mut ns: Vec<&str> = self.clients.keys().map(String::as_str).collect();
+        ns.sort_unstable();
+        ns
+    }
+
+    /// Resolves a client by explicit name, or the default when `name` is
+    /// `None` (the common single-cloud / "just use my default" case).
+    /// Returns `None` when the name is unknown or no default resolves.
+    pub fn get(&self, name: Option<&str>) -> Option<&CloudClient> {
+        match name {
+            Some(n) => self.clients.get(n),
+            None => self.default.as_ref().and_then(|d| self.clients.get(d)),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CloudClient, CloudRegistry};
+    use std::collections::HashMap;
+
+    fn reg(names: &[&str], default: Option<&str>) -> CloudRegistry {
+        let clients = names
+            .iter()
+            .map(|n| {
+                (
+                    n.to_string(),
+                    CloudClient::new(format!("http://{n}.test"), String::new()),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        CloudRegistry::new(clients, default.map(String::from))
+    }
+
+    #[test]
+    fn empty_registry_resolves_nothing() {
+        let r = reg(&[], None);
+        assert!(r.is_empty());
+        assert!(r.get(None).is_none());
+        assert!(r.get(Some("family")).is_none());
+        assert!(r.default_name().is_none());
+    }
+
+    #[test]
+    fn single_cloud_is_implicit_default() {
+        let r = reg(&["family"], None);
+        assert_eq!(r.default_name(), Some("family"));
+        assert!(r.get(None).is_some(), "None resolves to the sole cloud");
+        assert!(r.get(Some("family")).is_some());
+        assert!(r.get(Some("work")).is_none(), "unknown name → None");
+    }
+
+    #[test]
+    fn explicit_default_among_many() {
+        let r = reg(&["family", "work"], Some("work"));
+        assert_eq!(r.default_name(), Some("work"));
+        assert!(r.get(None).is_some(), "None → the named default");
+        assert_eq!(r.names(), vec!["family", "work"], "names sorted");
+    }
+
+    #[test]
+    fn no_default_among_many_means_none_unresolvable() {
+        // Ambiguous: two clouds, no default declared → `get(None)` can't pick.
+        let r = reg(&["family", "work"], None);
+        assert!(r.default_name().is_none());
+        assert!(r.get(None).is_none(), "ambiguous default does not guess");
+        assert!(r.get(Some("family")).is_some(), "explicit still works");
+    }
+
+    #[test]
+    fn bogus_default_falls_back_to_unset() {
+        // A `default` naming a cloud that isn't configured is ignored.
+        let r = reg(&["family", "work"], Some("ghost"));
+        assert!(r.default_name().is_none(), "unknown default dropped");
     }
 }

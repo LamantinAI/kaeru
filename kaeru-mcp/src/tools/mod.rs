@@ -7,6 +7,7 @@
 //! Mirrors the layout of `kaeru-cli/src/commands/`.
 
 pub mod capture;
+pub mod chain;
 pub mod cloud;
 pub mod consolidate;
 pub mod initiative;

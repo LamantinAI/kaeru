@@ -28,6 +28,9 @@ pub struct ShareParams {
     /// Override the pre-share secret guard when it flags content. Default false.
     #[serde(default)]
     pub force: bool,
+    /// Target cloud name in a multi-cloud setup. Omit for the default cloud.
+    #[serde(default)]
+    pub cloud: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -36,12 +39,18 @@ pub struct PullParams {
     pub id: String,
     /// Initiative to attach the pulled node to locally.
     pub initiative: String,
+    /// Source cloud name in a multi-cloud setup. Omit for the default cloud.
+    #[serde(default)]
+    pub cloud: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct CloudRecallParams {
     /// Initiative to list shared cloud nodes for.
     pub initiative: String,
+    /// Cloud name to query in a multi-cloud setup. Omit for the default cloud.
+    #[serde(default)]
+    pub cloud: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -53,6 +62,10 @@ pub struct LinkCloudParams {
     /// Edge type for the soft link. Defaults to `refers_to`.
     #[serde(default)]
     pub edge_type: Option<String>,
+    /// Cloud the dst lives in (multi-cloud). Omit for the default cloud — the
+    /// soft link records the name so resolution routes to the right endpoint.
+    #[serde(default)]
+    pub cloud: Option<String>,
     /// Initiative scope (both sides share the same initiative name).
     pub initiative: String,
 }
@@ -177,12 +190,59 @@ pub struct LinkParams {
     /// `consolidated_to`. Snake_case or kebab-case both accepted.
     #[serde(default = "default_edge_type")]
     pub edge_type: String,
+    /// Connection strength `0..1` — drives knowledge-chain shortest-paths.
+    /// Omit for a neutral link (0.5); `strong=true` makes it 1.0.
+    #[serde(default)]
+    pub weight: Option<f64>,
+    /// Mark this as a key reasoning link (weight 1.0). Overridden by an
+    /// explicit `weight`.
+    #[serde(default)]
+    pub strong: bool,
     #[serde(default)]
     pub initiative: Option<String>,
 }
 
 fn default_edge_type() -> String {
     "refers_to".to_string()
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ChainParams {
+    /// Start node name or UUIDv7 id.
+    pub from: String,
+    /// End node name or UUIDv7 id.
+    pub to: String,
+    /// Optional name for the saved chain (auto-derived from endpoints if omitted).
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ChainsParams {
+    /// Node name or id whose chains to list.
+    pub name: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReadChainParams {
+    /// Chain name or UUIDv7 id.
+    pub name: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct PathParams {
+    /// Start node name or id.
+    pub from: String,
+    /// End node name or id.
+    pub to: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

@@ -146,11 +146,13 @@ impl Store {
 
     /// Idempotent schema bootstrap.
     ///
-    /// Two passes: (1) create `node`/`edge`/junction relations and the
-    /// regular indexes if `node` does not yet exist; (2) ensure the FTS
-    /// indexes exist regardless. The second pass exists so vaults
-    /// opened before FTS was added pick up the indexes on next open
-    /// without manual migration.
+    /// Passes: (1) create `node`/`edge`/junction relations and the regular
+    /// indexes if `node` does not yet exist (a *fresh* vault — created at the
+    /// latest schema); (2) ensure the FTS indexes exist regardless, so vaults
+    /// opened before FTS landed pick them up; (3) run the migration runner,
+    /// which baseline-stamps a fresh vault and forward-migrates an existing
+    /// one (new relations / columns added since it was created). See
+    /// [`crate::migrate`].
     fn bootstrap_schema(&self) -> Result<()> {
         let existing = self
             .db
@@ -170,6 +172,7 @@ impl Store {
             }
         }
         self.ensure_fts_indexes()?;
+        crate::migrate::run_migrations(&self.db, !node_present)?;
         Ok(())
     }
 
@@ -257,6 +260,17 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         set_at: Float default now(),
     }
     "#,
+    // Knowledge chains: an ordered reasoning path. The chain itself is a
+    // `Chain` node in `node`; this relation holds its ordered members. PK
+    // (chain_id, position) gives ordered reads via prefix-scan; the by_node
+    // index answers "which chains is this node in?".
+    r#"
+    :create chain_member {
+        chain_id: String,
+        position: Int =>
+        node_id: String,
+    }
+    "#,
     // Session pins are persisted in the substrate so a process restart
     // restores the active window. Not bi-temporal: pin/unpin is a session-
     // level concern, not a knowledge-level one.
@@ -275,6 +289,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "::index create edge:by_dst { dst }",
     "::index create edge:by_edge_type { edge_type }",
     "::index create edge:by_dst_store { dst_store }",
+    "::index create chain_member:by_node { node_id }",
 ];
 
 /// FTS indexes — created lazily after `SCHEMA_STATEMENTS` so vaults
@@ -332,7 +347,7 @@ mod tests {
             .iter()
             .filter_map(|row| row.first().and_then(|v| v.get_str()).map(String::from))
             .collect();
-        for expected in ["node", "edge", "node_initiative", "edge_initiative", "session_pin", "initiative"] {
+        for expected in ["node", "edge", "node_initiative", "edge_initiative", "session_pin", "initiative", "chain_member"] {
             assert!(
                 names.iter().any(|n| n == expected),
                 "{expected} relation must be present"

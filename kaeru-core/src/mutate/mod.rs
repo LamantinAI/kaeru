@@ -17,6 +17,7 @@ use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
 
+pub mod chain;
 pub mod cite;
 pub mod consolidate;
 pub mod edge;
@@ -32,9 +33,10 @@ pub mod supersedes;
 pub mod synthesise;
 pub mod task;
 
+pub use chain::create_chain;
 pub use cite::{cite, cite_with_layer};
 pub use consolidate::{consolidate_in, consolidate_out};
-pub use edge::{link, link_remote, unlink};
+pub use edge::{link, link_remote, link_remote_to, link_with_weight, unlink};
 pub use episode::{jot, jot_with_layer, write_episode, write_episode_with_layer};
 pub use hypothesis::{
     formulate_hypothesis, formulate_hypothesis_with_layer, run_experiment,

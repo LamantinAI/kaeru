@@ -19,12 +19,12 @@ use serde_json::Value;
 
 use kaeru_core::{EdgeType, Error, Layer, NodeType, SharePolicy, Store, Tier, Visibility};
 
-use crate::cloud_client::CloudClient;
+use crate::cloud_client::{CloudClient, CloudRegistry};
 use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
 
 fn not_configured() -> McpError {
     McpError::internal_error(
-        "cloud not configured — set KAERU_MCP_CLOUD_URL (and KAERU_MCP_CLOUD_TOKEN)".to_string(),
+        "cloud not configured — set up clouds.toml or KAERU_MCP_CLOUD_URL (and KAERU_MCP_CLOUD_TOKEN)".to_string(),
         None,
     )
 }
@@ -327,36 +327,56 @@ async fn recreate_local_edges(
     Ok(linked)
 }
 
-/// Creates a soft link from a local node to a cloud node by id
-/// (`dst_store = cloud`) — a reference without copying. Purely local; the
-/// dst is resolved later via `cloud_links`.
+/// Creates a soft link from a local node to a cloud node by id — a reference
+/// without copying. Purely local; the dst is resolved later via
+/// `cloud_links`. `cloud_name` (when given) records which cloud the dst lives
+/// in (`dst_store = cloud:<name>`) and must be a configured cloud; omit it
+/// for the default cloud.
 pub fn link_cloud(
     store: &Store,
+    clouds: &CloudRegistry,
     name: &str,
     cloud_id: &str,
     edge_type_str: &str,
+    cloud_name: Option<&str>,
     initiative: &str,
 ) -> Result<CallToolResult, McpError> {
+    // Refuse to bake a name we can't resolve later — that would dangle.
+    if let Some(cn) = cloud_name
+        && !clouds.contains(cn)
+    {
+        return Ok(text(&format!(
+            "unknown cloud `{cn}` — configured: [{}]",
+            clouds.names().join(", ")
+        )));
+    }
     with_initiative(store, Some(initiative), || {
         let edge: EdgeType = edge_type_str.parse().map_err(to_mcp)?;
         let src = resolve_name_or_id(store, name)?;
-        kaeru_core::link_remote(store, &src, &cloud_id.to_string(), edge).map_err(to_mcp)?;
+        kaeru_core::link_remote_to(store, &src, &cloud_id.to_string(), edge, cloud_name)
+            .map_err(to_mcp)?;
+        let tag = cloud_name
+            .map(|n| format!("cloud:{n}:"))
+            .unwrap_or_else(|| "cloud:".to_string());
         Ok(text(&format!(
-            "soft-linked `{name}` -[{}]-> cloud:{cloud_id}",
+            "soft-linked `{name}` -[{}]-> {tag}{cloud_id}",
             edge.as_str()
         )))
     })
 }
 
 /// Resolves a node's cloud soft links — fetches each linked cloud node and
-/// shows it. The lazy-resolution path for soft links.
+/// shows it. The lazy-resolution path for soft links; each link is routed to
+/// the cloud it was created against (multi-cloud aware).
 pub async fn cloud_links(
     store: &Store,
-    cloud: Option<&CloudClient>,
+    clouds: &CloudRegistry,
     name: &str,
     initiative: &str,
 ) -> Result<CallToolResult, McpError> {
-    let cloud = cloud.ok_or_else(not_configured)?;
+    if clouds.is_empty() {
+        return Err(not_configured());
+    }
 
     let links = with_initiative(store, Some(initiative), || {
         let id = resolve_name_or_id(store, name)?;
@@ -368,19 +388,31 @@ pub async fn cloud_links(
     }
 
     let mut out = format!("cloud soft links of `{name}` ({}):\n", links.len());
-    for (edge_type, dst) in &links {
-        match cloud.get_node(dst).await {
+    for (edge_type, cloud_name, dst) in &links {
+        // Display tag: cloud:dst for the default, cloud:<name>:dst otherwise.
+        let tag = cloud_name
+            .as_deref()
+            .map(|n| format!("cloud:{n}:{dst}"))
+            .unwrap_or_else(|| format!("cloud:{dst}"));
+        let Some(client) = clouds.get(cloud_name.as_deref()) else {
+            out.push_str(&format!(
+                "  -[{edge_type}]-> {tag} (unresolved — cloud `{}` not configured)\n",
+                cloud_name.as_deref().unwrap_or("default")
+            ));
+            continue;
+        };
+        match client.get_node(dst).await {
             Ok((200..=299, body)) => {
                 let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
                 let nm = v.get("name").and_then(|x| x.as_str()).unwrap_or("?");
                 let nt = v.get("node_type").and_then(|x| x.as_str()).unwrap_or("?");
-                out.push_str(&format!("  -[{edge_type}]-> {nm} ({nt}) — cloud:{dst}\n"));
+                out.push_str(&format!("  -[{edge_type}]-> {nm} ({nt}) — {tag}\n"));
             }
             Ok((code, _)) => {
-                out.push_str(&format!("  -[{edge_type}]-> cloud:{dst} (unresolved, {code})\n"));
+                out.push_str(&format!("  -[{edge_type}]-> {tag} (unresolved, {code})\n"));
             }
             Err(e) => {
-                out.push_str(&format!("  -[{edge_type}]-> cloud:{dst} (error: {e})\n"));
+                out.push_str(&format!("  -[{edge_type}]-> {tag} (error: {e})\n"));
             }
         }
     }

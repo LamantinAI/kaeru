@@ -26,17 +26,17 @@ use rmcp::tool_router;
 
 use kaeru_core::Store;
 
-use crate::cloud_client::CloudClient;
+use crate::cloud_client::CloudRegistry;
 use crate::params::*;
 use crate::tools;
 
 #[derive(Clone)]
 pub struct KaeruServer {
     store: Arc<Store>,
-    /// Optional handle to the shared `kaeru-cloud` service. `None` when no
-    /// `KAERU_MCP_CLOUD_URL` is configured — the cloud tools then report
-    /// that sharing is unavailable.
-    cloud: Option<CloudClient>,
+    /// Named clouds this daemon can reach. Empty when no cloud is configured
+    /// — the cloud tools then report that sharing is unavailable. Tools pick
+    /// a cloud by explicit `cloud` argument, else the registry's default.
+    clouds: CloudRegistry,
     /// Filled by `Self::tool_router()` (macro-generated); read by the
     /// `#[tool_handler]`-generated `ServerHandler` impl, but the
     /// dead-code analyser doesn't see that path.
@@ -45,10 +45,10 @@ pub struct KaeruServer {
 }
 
 impl KaeruServer {
-    pub fn new(store: Store, cloud: Option<CloudClient>) -> Self {
+    pub fn new(store: Store, clouds: CloudRegistry) -> Self {
         Self {
             store: Arc::new(store),
-            cloud,
+            clouds,
             tool_router: Self::tool_router(),
         }
     }
@@ -105,17 +105,17 @@ impl KaeruServer {
     // ----- Capture -------------------------------------------------------
     #[tool(description = "Write a deliberately-named operational episode. Use when you know you'll want to recall by exact name. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call.")]
     async fn episode(&self, Parameters(p): Parameters<EpisodeParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::episode(&self.store, self.cloud.as_ref(), &p.name, &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
+        tools::capture::episode(&self.store, self.clouds.get(None), &p.name, &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
     }
 
     #[tool(description = "Low-friction episode write — auto-named from body's first words plus a unique id suffix. Defaults to observation/low. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call.")]
     async fn jot(&self, Parameters(p): Parameters<JotParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::jot(&self.store, self.cloud.as_ref(), &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
+        tools::capture::jot(&self.store, self.clouds.get(None), &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
     }
 
-    #[tool(description = "Create a typed edge between two named nodes. Edge type defaults to `refers_to`.")]
+    #[tool(description = "Create a typed edge between two named nodes. Edge type defaults to `refers_to`. Optional `weight` (0..1) or `strong=true` sets the connection strength used by knowledge chains — stronger links make shorter chain paths.")]
     fn link(&self, Parameters(p): Parameters<LinkParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::link(&self.store, &p.from, &p.to, &p.edge_type, p.initiative.as_deref())
+        tools::capture::link(&self.store, &p.from, &p.to, &p.edge_type, p.weight, p.strong, p.initiative.as_deref())
     }
 
     #[tool(description = "Retract a previously-asserted edge. Bi-temporal — historical reads still see it.")]
@@ -123,9 +123,30 @@ impl KaeruServer {
         tools::capture::unlink(&self.store, &p.from, &p.to, &p.edge_type, p.initiative.as_deref())
     }
 
+    // ----- Knowledge chains ---------------------------------------------
+    #[tool(description = "Save the shortest weighted path between two nodes as a knowledge chain — an ordered, recallable reasoning trail. Stronger links (see `link` weight/strong) make shorter paths. Reports if the two are unconnected.")]
+    fn chain(&self, Parameters(p): Parameters<ChainParams>) -> Result<CallToolResult, McpError> {
+        tools::chain::chain(&self.store, &p.from, &p.to, p.name.as_deref(), p.initiative.as_deref())
+    }
+
+    #[tool(description = "List the knowledge chains a node belongs to. When a single node is context-poor, see its chains and `read_chain` the relevant one.")]
+    fn chains(&self, Parameters(p): Parameters<ChainsParams>) -> Result<CallToolResult, McpError> {
+        tools::chain::chains(&self.store, &p.name, p.initiative.as_deref())
+    }
+
+    #[tool(description = "Read a knowledge chain's ordered members in full — the connected reasoning trail, instead of an isolated node.")]
+    fn read_chain(&self, Parameters(p): Parameters<ReadChainParams>) -> Result<CallToolResult, McpError> {
+        tools::chain::read_chain(&self.store, &p.name, p.initiative.as_deref())
+    }
+
+    #[tool(description = "Compute the shortest weighted path between two nodes WITHOUT saving it (preview). Use `chain` to persist one.")]
+    fn path(&self, Parameters(p): Parameters<PathParams>) -> Result<CallToolResult, McpError> {
+        tools::chain::path(&self.store, &p.from, &p.to, p.initiative.as_deref())
+    }
+
     #[tool(description = "Record an archival reference. Two flavours: external source (pass `url` for papers / gists / dashboards) OR persona / entity (skip `url` for people, places, books without links). Both land in archival tier — long-term recall. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call.")]
     async fn cite(&self, Parameters(p): Parameters<CiteParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::cite(&self.store, self.cloud.as_ref(), &p.name, p.url.as_deref(), &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
+        tools::capture::cite(&self.store, self.clouds.get(None), &p.name, p.url.as_deref(), &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
     }
 
     // ----- Cloud sharing & recall ---------------------------------------
@@ -134,29 +155,29 @@ impl KaeruServer {
         tools::cloud::policy(&self.store, &p.initiative, p.policy.as_deref())
     }
 
-    #[tool(description = "Share a node to the team cloud. Gated: the initiative must be `team` (set via `policy`) AND the node must pass the pre-share secret guard. On success the node is marked shared locally and a copy is pushed to the cloud under the same id. Pass force=true to override the guard.")]
+    #[tool(description = "Share a node to the team cloud. Gated: the initiative must be `team` (set via `policy`) AND the node must pass the pre-share secret guard. On success the node is marked shared locally and a copy is pushed to the cloud under the same id. Pass force=true to override the guard. In a multi-cloud setup pass `cloud` to target a specific cloud (default: the configured default).")]
     async fn share(&self, Parameters(p): Parameters<ShareParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::share(&self.store, self.cloud.as_ref(), &p.name, &p.initiative, p.force).await
+        tools::cloud::share(&self.store, self.clouds.get(p.cloud.as_deref()), &p.name, &p.initiative, p.force).await
     }
 
-    #[tool(description = "List shared nodes the cloud holds for an initiative — discovery for cross-session / cross-user recall. Then `pull` one to bring it into the local vault.")]
+    #[tool(description = "List shared nodes the cloud holds for an initiative — discovery for cross-session / cross-user recall. Then `pull` one to bring it into the local vault. In a multi-cloud setup pass `cloud` to target a specific cloud.")]
     async fn cloud_recall(&self, Parameters(p): Parameters<CloudRecallParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::cloud_recall(self.cloud.as_ref(), &p.initiative).await
+        tools::cloud::cloud_recall(self.clouds.get(p.cloud.as_deref()), &p.initiative).await
     }
 
-    #[tool(description = "Pull a shared node from the cloud into the local vault by id, attaching it to the given initiative — the recall mechanism for team knowledge you don't have locally yet.")]
+    #[tool(description = "Pull a shared node from the cloud into the local vault by id, attaching it to the given initiative — the recall mechanism for team knowledge you don't have locally yet. In a multi-cloud setup pass `cloud` to target a specific cloud.")]
     async fn pull(&self, Parameters(p): Parameters<PullParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::pull(&self.store, self.cloud.as_ref(), &p.id, &p.initiative).await
+        tools::cloud::pull(&self.store, self.clouds.get(p.cloud.as_deref()), &p.id, &p.initiative).await
     }
 
-    #[tool(description = "Soft-link a local node to a cloud node by id (dst_store=cloud) — a reference without copying. Resolved lazily via `cloud_links`. Edge type defaults to refers_to.")]
+    #[tool(description = "Soft-link a local node to a cloud node by id (dst_store=cloud) — a reference without copying. Resolved lazily via `cloud_links`. Edge type defaults to refers_to. In a multi-cloud setup pass `cloud` to record which cloud the dst lives in.")]
     fn link_cloud(&self, Parameters(p): Parameters<LinkCloudParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::link_cloud(&self.store, &p.name, &p.cloud_id, p.edge_type.as_deref().unwrap_or("refers_to"), &p.initiative)
+        tools::cloud::link_cloud(&self.store, &self.clouds, &p.name, &p.cloud_id, p.edge_type.as_deref().unwrap_or("refers_to"), p.cloud.as_deref(), &p.initiative)
     }
 
-    #[tool(description = "Resolve a node's cloud soft links — fetch and show the cloud nodes they point to. The lazy-resolution path for soft links.")]
+    #[tool(description = "Resolve a node's cloud soft links — fetch and show the cloud nodes they point to. The lazy-resolution path for soft links. Routes each link to the cloud it was created against (multi-cloud aware).")]
     async fn cloud_links(&self, Parameters(p): Parameters<CloudLinksParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::cloud_links(&self.store, self.cloud.as_ref(), &p.name, &p.initiative).await
+        tools::cloud::cloud_links(&self.store, &self.clouds, &p.name, &p.initiative).await
     }
 
     #[tool(description = "Batch sync-review of a team initiative's still-local nodes: splits them into PROPOSE SHARE (guard-clean) vs KEEP LOCAL (secret-guard flagged). Review once, then `share` the approved ones — low-friction periodic sharing instead of deciding per capture.")]
@@ -166,12 +187,12 @@ impl KaeruServer {
 
     #[tool(description = "Rename an initiative — moves all its nodes, edges, and sharing policy to the new name (fails if the new name already exists). Local by default; pass cloud=true to ALSO rename it in the shared cloud (team-wide, affects everyone).")]
     async fn rename_initiative(&self, Parameters(p): Parameters<RenameInitiativeParams>) -> Result<CallToolResult, McpError> {
-        tools::initiative::rename_initiative(&self.store, self.cloud.as_ref(), &p.old, &p.new, p.cloud).await
+        tools::initiative::rename_initiative(&self.store, self.clouds.get(None), &p.old, &p.new, p.cloud).await
     }
 
     #[tool(description = "Delete an initiative — drops its scoping and forgets nodes exclusive to it (bi-temporal: recoverable via `at` at a past time). Nodes shared with other initiatives only lose this membership. Local by default; pass cloud=true to ALSO delete it from the shared cloud (team-wide, removes it for everyone).")]
     async fn delete_initiative(&self, Parameters(p): Parameters<DeleteInitiativeParams>) -> Result<CallToolResult, McpError> {
-        tools::initiative::delete_initiative(&self.store, self.cloud.as_ref(), &p.name, p.cloud).await
+        tools::initiative::delete_initiative(&self.store, self.clouds.get(None), &p.name, p.cloud).await
     }
 
     // ----- Lookup --------------------------------------------------------

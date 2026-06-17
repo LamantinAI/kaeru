@@ -7,11 +7,25 @@
 //! tunable is a field with a default function here.
 
 use std::net::Ipv4Addr;
+use std::path::PathBuf;
 
 use config::Config;
 use config::ConfigError;
 use config::Environment;
+use config::File;
+use config::FileFormat;
 use serde::Deserialize;
+
+/// One named cloud endpoint: a `kaeru-cloud` base URL plus its bearer token.
+/// Deserialized from a `[clouds.<name>]` section of the clouds TOML file.
+#[derive(Clone, Debug, Deserialize)]
+pub struct CloudEndpoint {
+    /// Base URL of the `kaeru-cloud` service (e.g. `https://team.example/`).
+    pub url: String,
+    /// Bearer token matching that cloud's `KAERU_CLOUD_API_TOKEN`.
+    #[serde(default)]
+    pub token: String,
+}
 
 /// Tunables for the kaeru-mcp daemon. All fields are env-overridable
 /// via `KAERU_MCP_<FIELD_UPPERCASE>` (e.g. `KAERU_MCP_LISTEN_PORT`).
@@ -96,6 +110,21 @@ pub struct KaeruMcpConfig {
     #[serde(default = "default_cloud_token")]
     pub cloud_token: String,
 
+    /// Named clouds for multi-cloud setups, loaded from the clouds TOML file
+    /// (default `$XDG_CONFIG_HOME/kaeru/clouds.toml`, override via
+    /// `KAERU_MCP_CLOUDS_FILE`). Each is a `[clouds.<name>]` section with
+    /// `url` + `token`. The legacy single `cloud_url`/`cloud_token` pair, if
+    /// set, is folded in as an additional named cloud at startup. Empty (the
+    /// default) means single-cloud / no-cloud as before.
+    #[serde(default)]
+    pub clouds: std::collections::HashMap<String, CloudEndpoint>,
+
+    /// Name of the cloud used when a tool is called without an explicit
+    /// `cloud` argument. From the `default` key of the clouds TOML. When
+    /// unset and exactly one cloud is configured, that one is the default.
+    #[serde(default, rename = "default")]
+    pub default_cloud: String,
+
     /// Idle timeout for rmcp MCP sessions, in seconds. After this
     /// many seconds without activity the session manager drops the
     /// session (rmcp's own default behaviour is 300s). Editor-attached
@@ -108,11 +137,21 @@ pub struct KaeruMcpConfig {
 }
 
 impl KaeruMcpConfig {
-    /// Builds a config from `KAERU_MCP_*` environment variables on top
-    /// of defaults. Numeric and IP fields are parsed automatically via
-    /// `try_parsing(true)`.
+    /// Builds a config from the clouds TOML file (if present) overlaid with
+    /// `KAERU_MCP_*` environment variables. The file supplies `clouds` /
+    /// `default`; env supplies scalar tunables and the legacy
+    /// `cloud_url`/`cloud_token`. Numeric and IP fields parse automatically
+    /// via `try_parsing(true)`.
     pub fn new() -> Result<Self, ConfigError> {
-        Config::builder()
+        let mut builder = Config::builder();
+        if let Some(path) = clouds_file_path() {
+            // `required(false)`: a missing file is the common single-cloud
+            // case, not an error.
+            builder = builder.add_source(
+                File::from(path).format(FileFormat::Toml).required(false),
+            );
+        }
+        builder
             .add_source(
                 Environment::with_prefix("KAERU_MCP")
                     .try_parsing(true),
@@ -120,6 +159,29 @@ impl KaeruMcpConfig {
             .build()?
             .try_deserialize()
     }
+}
+
+/// Resolves the clouds TOML file path: `KAERU_MCP_CLOUDS_FILE` when set,
+/// else `$XDG_CONFIG_HOME/kaeru/clouds.toml` (fallback
+/// `$HOME/.config/kaeru/clouds.toml`). Returns `None` when no home/config
+/// dir can be resolved (then only env config applies).
+fn clouds_file_path() -> Option<PathBuf> {
+    if let Ok(explicit) = std::env::var("KAERU_MCP_CLOUDS_FILE")
+        && !explicit.is_empty()
+    {
+        return Some(PathBuf::from(explicit));
+    }
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var("HOME")
+                .ok()
+                .filter(|s| !s.is_empty())
+                .map(|h| PathBuf::from(h).join(".config"))
+        })?;
+    Some(base.join("kaeru").join("clouds.toml"))
 }
 
 fn default_listen_address() -> Ipv4Addr {
@@ -160,4 +222,52 @@ fn default_cloud_url() -> String {
 
 fn default_cloud_token() -> String {
     String::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::KaeruMcpConfig;
+    use std::fs;
+    use std::io::Write;
+
+    /// A clouds TOML file is parsed into the `clouds` map and `default`,
+    /// proving the config-crate File source is wired correctly.
+    #[test]
+    fn clouds_toml_loads_named_endpoints() {
+        // Unique temp path; point the loader at it via the override env var.
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("kaeru-clouds-{}.toml", std::process::id()));
+        let mut f = fs::File::create(&path).expect("create toml");
+        write!(
+            f,
+            r#"
+default = "family"
+
+[clouds.family]
+url = "https://home.example/"
+token = "fam-xxx"
+
+[clouds.work]
+url = "https://team.corp/"
+token = "work-yyy"
+"#
+        )
+        .expect("write toml");
+
+        // SAFETY: single-threaded within this test; removed before returning.
+        unsafe {
+            std::env::set_var("KAERU_MCP_CLOUDS_FILE", &path);
+        }
+        let cfg = KaeruMcpConfig::new().expect("load config");
+        unsafe {
+            std::env::remove_var("KAERU_MCP_CLOUDS_FILE");
+        }
+        let _ = fs::remove_file(&path);
+
+        assert_eq!(cfg.default_cloud, "family");
+        assert_eq!(cfg.clouds.len(), 2, "two clouds parsed");
+        assert_eq!(cfg.clouds["family"].url, "https://home.example/");
+        assert_eq!(cfg.clouds["family"].token, "fam-xxx");
+        assert_eq!(cfg.clouds["work"].url, "https://team.corp/");
+    }
 }

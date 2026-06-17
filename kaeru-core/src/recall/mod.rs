@@ -14,6 +14,7 @@ pub mod fts;
 pub mod initiatives;
 pub mod layered;
 pub mod lint;
+pub mod path;
 pub mod overview;
 pub mod recent;
 pub mod recollect;
@@ -31,6 +32,7 @@ pub use initiatives::{edges_in_initiative, list_initiatives, nodes_in_initiative
 pub use layered::{LayerBucket, recall_by_layer};
 pub use lint::{LintReport, lint};
 pub use overview::overview;
+pub use path::{chains_of, read_chain, shortest_path};
 pub use recent::recent_episodes;
 pub use recollect::{recollect_idea, recollect_outcome, recollect_provenance};
 pub use summary_view::{SummaryView, summary_view};

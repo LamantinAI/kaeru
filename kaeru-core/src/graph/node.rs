@@ -64,6 +64,9 @@ pub enum NodeType {
     Draft,
     Episode,
     AuditEvent,
+    /// A materialized "knowledge chain" — an ordered reasoning path saved as
+    /// a node; members live in the `chain_member` relation.
+    Chain,
     // Archival
     Idea,
     Outcome,
@@ -86,6 +89,7 @@ impl NodeType {
             NodeType::Draft => "draft",
             NodeType::Episode => "episode",
             NodeType::AuditEvent => "audit_event",
+            NodeType::Chain => "chain",
             NodeType::Idea => "idea",
             NodeType::Outcome => "outcome",
             NodeType::Reference => "reference",
@@ -125,6 +129,7 @@ impl FromStr for NodeType {
             "draft" => Ok(NodeType::Draft),
             "episode" => Ok(NodeType::Episode),
             "audit_event" => Ok(NodeType::AuditEvent),
+            "chain" => Ok(NodeType::Chain),
             "idea" => Ok(NodeType::Idea),
             "outcome" => Ok(NodeType::Outcome),
             "reference" => Ok(NodeType::Reference),

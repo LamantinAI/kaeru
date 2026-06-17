@@ -25,6 +25,7 @@ mod sse;
 mod tools;
 mod utils;
 
+use std::collections::HashMap;
 use std::error::Error;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -45,6 +46,7 @@ use kaeru_core::KaeruConfig;
 use kaeru_core::Store;
 
 use crate::cloud_client::CloudClient;
+use crate::cloud_client::CloudRegistry;
 use crate::server::KaeruServer;
 use crate::settings::KaeruMcpConfig;
 
@@ -75,20 +77,48 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let store = Store::open_with_config(store_config)?;
     tracing::info!(?vault_path, "kaeru substrate ready");
 
-    // Optional bridge to the shared kaeru-cloud service. Absent → the
-    // cloud tools (share / pull / cloud_recall) report it's not configured.
-    let cloud = if mcp_config.cloud_url.trim().is_empty() {
-        tracing::info!("cloud sharing disabled (no KAERU_MCP_CLOUD_URL)");
-        None
-    } else {
-        tracing::info!(cloud_url = %mcp_config.cloud_url, "cloud sharing enabled");
-        Some(CloudClient::new(
-            mcp_config.cloud_url.clone(),
-            mcp_config.cloud_token.clone(),
-        ))
-    };
+    // Bridge(s) to the shared kaeru-cloud service. Named clouds come from the
+    // clouds TOML; the legacy single `cloud_url`/`cloud_token` pair, if set,
+    // is folded in as an extra named cloud. Empty registry → the cloud tools
+    // (share / pull / cloud_recall) report the cloud is not configured.
+    let mut clients: HashMap<String, CloudClient> = mcp_config
+        .clouds
+        .iter()
+        .filter(|(_, ep)| !ep.url.trim().is_empty())
+        .map(|(name, ep)| {
+            (name.clone(), CloudClient::new(ep.url.clone(), ep.token.clone()))
+        })
+        .collect();
 
-    let server = KaeruServer::new(store, cloud);
+    if !mcp_config.cloud_url.trim().is_empty() {
+        // Fold the legacy single-cloud config in under the default name (or
+        // "default" when none is set), without clobbering a same-named TOML
+        // entry.
+        let legacy_name = if mcp_config.default_cloud.trim().is_empty() {
+            "default".to_string()
+        } else {
+            mcp_config.default_cloud.clone()
+        };
+        clients.entry(legacy_name).or_insert_with(|| {
+            CloudClient::new(mcp_config.cloud_url.clone(), mcp_config.cloud_token.clone())
+        });
+    }
+
+    let default_name = (!mcp_config.default_cloud.trim().is_empty())
+        .then(|| mcp_config.default_cloud.clone());
+    let clouds = CloudRegistry::new(clients, default_name);
+
+    if clouds.is_empty() {
+        tracing::info!("cloud sharing disabled (no clouds configured)");
+    } else {
+        tracing::info!(
+            clouds = ?clouds.names(),
+            default = ?clouds.default_name(),
+            "cloud sharing enabled"
+        );
+    }
+
+    let server = KaeruServer::new(store, clouds);
 
     let cancel = CancellationToken::new();
 

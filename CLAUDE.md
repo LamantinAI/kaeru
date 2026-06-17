@@ -82,12 +82,12 @@ kaeru-core/src/
 
 ```
 kaeru-mcp/src/
-├── main.rs                 ← tokio + tracing init; builds Store + optional CloudClient
-├── settings.rs             ← KaeruMcpConfig (KAERU_MCP_* env, incl. cloud_url / cloud_token)
+├── main.rs                 ← tokio + tracing init; builds Store + CloudRegistry
+├── settings.rs             ← KaeruMcpConfig (KAERU_MCP_* env + clouds.toml file source)
 ├── server.rs               ← KaeruServer + #[tool_router], one #[tool] per verb
 ├── params.rs               ← Parameters<T> structs the tools deserialize
 ├── utils.rs                ← output builders + input parsing (with_initiative, parse_*)
-├── cloud_client.rs         ← async reqwest client to kaeru-cloud
+├── cloud_client.rs         ← async reqwest client + CloudRegistry (named multi-cloud)
 └── tools/                  ← one module per verb group (capture, cloud, session, lookup, …)
 
 kaeru-cloud/src/

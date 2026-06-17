@@ -242,6 +242,13 @@ kaeru --initiative X link from-name to-name --type causal
 # Edge types: refers-to (default), causal, derived-from, contradicts,
 # part-of, blocks, targets, supersedes, verifies, falsifies,
 # temporal, consolidated-to.
+
+# Weight the link by how strong the connection is (0.0–1.0). This is
+# YOUR judgment of strength, not a semantic score — it steers knowledge
+# chains (below): strong edges are the ones chains thread through.
+kaeru --initiative X link a b --strong          # = weight 1.0 (load-bearing)
+kaeru --initiative X link a b --weight 0.3      # weak/tentative link
+# Default weight is 0.5 when neither flag is given.
 ```
 
 ## Inquire (read)
@@ -312,6 +319,32 @@ kaeru --initiative X confirm <hypothesis> --by <evidence-name>
 kaeru --initiative X refute <hypothesis> --by <counterexample-name>
 # → status = Refuted, edge `falsifies`.
 ```
+
+## Knowledge chains (strongest reasoning trail between two nodes)
+
+A chain is the **strongest weighted path** from one node to another —
+Dijkstra over `link` weights, where a strong edge is a short hop. Use it
+when two ideas are connected through several intermediate steps and you
+want the whole trail, not an isolated endpoint.
+
+```bash
+# Preview the path without saving anything:
+kaeru --initiative X path from-name to-name      # → a → b → d (the trail)
+
+# Materialize that path as a first-class `chain` node:
+kaeru --initiative X chain from-name to-name [--name auth-trail]
+
+# Which chains is a node part of?
+kaeru --initiative X chains <name>
+
+# Read a saved chain's ordered members in full:
+kaeru --initiative X read-chain <chain-name|id>
+```
+
+Weights are what make this useful: `link --strong` the edges that
+genuinely carry reasoning, leave incidental links at the default, and
+`path`/`chain` will thread the load-bearing route rather than the
+shortest hop-count. Chains are initiative-scoped and `local`.
 
 ## Review-flow
 
@@ -393,6 +426,14 @@ the initiative policy and a secret scanner — so a wrong call errors
 safe (worst case you don't pull something; secrets/personal don't
 leak). Sharing and recall are always explicit tool calls; nothing
 syncs in the background.
+
+**Multiple clouds.** A daemon can be configured with several named
+clouds (e.g. `family`, `work`). When so, `share` / `pull` /
+`cloud_recall` / `link_cloud` take an optional `cloud: <name>`; omit it
+to use the configured default. A soft link remembers which cloud it
+points at, and `cloud_links` resolves each against the right one. If
+only one cloud is configured, ignore `cloud` entirely — the default
+just works.
 
 ## Conventions and gotchas
 

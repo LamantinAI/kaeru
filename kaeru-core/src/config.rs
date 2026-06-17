@@ -58,6 +58,12 @@ pub struct KaeruConfig {
     /// Hard cap enforced by [`crate::walk`] on `max_hops`. Beyond this
     /// the walk is rejected with `Error::Invalid`.
     pub max_hops_cap: u8,
+    /// Hard cap on knowledge-chain length, in hops. `create_chain` refuses
+    /// a path longer than this.
+    pub chain_max_hops: usize,
+    /// Minimum edge weight to count toward a knowledge chain. Edges below it
+    /// are ignored by chain shortest-paths. Default `0.0` = no filter.
+    pub chain_min_weight: f64,
 }
 
 impl KaeruConfig {
@@ -74,6 +80,8 @@ impl KaeruConfig {
             provenance_max_hops: 5,
             default_max_hops: 2,
             max_hops_cap: 3,
+            chain_max_hops: 12,
+            chain_min_weight: 0.0,
         }
     }
 
@@ -172,6 +180,8 @@ mod tests {
         assert_eq!(d.provenance_max_hops, 5);
         assert_eq!(d.default_max_hops, 2);
         assert_eq!(d.max_hops_cap, 3);
+        assert_eq!(d.chain_max_hops, 12);
+        assert_eq!(d.chain_min_weight, 0.0);
         assert!(!d.vault_path.as_os_str().is_empty(), "vault_path must resolve");
     }
 

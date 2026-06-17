@@ -1,8 +1,8 @@
 # Quick Start
 
-> **Pre-1.0 alpha.** The substrate schema may change between minor versions.
-> Until 1.0 stabilises, keep a markdown export before upgrades or large
-> migrations.
+> **Pre-1.0 alpha.** Additive schema changes migrate automatically on start
+> (see §5); destructive changes can still need a semantic rebuild. Until 1.0
+> stabilises, keep a markdown export before major upgrades.
 
 `kaeru` runs as one long-lived MCP daemon per machine. Agents do not spawn it
 over stdio: the vault is backed by RocksDB, and only one process can own the
@@ -218,11 +218,17 @@ is already settled, use `cite`; if it is still unfolding, use `episode` or
 `claim`. After capturing, search for related nodes and link them, otherwise the
 new node is easy to lose.
 
-## 5. Rebuilding A Vault Across Schema Changes
+## 5. Schema Changes & Rebuilding A Vault
 
-There are no automatic migrations yet — the vault schema can change between
-pre-1.0 versions. When an upgrade needs a fresh vault, rebuild it semantically
-rather than with a blind database rewrite:
+**Additive schema changes migrate automatically.** On every start the daemon
+runs a forward-only migration journal (`migration_journal`): new relations and
+columns added by a newer build are applied to an existing vault in place, so a
+routine upgrade needs no action. Migrations are add-only — there is no
+down-migration or destructive-change path.
+
+When an upgrade involves a change migrations can't cover (a destructive or
+incompatible schema shift, flagged in the release notes), rebuild the vault
+semantically rather than with a blind database rewrite:
 
 1. Upgrade and start the new `kaeru-mcp`.
 2. Ask the agent to list initiatives with `initiatives`.
@@ -287,6 +293,29 @@ only on `127.0.0.1` for local dev.
 If the cloud is reachable beyond a trusted network, terminate TLS with a reverse
 proxy in front of it — the service speaks plain HTTP. The proxy must forward all
 paths (`/health`, `/api/v1/*`), not just one prefix.
+
+### Multiple clouds (optional)
+
+One daemon can reach several clouds (e.g. a `family` and a `work` cloud). List
+them in `$XDG_CONFIG_HOME/kaeru/clouds.toml` (override via
+`KAERU_MCP_CLOUDS_FILE`):
+
+```toml
+default = "family"          # used when a tool omits `cloud`
+
+[clouds.family]
+url   = "https://home.example/"
+token = "fam-xxx"
+
+[clouds.work]
+url   = "https://team.corp/"
+token = "work-yyy"
+```
+
+The cloud verbs below then take an optional `cloud: "<name>"`; a soft link
+remembers which cloud it points at, and `cloud_links` resolves each against the
+right one. The single `KAERU_MCP_CLOUD_URL`/`_TOKEN` pair still works on its own
+(folded in as the `default` cloud) — no file needed for one cloud.
 
 ### Sharing flow
 

@@ -104,15 +104,25 @@ pub fn link(
     from: &str,
     to: &str,
     edge_type_str: &str,
+    weight: Option<f64>,
+    strong: bool,
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let edge: EdgeType = edge_type_str.parse().map_err(to_mcp)?;
         let from_id = resolve_name(store, from)?;
         let to_id = resolve_name(store, to)?;
-        kaeru_core::link(store, &from_id, &to_id, edge).map_err(to_mcp)?;
+        // Plain link = 0.5 (a neutral association); `strong` = 1.0 (a key
+        // reasoning link); explicit `weight` overrides. Weight is the
+        // connection strength that drives chain shortest-paths.
+        let w = match (weight, strong) {
+            (Some(w), _) => w,
+            (None, true) => 1.0,
+            (None, false) => 0.5,
+        };
+        kaeru_core::link_with_weight(store, &from_id, &to_id, edge, w).map_err(to_mcp)?;
         Ok(text(&format!(
-            "linked: {from} -[{}]-> {to}",
+            "linked: {from} -[{}]-> {to} (weight {w:.2})",
             edge.as_str()
         )))
     })

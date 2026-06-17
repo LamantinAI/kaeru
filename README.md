@@ -90,6 +90,11 @@ confirm (initiative: "auth-rewrite", hypothesis: "<hyp>", by: "<experiment>")
 at (initiative: "auth-rewrite", name: "<name>", when: "5m")
 history (initiative: "auth-rewrite", name: "<name>")
 
+# Knowledge chains — strongest weighted path between two nodes
+# (link the load-bearing edges with strong: true first):
+path (initiative: "auth-rewrite", from: "<a>", to: "<b>")    # preview the trail
+chain (initiative: "auth-rewrite", from: "<a>", to: "<b>")   # save it as a recallable chain
+
 # Snapshot to an Obsidian-friendly markdown vault:
 export (initiative: "auth-rewrite", path: "/tmp/auth-snapshot")
 ```
@@ -123,11 +128,12 @@ Sharing is never automatic and passes two gates: the initiative policy, and a de
 
 Verbs (over MCP): `policy` (mark an initiative `team`), `share` (push a node), `cloud_recall` (see what the team has), `pull` (bring a shared node into your local graph), `link_cloud` / `cloud_links` (reference cloud nodes without copying), and `sync_review` (batch-review still-local nodes). Capture verbs (`episode` / `jot` / `cite`) take `visibility: shared` to capture-and-share in one call.
 
-Per-user / per-org isolation (multi-tenant) is a future addition; today the cloud is one shared space scoped by initiative. See [`kaeru-cloud/README.md`](kaeru-cloud/README.md).
+A single daemon can also reach **several named clouds** (e.g. a `family` and a `work` cloud) via a `clouds.toml` file; the cloud verbs then take an optional `cloud: <name>` and soft links remember which cloud they point at. See [`kaeru-mcp/README.md`](kaeru-mcp/README.md#configuration) for the file format.
+
+Per-user / per-org isolation (multi-tenant) is a future addition; today each cloud is one shared space scoped by initiative. See [`kaeru-cloud/README.md`](kaeru-cloud/README.md).
 
 ## Roadmap
 
-- **Knowledge chains** *(next)* — agent-weighted edges + shortest-path traversal, so recall returns a connected reasoning trail instead of isolated, context-poor nodes. Edge weight is the model's own judgment at `link` time; saved "chains" become first-class, recallable paths. (See [#9](https://github.com/LamantinAI/kaeru/issues/9).)
 - **Initiative onboarding** — a generated "what is this initiative, and what's in it" briefing the first time an agent enters a project, in the spirit of the `import` guide — an instruction over the collected context, not graph machinery.
 - **PostgreSQL backend** — a server-mode substrate alongside the embedded RocksDB default.
 - **Multi-tenant + isolation** — per-user / per-org separation in the shared cloud.
@@ -135,14 +141,14 @@ Per-user / per-org isolation (multi-tenant) is a future addition; today the clou
 
 ## Status
 
-Pre-1.0. Implemented and covered by a green test suite: the substrate and curator API, memory layers with layered re-entry (`awake` / `surface`), bi-temporal time-travel (`at` / `history`), per-initiative scoping with `rename` / `delete`, the MCP server, the shared `kaeru-cloud` tier (sharing, recall, soft links, sync-review), and markdown export. What still needs hardening:
+Pre-1.0. Implemented and covered by a green test suite: the substrate and curator API, memory layers with layered re-entry (`awake` / `surface`), bi-temporal time-travel (`at` / `history`), per-initiative scoping with `rename` / `delete`, knowledge chains (weighted edges + shortest-path), forward-only schema migrations, the MCP server, the shared `kaeru-cloud` tier (sharing, recall, soft links, sync-review) including multi-cloud, and markdown export. What still needs hardening:
 
 - **Multi-tenant.** The cloud is one shared space scoped by initiative; per-user / per-org isolation isn't built yet.
 - **MCP concurrency.** Each call is atomic, but when an agent batch-fires many calls, reads can race ahead of pending writes.
 - **Whole-second `Validity` resolution.** Two opposing mutations on the same node/edge within one second (e.g. `link` then an immediate `unlink`, or a `forget` right after a write) resolve ambiguously. Interactive use is fine — human pacing always crosses the boundary; the test suite sleeps between such operations.
 - **Audit events** aren't attached to the initiative junction yet (export filters them by `affected_refs` intersection — a working workaround).
 - **No LangChain / Rig adapters** yet.
-- **No migrations.** The vault schema can change between pre-1.0 versions — export to markdown before upgrading, or recreate the vault.
+- **Migrations are forward-only and add-only.** A `migration_journal` runs schema additions (new relations / columns) on open; there is no down-migration or destructive-change path yet. Snapshot via `export` before a major upgrade is still prudent pre-1.0.
 
 ## Contributing
 

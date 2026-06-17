@@ -90,6 +90,31 @@ Two layers, both env-driven:
 |---------------------------|-------------|---------------------------------------|
 | `KAERU_MCP_CLOUD_URL`     | *(empty)*   | Base URL of the shared `kaeru-cloud` service (e.g. `http://cloud-host:9877`). Empty = cloud tools (`share` / `pull` / …) disabled. |
 | `KAERU_MCP_CLOUD_TOKEN`   | *(empty)*   | Bearer token sent to the cloud; must match its `KAERU_CLOUD_API_TOKEN`. |
+| `KAERU_MCP_CLOUDS_FILE`   | *(see below)* | Override the path to the clouds TOML file. |
+
+**Multiple clouds** (optional). For a daemon that reaches several
+`kaeru-cloud` endpoints (e.g. a `family` and a `work` cloud), list them
+in a TOML file — default `$XDG_CONFIG_HOME/kaeru/clouds.toml` (fallback
+`$HOME/.config/kaeru/clouds.toml`), override via `KAERU_MCP_CLOUDS_FILE`:
+
+```toml
+default = "family"          # used when a tool omits `cloud`
+
+[clouds.family]
+url   = "https://home.example/"
+token = "fam-xxx"
+
+[clouds.work]
+url   = "https://team.corp/"
+token = "work-yyy"
+```
+
+The cloud tools (`share` / `pull` / `cloud_recall` / `link_cloud`) then
+take an optional `cloud: <name>` to pick an endpoint; soft links remember
+their cloud, and `cloud_links` resolves each against the right one. The
+single `KAERU_MCP_CLOUD_URL`/`_TOKEN` pair still works on its own and is
+folded in as the `default` cloud when set — no file needed for the
+single-cloud case.
 
 **Substrate / curator-API caps** (`KAERU_*` — see
 `kaeru-core/src/config.rs`): `KAERU_VAULT_PATH`,
@@ -170,13 +195,16 @@ npx @modelcontextprotocol/inspector --transport http http://127.0.0.1:9876/mcp
 
 ```
 re-entry / session : awake, overview, initiatives, recent, pin, unpin, config
-capture            : episode, jot, link, unlink, cite
-lookup             : recall, drill, trace, search, ideas, outcomes, tagged, between
+capture            : episode, jot, link, unlink, cite, import
+tasks              : task, done
+lookup             : recall, drill, trace, search, ideas, outcomes, tagged, between, surface
 bi-temporal        : at, history
+knowledge chains   : chain, chains, read_chain, path
 hypothesis         : claim, test, confirm, refute
 review             : flag, resolve
 consolidation      : settle, reopen, synthesise, supersede
-metabolism         : forget, revise
+metabolism         : forget, revise, layer
+initiatives        : rename_initiative, delete_initiative
 cloud (sharing)    : policy, share, cloud_recall, pull, link_cloud, cloud_links, sync_review
 diagnostics        : lint
 snapshot           : export

@@ -113,17 +113,24 @@ pub fn edges_of(store: &Store, node_id: &NodeId) -> Result<Vec<(NodeId, NodeId, 
     Ok(edges)
 }
 
-/// Returns a node's **soft links** — outgoing edges with
-/// `dst_store = cloud` valid at NOW. Each entry is
-/// `(edge_type, cloud_dst_id)`; the dst is a cloud node id resolved
-/// separately through the cloud API. Empty when the node has no soft links.
-pub fn cloud_links(store: &Store, node_id: &NodeId) -> Result<Vec<(String, NodeId)>> {
+/// Returns a node's **soft links** — outgoing edges pointing into a shared
+/// cloud (`dst_store` is `cloud` or `cloud:<name>`) valid at NOW. Each entry
+/// is `(edge_type, cloud_name, cloud_dst_id)`, where `cloud_name` is `None`
+/// for the default cloud (bare `cloud`) and `Some(name)` for a named one —
+/// a multi-cloud daemon uses it to resolve the dst against the right
+/// endpoint. Empty when the node has no soft links.
+pub fn cloud_links(
+    store: &Store,
+    node_id: &NodeId,
+) -> Result<Vec<(String, Option<String>, NodeId)>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
 
+    // Any non-local dst_store is a soft link; the exact cloud is parsed from
+    // the value below (`cloud` → default, `cloud:<name>` → named).
     let script = r#"
-        ?[edge_type, dst] := *edge{src, dst, edge_type, dst_store @ 'NOW'},
-                             src = $nid, dst_store = 'cloud'
+        ?[edge_type, dst_store, dst] := *edge{src, dst, edge_type, dst_store @ 'NOW'},
+                                        src = $nid, dst_store != 'local'
     "#;
     let rows = store
         .db_ref()
@@ -134,8 +141,13 @@ pub fn cloud_links(store: &Store, node_id: &NodeId) -> Result<Vec<(String, NodeI
         .iter()
         .filter_map(|row| {
             let edge_type = row.first().and_then(|v| v.get_str())?.to_string();
-            let dst = row.get(1).and_then(|v| v.get_str())?.to_string();
-            Some((edge_type, dst))
+            let dst_store = row.get(1).and_then(|v| v.get_str())?;
+            let dst = row.get(2).and_then(|v| v.get_str())?.to_string();
+            let cloud_name = dst_store
+                .strip_prefix("cloud:")
+                .map(|n| n.to_string())
+                .filter(|n| !n.is_empty());
+            Some((edge_type, cloud_name, dst))
         })
         .collect();
     Ok(links)
