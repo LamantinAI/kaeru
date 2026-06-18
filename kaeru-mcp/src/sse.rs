@@ -36,6 +36,7 @@ use serde::Deserialize;
 use tokio::sync::{Mutex, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::{Stream, StreamExt};
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::server::KaeruServer;
@@ -54,6 +55,7 @@ struct SseState {
     server: KaeruServer,
     sessions: Arc<Mutex<HashMap<Uuid, mpsc::Sender<RxJsonRpcMessage<RoleServer>>>>>,
     messages_path: Arc<str>,
+    cancel: CancellationToken,
 }
 
 /// Build an axum router exposing the legacy HTTP+SSE MCP transport.
@@ -61,11 +63,20 @@ struct SseState {
 /// Two routes are added:
 /// - `GET  <sse_path>`     — opens the SSE stream, emits the endpoint event.
 /// - `POST <messages_path>` — JSON-RPC request entry-point.
-pub fn router(server: KaeruServer, sse_path: &str, messages_path: &str) -> Router {
+///
+/// `cancel` is the daemon's shutdown token; open SSE streams end when it
+/// fires so graceful shutdown isn't blocked by these long-lived responses.
+pub fn router(
+    server: KaeruServer,
+    cancel: CancellationToken,
+    sse_path: &str,
+    messages_path: &str,
+) -> Router {
     let state = SseState {
         server,
         sessions: Arc::new(Mutex::new(HashMap::new())),
         messages_path: Arc::from(messages_path),
+        cancel,
     };
     Router::new()
         .route(sse_path, get(open_stream))
@@ -90,18 +101,30 @@ async fn open_stream(
 
     let server = state.server.clone();
     let sessions = state.sessions.clone();
+    let cancel = state.cancel.clone();
     tokio::spawn(async move {
-        match server.serve(transport).await {
-            Ok(running) => match running.waiting().await {
-                Ok(reason) => {
-                    tracing::debug!(%session_id, ?reason, "sse session finished");
-                }
+        let session = async {
+            match server.serve(transport).await {
+                Ok(running) => match running.waiting().await {
+                    Ok(reason) => {
+                        tracing::debug!(%session_id, ?reason, "sse session finished");
+                    }
+                    Err(e) => {
+                        tracing::warn!(%session_id, error = %e, "sse session ended with error");
+                    }
+                },
                 Err(e) => {
-                    tracing::warn!(%session_id, error = %e, "sse session ended with error");
+                    tracing::warn!(%session_id, error = %e, "sse session failed to initialize");
                 }
-            },
-            Err(e) => {
-                tracing::warn!(%session_id, error = %e, "sse session failed to initialize");
+            }
+        };
+        // On daemon shutdown, drop the session future — that releases the
+        // transport (and its SSE sender), ending the client's stream so
+        // graceful shutdown isn't blocked by this long-lived response.
+        tokio::select! {
+            () = session => {}
+            () = cancel.cancelled() => {
+                tracing::debug!(%session_id, "sse session ended by daemon shutdown");
             }
         }
         sessions.lock().await.remove(&session_id);
