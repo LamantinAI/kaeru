@@ -1,9 +1,8 @@
 //! Personal-life capture tools: `task`, `done`.
 
+use kaeru_core::Store;
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
-
-use kaeru_core::Store;
 
 use crate::utils::{
     parse_due_to_iso, parse_layer, resolve_name_or_id, text, to_mcp, with_initiative,

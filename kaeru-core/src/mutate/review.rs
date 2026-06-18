@@ -2,36 +2,32 @@
 //! `supersedes` edge) and `mark_under_review` (flag a target via a
 //! `contradicts` edge with a fresh review-episode handle).
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::errors::Result;
-use crate::graph::NodeId;
-use crate::graph::audit::write_audit;
-use crate::graph::new_node_id;
-use crate::store::Store;
+use cozo::{DataValue, ScriptMutability};
 
-use super::attach_edge_to_initiative;
-use super::attach_node_to_initiative;
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::tags_literal;
+use super::{
+    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
+    tags_literal,
+};
+use crate::errors::Result;
+use crate::graph::audit::write_audit;
+use crate::graph::{NodeId, new_node_id};
+use crate::store::Store;
 
 /// Closes an open question by recording that `by` supersedes the `question`.
 ///
 /// Effect: a `supersedes` edge from `by` → `question` and one
 /// `mark_resolved` audit event. Reads through `walk(by, [Supersedes], 1)`
 /// then connect resolution to the closed question.
-pub fn mark_resolved(
-    store: &Store,
-    question_id: &NodeId,
-    by: &NodeId,
-) -> Result<()> {
+pub fn mark_resolved(store: &Store, question_id: &NodeId, by: &NodeId) -> Result<()> {
     let edge_secs = now_validity_seconds();
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("src".to_string(), DataValue::Str(by.clone().into()));
-    params.insert("dst".to_string(), DataValue::Str(question_id.clone().into()));
+    params.insert(
+        "dst".to_string(),
+        DataValue::Str(question_id.clone().into()),
+    );
     let script = format!(
         r#"
         ?[src, dst, edge_type, validity, weight, properties] <-
@@ -64,11 +60,7 @@ pub fn mark_resolved(
 ///
 /// Returns the id of the review episode so the caller can hold a handle
 /// for follow-up reads or further linking.
-pub fn mark_under_review(
-    store: &Store,
-    target_id: &NodeId,
-    reason: &str,
-) -> Result<NodeId> {
+pub fn mark_under_review(store: &Store, target_id: &NodeId, reason: &str) -> Result<NodeId> {
     let review_id = new_node_id();
     let short_target = target_id.chars().take(8).collect::<String>();
     let review_name = format!("review:{short_target}");
@@ -80,10 +72,7 @@ pub fn mark_under_review(
     p1.insert("id".to_string(), DataValue::Str(review_id.clone().into()));
     p1.insert("name".to_string(), DataValue::Str(review_name.into()));
     p1.insert("body".to_string(), DataValue::Str(reason.into()));
-    let all_tags = build_body_tags(
-        &["kind:observation", "sig:high", "role:review"],
-        reason,
-    );
+    let all_tags = build_body_tags(&["kind:observation", "sig:high", "role:review"], reason);
     let tags = tags_literal(&all_tags);
     let s1 = format!(
         r#"
@@ -92,7 +81,9 @@ pub fn mark_under_review(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s1, p1, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     // Step 2 — contradicts edge from review → target.
     let edge_secs = now_validity_seconds();
@@ -106,7 +97,9 @@ pub fn mark_under_review(
         :put edge {{src, dst, edge_type, validity => weight, properties}}
         "#
     );
-    store.db_ref().run_script(&s2, p2, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
     attach_node_to_initiative(store, &review_id)?;
     attach_edge_to_initiative(store, &review_id, target_id, "contradicts")?;

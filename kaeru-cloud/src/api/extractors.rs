@@ -6,8 +6,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::FromRef;
-use axum::extract::FromRequestParts;
+use axum::extract::{FromRef, FromRequestParts};
 use axum::http::header::AUTHORIZATION;
 use axum::http::request::Parts;
 

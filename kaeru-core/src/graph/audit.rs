@@ -5,18 +5,14 @@
 //! first-class graph node, queryable by the curator for reasoning about
 //! its own changes.
 
-use cozo::DataValue;
-use cozo::DbInstance;
-use cozo::JsonData;
-use cozo::ScriptMutability;
-use serde_json::json;
 use std::collections::BTreeMap;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use cozo::{DataValue, DbInstance, JsonData, ScriptMutability};
+use serde_json::json;
 
 use crate::errors::Result;
-use crate::graph::NodeId;
-use crate::graph::new_node_id;
+use crate::graph::{NodeId, new_node_id};
 
 fn now_validity_seconds() -> u64 {
     SystemTime::now()
@@ -46,10 +42,7 @@ pub(crate) fn write_audit(
         "name".to_string(),
         DataValue::Str(format!("audit:{op}").into()),
     );
-    params.insert(
-        "properties".to_string(),
-        DataValue::Json(JsonData(payload)),
-    );
+    params.insert("properties".to_string(), DataValue::Json(JsonData(payload)));
 
     let now_secs = now_validity_seconds();
     let script = format!(

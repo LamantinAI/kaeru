@@ -13,11 +13,10 @@
 
 use std::str::FromStr;
 
+use kaeru_core::{EdgeType, Error, Layer, NodeType, SharePolicy, Store, Tier, Visibility};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 use serde_json::Value;
-
-use kaeru_core::{EdgeType, Error, Layer, NodeType, SharePolicy, Store, Tier, Visibility};
 
 use crate::cloud_client::{CloudClient, CloudRegistry};
 use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
@@ -236,7 +235,11 @@ pub async fn pull(
     let tags: Vec<String> = v
         .get("tags")
         .and_then(|x| x.as_array())
-        .map(|a| a.iter().filter_map(|t| t.as_str().map(String::from)).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t.as_str().map(String::from))
+                .collect()
+        })
         .unwrap_or_default();
     // Preserve the cloud node's layer so pull keeps its recall priority.
     let layer = v
@@ -476,6 +479,8 @@ pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, Mc
             rules.join(",")
         ));
     }
-    out.push_str("\nReview the PROPOSE list, then `share <name> <initiative>` the ones you approve.");
+    out.push_str(
+        "\nReview the PROPOSE list, then `share <name> <initiative>` the ones you approve.",
+    );
     Ok(text(&out))
 }

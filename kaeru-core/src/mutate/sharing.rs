@@ -6,15 +6,11 @@
 use std::collections::BTreeMap;
 use std::str::FromStr;
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
+use cozo::{DataValue, ScriptMutability};
 
-use crate::errors::Error;
-use crate::errors::Result;
-use crate::graph::NodeId;
-use crate::graph::SharePolicy;
-use crate::graph::Visibility;
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
+use crate::graph::{NodeId, SharePolicy, Visibility};
 use crate::store::Store;
 
 /// Changes a node's `visibility`, preserving every other attribute
@@ -40,11 +36,10 @@ pub fn set_visibility(store: &Store, node_id: &NodeId, visibility: Visibility) -
             *node{id, validity, type, tier, name, body, tags, initiatives, properties, layer @ 'NOW'},
             id = $id
     "#;
-    let mut current = store.db_ref().run_script(
-        now_script,
-        read_params.clone(),
-        ScriptMutability::Immutable,
-    )?;
+    let mut current =
+        store
+            .db_ref()
+            .run_script(now_script, read_params.clone(), ScriptMutability::Immutable)?;
 
     if current.rows.is_empty() {
         let hist_script = r#"
@@ -54,11 +49,10 @@ pub fn set_visibility(store: &Store, node_id: &NodeId, visibility: Visibility) -
             :order -validity
             :limit 1
         "#;
-        current = store.db_ref().run_script(
-            hist_script,
-            read_params,
-            ScriptMutability::Immutable,
-        )?;
+        current =
+            store
+                .db_ref()
+                .run_script(hist_script, read_params, ScriptMutability::Immutable)?;
     }
 
     let row = current
@@ -92,7 +86,12 @@ pub fn set_visibility(store: &Store, node_id: &NodeId, visibility: Visibility) -
         .db_ref()
         .run_script(put_script, p, ScriptMutability::Mutable)?;
 
-    write_audit(store.db_ref(), "set_visibility", "system", &[node_id.clone()])?;
+    write_audit(
+        store.db_ref(),
+        "set_visibility",
+        "system",
+        &[node_id.clone()],
+    )?;
     Ok(())
 }
 
@@ -159,27 +158,24 @@ pub fn get_share_policy(store: &Store, initiative: &str) -> Result<SharePolicy> 
 
 #[cfg(test)]
 mod tests {
-    use super::get_share_policy;
-    use super::get_visibility;
-    use super::set_share_policy;
-    use super::set_visibility;
-    use crate::EpisodeKind;
-    use crate::Significance;
-    use crate::get_layer;
-    use crate::graph::Layer;
-    use crate::graph::SharePolicy;
-    use crate::graph::Visibility;
-    use crate::set_layer;
+    use super::{get_share_policy, get_visibility, set_share_policy, set_visibility};
+    use crate::graph::{Layer, SharePolicy, Visibility};
     use crate::store::Store;
-    use crate::write_episode;
+    use crate::{EpisodeKind, Significance, get_layer, set_layer, write_episode};
 
     /// Fresh node defaults to `Local`; `set_visibility` flips it and the
     /// flip survives a read.
     #[test]
     fn visibility_round_trip_default_local() {
         let store = Store::open_in_memory().expect("open");
-        let id =
-            write_episode(&store, EpisodeKind::Observation, Significance::Low, "n", "b").unwrap();
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "n",
+            "b",
+        )
+        .unwrap();
 
         assert_eq!(get_visibility(&store, &id).unwrap(), Visibility::Local);
         set_visibility(&store, &id, Visibility::Shared).unwrap();
@@ -192,8 +188,14 @@ mod tests {
     #[test]
     fn set_visibility_and_set_layer_preserve_each_other() {
         let store = Store::open_in_memory().expect("open");
-        let id =
-            write_episode(&store, EpisodeKind::Observation, Significance::Low, "n", "b").unwrap();
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "n",
+            "b",
+        )
+        .unwrap();
 
         // Mark shared, then change the layer — visibility must survive.
         set_visibility(&store, &id, Visibility::Shared).unwrap();

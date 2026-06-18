@@ -1,11 +1,10 @@
 //! `recent_episodes` — episodes whose latest assertion is within a time
 //! window from now. Feeds the session-restoration `awake` composite.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
 use crate::graph::NodeId;

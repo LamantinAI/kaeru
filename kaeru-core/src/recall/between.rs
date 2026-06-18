@@ -6,8 +6,9 @@
 //! cover this directly because they don't enumerate edges between a
 //! specific pair.
 
-use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
+
+use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
 use crate::graph::NodeId;

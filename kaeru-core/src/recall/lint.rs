@@ -1,15 +1,14 @@
 //! `lint` — read-only graph-hygiene snapshot. Surfaces orphan nodes and
 //! the unresolved-review queue in one report.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
+use cozo::{DataValue, ScriptMutability};
+
+use super::under_review::under_review_pinned;
 use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
-
-use super::under_review::under_review_pinned;
 
 /// Diagnostic report produced by [`lint`] — graph anomalies the agent
 /// might want to address. Empty fields mean "no findings of that kind".

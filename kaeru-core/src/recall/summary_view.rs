@@ -2,17 +2,14 @@
 //! plus 1-hop drill-down children via `derived_from` (outgoing) and
 //! `part_of` (incoming).
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::errors::Error;
-use crate::errors::Result;
+use cozo::{DataValue, ScriptMutability};
+
+use super::{NodeBrief, parse_brief};
+use crate::errors::{Error, Result};
 use crate::graph::NodeId;
 use crate::store::Store;
-
-use super::NodeBrief;
-use super::parse_brief;
 
 /// Hierarchical summary handle returned by [`summary_view`]. The agent
 /// reads `root`, scans `children`, and decides which child to recurse
@@ -104,9 +101,10 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
             "#
         }
     };
-    let child_rows = store
-        .db_ref()
-        .run_script(children_script, p_children, ScriptMutability::Immutable)?;
+    let child_rows =
+        store
+            .db_ref()
+            .run_script(children_script, p_children, ScriptMutability::Immutable)?;
 
     let children_cap = store.config().summary_view_children_cap;
     let children: Vec<NodeBrief> = child_rows

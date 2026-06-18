@@ -1,18 +1,13 @@
 //! Read-side tools: `recall`, `drill`, `trace`, `search`, `ideas`,
 //! `outcomes`, `tagged`, `between`.
 
+use kaeru_core::Store;
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use kaeru_core::Store;
-
-use crate::utils::render_briefs;
-use crate::utils::render_summary;
-use crate::utils::resolve_name;
-use crate::utils::resolve_name_or_id;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{
+    render_briefs, render_summary, resolve_name, resolve_name_or_id, text, to_mcp, with_initiative,
+};
 
 pub fn recall(
     store: &Store,

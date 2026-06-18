@@ -11,11 +11,12 @@
 //! covers only that initiative's nodes and edges (both endpoints in
 //! scope). Without an active initiative, the whole substrate is dumped.
 
-use chrono::{DateTime, Utc};
-use cozo::{DataValue, ScriptMutability};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use chrono::{DateTime, Utc};
+use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
 use crate::graph::temporal::parse_validity;
@@ -63,7 +64,11 @@ pub fn export_vault(store: &Store, output_dir: impl AsRef<Path>) -> Result<Expor
     let mut incoming: HashMap<String, Vec<&EdgeRow>> = HashMap::new();
     let mut seen: HashSet<(&str, &str, &str)> = HashSet::new();
     for edge in &edges {
-        let key = (edge.src.as_str(), edge.dst.as_str(), edge.edge_type.as_str());
+        let key = (
+            edge.src.as_str(),
+            edge.dst.as_str(),
+            edge.edge_type.as_str(),
+        );
         if !seen.insert(key) {
             continue;
         }
@@ -77,7 +82,10 @@ pub fn export_vault(store: &Store, output_dir: impl AsRef<Path>) -> Result<Expor
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let inits = initiatives_by_node.get(&node.id).cloned().unwrap_or_default();
+        let inits = initiatives_by_node
+            .get(&node.id)
+            .cloned()
+            .unwrap_or_default();
         let content = render_node(
             node,
             &inits,
@@ -106,10 +114,7 @@ pub fn export_vault(store: &Store, output_dir: impl AsRef<Path>) -> Result<Expor
         root.join("INDEX.md"),
         render_index(&nodes, &id_to_name, &outgoing, &incoming),
     )?;
-    fs::write(
-        root.join("LOG.md"),
-        render_log(&audit_events, &id_to_name),
-    )?;
+    fs::write(root.join("LOG.md"), render_log(&audit_events, &id_to_name))?;
 
     Ok(ExportSummary {
         initiative,
@@ -244,7 +249,11 @@ fn read_edges(store: &Store, initiative: Option<&str>) -> Result<Vec<EdgeRow>> {
             let src = row.first().and_then(|v| v.get_str())?.to_string();
             let dst = row.get(1).and_then(|v| v.get_str())?.to_string();
             let edge_type = row.get(2).and_then(|v| v.get_str())?.to_string();
-            Some(EdgeRow { src, dst, edge_type })
+            Some(EdgeRow {
+                src,
+                dst,
+                edge_type,
+            })
         })
         .collect();
     Ok(edges)
@@ -727,7 +736,10 @@ mod tests {
     fn sanitize_basic() {
         assert_eq!(sanitize("hello world"), "hello-world");
         assert_eq!(sanitize("Hello World!"), "hello-world");
-        assert_eq!(sanitize("with-dashes_underscores"), "with-dashes_underscores");
+        assert_eq!(
+            sanitize("with-dashes_underscores"),
+            "with-dashes_underscores"
+        );
         assert_eq!(sanitize("   "), "unnamed");
         assert_eq!(sanitize("///"), "unnamed");
         assert_eq!(sanitize("trailing!!!"), "trailing");

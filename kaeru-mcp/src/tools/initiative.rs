@@ -6,10 +6,9 @@
 //! rename/delete of a *shared* initiative diverges from the cloud until you
 //! repeat it there; the tool says which side it touched.
 
+use kaeru_core::Store;
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
-
-use kaeru_core::Store;
 
 use crate::cloud_client::CloudClient;
 use crate::utils::{text, to_mcp};
@@ -31,10 +30,9 @@ pub async fn rename_initiative(
     if also_cloud {
         match cloud {
             Some(c) => {
-                let (code, resp) = c
-                    .rename_initiative(old, new)
-                    .await
-                    .map_err(|e| McpError::internal_error(format!("cloud rename failed: {e}"), None))?;
+                let (code, resp) = c.rename_initiative(old, new).await.map_err(|e| {
+                    McpError::internal_error(format!("cloud rename failed: {e}"), None)
+                })?;
                 if (200..300).contains(&code) {
                     msg.push_str("\nalso renamed in the shared cloud (team-wide).");
                 } else {
@@ -68,10 +66,9 @@ pub async fn delete_initiative(
     if also_cloud {
         match cloud {
             Some(c) => {
-                let (code, resp) = c
-                    .delete_initiative(name)
-                    .await
-                    .map_err(|e| McpError::internal_error(format!("cloud delete failed: {e}"), None))?;
+                let (code, resp) = c.delete_initiative(name).await.map_err(|e| {
+                    McpError::internal_error(format!("cloud delete failed: {e}"), None)
+                })?;
                 if (200..300).contains(&code) {
                     msg.push_str("\nalso deleted from the shared cloud (team-wide).");
                 } else {

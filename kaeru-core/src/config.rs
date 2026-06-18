@@ -17,11 +17,10 @@
 //! parallel runner can each construct their own `Store` with their own
 //! caps without racing on shared state.
 
-use config::Config;
-use config::Environment;
-use serde::Deserialize;
-use serde::Serialize;
 use std::path::PathBuf;
+
+use config::{Config, Environment};
+use serde::{Deserialize, Serialize};
 
 use crate::errors::Result;
 
@@ -95,10 +94,7 @@ impl KaeruConfig {
     pub fn from_env() -> Result<Self> {
         let resolved = Config::builder()
             .add_source(Config::try_from(&Self::defaults())?)
-            .add_source(
-                Environment::with_prefix("KAERU")
-                    .try_parsing(true),
-            )
+            .add_source(Environment::with_prefix("KAERU").try_parsing(true))
             .build()?
             .try_deserialize()?;
         Ok(resolved)
@@ -166,8 +162,7 @@ fn default_vault_path() -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::KaeruConfig;
-    use super::default_vault_path;
+    use super::{KaeruConfig, default_vault_path};
 
     #[test]
     fn defaults_are_known_constants() {
@@ -182,7 +177,10 @@ mod tests {
         assert_eq!(d.max_hops_cap, 3);
         assert_eq!(d.chain_max_hops, 12);
         assert_eq!(d.chain_min_weight, 0.0);
-        assert!(!d.vault_path.as_os_str().is_empty(), "vault_path must resolve");
+        assert!(
+            !d.vault_path.as_os_str().is_empty(),
+            "vault_path must resolve"
+        );
     }
 
     #[test]

@@ -6,21 +6,17 @@
 //! an agent makes when re-entering a project: it returns the pinned set,
 //! recently-written episodes, and the open-review queue in one bundle.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::graph::audit::write_audit;
+use cozo::{DataValue, ScriptMutability};
+
 use crate::errors::Result;
-use crate::graph::Layer;
-use crate::graph::NodeId;
-use crate::recall::LayerBucket;
-use crate::recall::list_initiatives;
-use crate::recall::recall_by_layer;
-use crate::recall::recent_episodes;
-use crate::recall::under_review_pinned;
+use crate::graph::audit::write_audit;
+use crate::graph::{Layer, NodeId};
+use crate::recall::{
+    LayerBucket, list_initiatives, recall_by_layer, recent_episodes, under_review_pinned,
+};
 use crate::store::Store;
 
 fn now_secs_f64() -> f64 {

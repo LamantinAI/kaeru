@@ -11,18 +11,18 @@
 //! so `recall` / `drill` continue to work; `history` shows the
 //! transition; `tagged "status:open"` no longer surfaces the task.
 
-use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
 
-use crate::errors::{Error, Result};
-use crate::graph::audit::write_audit;
-use crate::graph::{Layer, NodeId, new_node_id};
-use crate::store::Store;
+use cozo::{DataValue, ScriptMutability};
 
 use super::{
     attach_node_to_initiative, build_body_tags, now_validity_seconds, read_name_body_now,
     tags_literal,
 };
+use crate::errors::{Error, Result};
+use crate::graph::audit::write_audit;
+use crate::graph::{Layer, NodeId, new_node_id};
+use crate::store::Store;
 
 /// Auto-derives a name from the body's first words (mirrors `jot`),
 /// then captures a `Task` node with `kind:task` + `status:open` +
@@ -100,7 +100,9 @@ pub fn complete_task(store: &Store, task_id: &NodeId) -> Result<()> {
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s1, p1, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     // Step 2 — reassert with status:done. We don't preserve the
     // original `due:` tag; once the task is done, the deadline is no
@@ -121,9 +123,16 @@ pub fn complete_task(store: &Store, task_id: &NodeId) -> Result<()> {
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s2, p2, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
-    write_audit(store.db_ref(), "complete_task", "system", &[task_id.clone()])?;
+    write_audit(
+        store.db_ref(),
+        "complete_task",
+        "system",
+        &[task_id.clone()],
+    )?;
     Ok(())
 }
 

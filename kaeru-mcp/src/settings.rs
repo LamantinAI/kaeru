@@ -9,11 +9,7 @@
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 
-use config::Config;
-use config::ConfigError;
-use config::Environment;
-use config::File;
-use config::FileFormat;
+use config::{Config, ConfigError, Environment, File, FileFormat};
 use serde::Deserialize;
 
 /// One named cloud endpoint: a `kaeru-cloud` base URL plus its bearer token.
@@ -147,15 +143,10 @@ impl KaeruMcpConfig {
         if let Some(path) = clouds_file_path() {
             // `required(false)`: a missing file is the common single-cloud
             // case, not an error.
-            builder = builder.add_source(
-                File::from(path).format(FileFormat::Toml).required(false),
-            );
+            builder = builder.add_source(File::from(path).format(FileFormat::Toml).required(false));
         }
         builder
-            .add_source(
-                Environment::with_prefix("KAERU_MCP")
-                    .try_parsing(true),
-            )
+            .add_source(Environment::with_prefix("KAERU_MCP").try_parsing(true))
             .build()?
             .try_deserialize()
     }
@@ -226,9 +217,10 @@ fn default_cloud_token() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::KaeruMcpConfig;
     use std::fs;
     use std::io::Write;
+
+    use super::KaeruMcpConfig;
 
     /// A clouds TOML file is parsed into the `clouds` map and `default`,
     /// proving the config-crate File source is wired correctly.

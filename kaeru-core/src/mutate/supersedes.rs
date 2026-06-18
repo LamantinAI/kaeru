@@ -1,23 +1,18 @@
 //! `supersedes` — replaces an old node with a freshly-asserted one,
 //! connected via a `supersedes` edge.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::errors::Result;
-use crate::graph::NodeId;
-use crate::graph::NodeType;
-use crate::graph::Tier;
-use crate::graph::audit::write_audit;
-use crate::graph::new_node_id;
-use crate::store::Store;
+use cozo::{DataValue, ScriptMutability};
 
-use super::attach_edge_to_initiative;
-use super::attach_node_to_initiative;
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::tags_literal;
+use super::{
+    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
+    tags_literal,
+};
+use crate::errors::Result;
+use crate::graph::audit::write_audit;
+use crate::graph::{NodeId, NodeType, Tier, new_node_id};
+use crate::store::Store;
 
 /// Replaces `old_id` with a freshly-asserted node carrying the new content,
 /// connected to the old by a `supersedes` edge.
@@ -58,7 +53,9 @@ pub fn supersedes(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s1, p1, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     // Step 2 — assert new node.
     let assert_secs = now_validity_seconds();
@@ -78,7 +75,9 @@ pub fn supersedes(
         new_type.as_str(),
         new_tier.as_str(),
     );
-    store.db_ref().run_script(&s2, p2, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
     // Step 3 — supersedes edge. Inlined here to avoid the inner audit that
     // `link` would write; this whole operation gets one audit at the end.
@@ -93,7 +92,9 @@ pub fn supersedes(
         :put edge {{src, dst, edge_type, validity => weight, properties}}
         "#
     );
-    store.db_ref().run_script(&s3, p3, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s3, p3, ScriptMutability::Mutable)?;
 
     attach_node_to_initiative(store, &new_id)?;
     attach_edge_to_initiative(store, old_id, &new_id, "supersedes")?;

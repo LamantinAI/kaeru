@@ -7,13 +7,12 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
+use super::upsert_node;
 use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId, NodeType, Tier, Visibility, new_node_id};
 use crate::recall::{node_brief_by_id, shortest_path};
 use crate::store::Store;
-
-use super::upsert_node;
 
 /// Computes the shortest weighted path `from → to` and saves it as a chain.
 /// Returns the new chain node id, or `None` when the two are unreachable
@@ -109,14 +108,37 @@ mod tests {
     fn create_chain_saves_ordered_path_and_membership() {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("p");
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
-        let c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
+        let c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "c",
+            "C",
+        )
+        .unwrap();
         // Strong straight line a→b→c.
         link_with_weight(&store, &a, &b, EdgeType::RefersTo, 0.9).unwrap();
         link_with_weight(&store, &b, &c, EdgeType::RefersTo, 0.9).unwrap();
 
-        let chain_id = create_chain(&store, &a, &c, Some("auth-trail")).unwrap().expect("path exists");
+        let chain_id = create_chain(&store, &a, &c, Some("auth-trail"))
+            .unwrap()
+            .expect("path exists");
 
         // read_chain returns the ordered members a, b, c.
         let members = read_chain(&store, &chain_id).unwrap();
@@ -125,12 +147,22 @@ mod tests {
 
         // chains_of(b) lists this chain.
         let chains = chains_of(&store, &b).unwrap();
-        assert!(chains.iter().any(|ch| ch.id == chain_id), "b knows its chain");
+        assert!(
+            chains.iter().any(|ch| ch.id == chain_id),
+            "b knows its chain"
+        );
         assert_eq!(chains[0].node_type, "chain");
         assert_eq!(chains[0].name, "auth-trail");
 
         // Unreachable pair → None.
-        let lonely = write_episode(&store, EpisodeKind::Observation, Significance::Low, "lonely", "L").unwrap();
+        let lonely = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "lonely",
+            "L",
+        )
+        .unwrap();
         assert!(create_chain(&store, &a, &lonely, None).unwrap().is_none());
     }
 
@@ -141,9 +173,30 @@ mod tests {
         cfg.chain_max_hops = 1; // allow a single hop only
         let store = Store::open_in_memory_with(cfg).expect("open");
         store.use_initiative("p");
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
-        let c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
+        let c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "c",
+            "C",
+        )
+        .unwrap();
         link_with_weight(&store, &a, &b, EdgeType::RefersTo, 0.9).unwrap();
         link_with_weight(&store, &b, &c, EdgeType::RefersTo, 0.9).unwrap();
 

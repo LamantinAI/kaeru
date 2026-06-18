@@ -52,11 +52,10 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
             *node{id, validity, type, tier, name, body, tags, initiatives, properties, visibility @ 'NOW'},
             id = $id
     "#;
-    let mut current = store.db_ref().run_script(
-        now_script,
-        read_params.clone(),
-        ScriptMutability::Immutable,
-    )?;
+    let mut current =
+        store
+            .db_ref()
+            .run_script(now_script, read_params.clone(), ScriptMutability::Immutable)?;
 
     if current.rows.is_empty() {
         let hist_script = r#"
@@ -66,11 +65,10 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
             :order -validity
             :limit 1
         "#;
-        current = store.db_ref().run_script(
-            hist_script,
-            read_params,
-            ScriptMutability::Immutable,
-        )?;
+        current =
+            store
+                .db_ref()
+                .run_script(hist_script, read_params, ScriptMutability::Immutable)?;
     }
 
     let row = current
@@ -135,11 +133,9 @@ pub fn get_layer(store: &Store, node_id: &NodeId) -> Result<Layer> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::EpisodeKind;
-    use crate::Significance;
-    use crate::write_episode;
-    use crate::write_episode_with_layer;
-    use crate::jot_with_layer;
+    use crate::{
+        EpisodeKind, Significance, jot_with_layer, write_episode, write_episode_with_layer,
+    };
 
     #[test]
     fn set_layer_changes_node_layer() {

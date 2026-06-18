@@ -1,22 +1,14 @@
 //! `write_episode` — the canonical operational-tier write.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::errors::Result;
-use crate::graph::EpisodeKind;
-use crate::graph::Layer;
-use crate::graph::NodeId;
-use crate::graph::Significance;
-use crate::graph::audit::write_audit;
-use crate::graph::new_node_id;
-use crate::store::Store;
+use cozo::{DataValue, ScriptMutability};
 
-use super::attach_node_to_initiative;
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::tags_literal;
+use super::{attach_node_to_initiative, build_body_tags, now_validity_seconds, tags_literal};
+use crate::errors::Result;
+use crate::graph::audit::write_audit;
+use crate::graph::{EpisodeKind, Layer, NodeId, Significance, new_node_id};
+use crate::store::Store;
 
 /// Writes an episode node and an audit_event for the operation.
 /// Returns the new episode node id.
@@ -98,10 +90,7 @@ pub fn jot_with_layer(store: &Store, body: &str, layer: Layer) -> Result<NodeId>
     params.insert("body".to_string(), DataValue::Str(body.into()));
     params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
-    let all_tags = build_body_tags(
-        &["kind:observation", "sig:low", "role:jot"],
-        body,
-    );
+    let all_tags = build_body_tags(&["kind:observation", "sig:low", "role:jot"], body);
     let tags = tags_literal(&all_tags);
     let now_secs = now_validity_seconds();
     let script = format!(
@@ -143,7 +132,14 @@ fn derive_jot_name(body: &str, id: &NodeId) -> String {
         }
     }
 
-    let id_suffix: String = id.chars().rev().take(6).collect::<String>().chars().rev().collect();
+    let id_suffix: String = id
+        .chars()
+        .rev()
+        .take(6)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     if words.is_empty() {
         format!("jot-{id_suffix}")
     } else {

@@ -22,24 +22,24 @@ pub mod store;
 pub use config::KaeruConfig;
 pub use errors::{Error, Result};
 pub use export::{ExportSummary, export_vault};
-pub use guard::GuardHit;
 pub use graph::{
     DstStore, EdgeType, EpisodeKind, HypothesisStatus, Layer, NodeId, NodeSnapshot, NodeType,
     Revision, SharePolicy, Significance, Tier, Visibility, at, history, new_node_id,
 };
+pub use guard::GuardHit;
 pub use mutate::{
-    cite, cite_with_layer, complete_task, consolidate_in, consolidate_out, forget,
-    formulate_hypothesis, formulate_hypothesis_with_layer, get_layer, get_share_policy,
-    get_visibility, improve, jot, jot_with_layer, link, link_remote, link_remote_to, mark_resolved,
-    mark_under_review, run_experiment, set_layer, set_share_policy, set_visibility, supersedes,
-    synthesise, unlink, update_hypothesis_status, upsert_edge, upsert_node, write_episode,
-    write_episode_with_layer, write_task, write_task_with_layer,
-    DeleteStats, RenameStats, create_chain, delete_initiative, link_with_weight, rename_initiative,
+    DeleteStats, RenameStats, cite, cite_with_layer, complete_task, consolidate_in,
+    consolidate_out, create_chain, delete_initiative, forget, formulate_hypothesis,
+    formulate_hypothesis_with_layer, get_layer, get_share_policy, get_visibility, improve, jot,
+    jot_with_layer, link, link_remote, link_remote_to, link_with_weight, mark_resolved,
+    mark_under_review, rename_initiative, run_experiment, set_layer, set_share_policy,
+    set_visibility, supersedes, synthesise, unlink, update_hypothesis_status, upsert_edge,
+    upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
 pub use recall::{
     EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull, SummaryView,
     between, chains_of, cloud_links, count_by_type, edges_in_initiative, edges_of, fuzzy_recall,
-    list_initiatives, lint, local_nodes_for_review, node_brief_by_id, nodes_in_initiative,
+    lint, list_initiatives, local_nodes_for_review, node_brief_by_id, nodes_in_initiative,
     overview, read_chain, read_node_full, recall_by_layer, recall_id_by_name, recent_episodes,
     recollect_idea, recollect_outcome, recollect_provenance, shortest_path, summary_view, tagged,
     under_review_pinned, walk,
@@ -54,55 +54,16 @@ pub fn version() -> &'static str {
 
 #[cfg(test)]
 mod tests {
-    use super::EdgeType;
-    use super::EpisodeKind;
-    use super::Error;
-    use super::HypothesisStatus;
-    use super::NodeType;
-    use super::Significance;
-    use super::Store;
-    use super::Tier;
-    use super::active_window;
-    use super::at;
-    use super::awake;
-    use super::export_vault;
-    use super::fuzzy_recall;
-    use super::list_initiatives;
-    use super::overview;
-    use super::consolidate_in;
-    use super::consolidate_out;
-    use super::count_by_type;
-    use super::forget;
-    use super::formulate_hypothesis;
-    use super::improve;
-    use super::jot;
-    use super::lint;
-    use super::history;
-    use super::link;
-    use super::mark_resolved;
-    use super::mark_under_review;
-    use super::pin;
-    use super::recall_id_by_name;
-    use super::recent_episodes;
-    use super::recollect_idea;
-    use super::recollect_outcome;
-    use super::recollect_provenance;
-    use super::run_experiment;
-    use super::summary_view;
-    use super::supersedes;
-    use super::synthesise;
-    use super::under_review_pinned;
-    use super::unlink;
-    use super::unpin;
-    use super::update_hypothesis_status;
-    use super::version;
-    use super::walk;
-    use super::write_episode;
-    use super::Visibility;
-    use super::cloud_links;
-    use super::link_remote;
-    use super::local_nodes_for_review;
-    use super::set_visibility;
+    use super::{
+        EdgeType, EpisodeKind, Error, HypothesisStatus, NodeType, Significance, Store, Tier,
+        Visibility, active_window, at, awake, cloud_links, consolidate_in, consolidate_out,
+        count_by_type, export_vault, forget, formulate_hypothesis, fuzzy_recall, history, improve,
+        jot, link, link_remote, lint, list_initiatives, local_nodes_for_review, mark_resolved,
+        mark_under_review, overview, pin, recall_id_by_name, recent_episodes, recollect_idea,
+        recollect_outcome, recollect_provenance, run_experiment, set_visibility, summary_view,
+        supersedes, synthesise, under_review_pinned, unlink, unpin, update_hypothesis_status,
+        version, walk, write_episode,
+    };
 
     #[test]
     fn smoke_version() {
@@ -164,8 +125,7 @@ mod tests {
     /// a flagged target so the open-questions section also exercises.
     #[test]
     fn export_vault_renders_frontmatter_and_wikilinks() {
-        use std::env;
-        use std::fs;
+        use std::{env, fs};
 
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("research");
@@ -191,10 +151,7 @@ mod tests {
         // section in INDEX.md gets exercised.
         mark_under_review(&store, &seed, "second look needed").unwrap();
 
-        let out_root = env::temp_dir().join(format!(
-            "kaeru-test-export-{}",
-            super::new_node_id()
-        ));
+        let out_root = env::temp_dir().join(format!("kaeru-test-export-{}", super::new_node_id()));
 
         let summary = export_vault(&store, &out_root).expect("export");
         assert_eq!(summary.initiative.as_deref(), Some("research"));
@@ -205,13 +162,22 @@ mod tests {
 
         let idea_path = out_root.join("archival/idea/settled-idea.md");
         let seed_path = out_root.join("operational/episode/raw-seed.md");
-        assert!(idea_path.exists(), "idea file at expected hierarchical path");
-        assert!(seed_path.exists(), "seed file at expected hierarchical path");
+        assert!(
+            idea_path.exists(),
+            "idea file at expected hierarchical path"
+        );
+        assert!(
+            seed_path.exists(),
+            "seed file at expected hierarchical path"
+        );
 
         let idea_md = fs::read_to_string(&idea_path).unwrap();
         assert!(idea_md.contains("type: idea"));
         assert!(idea_md.contains("tier: archival"));
-        assert!(idea_md.contains("- research"), "initiatives frontmatter present");
+        assert!(
+            idea_md.contains("- research"),
+            "initiatives frontmatter present"
+        );
         assert!(
             idea_md.contains("## Outgoing\n\n### derived_from\n\n- [[raw-seed]]"),
             "outgoing derived_from wikilink to seed; got:\n{idea_md}"
@@ -305,11 +271,17 @@ mod tests {
         assert!(report.contains("initiative `research`"));
         assert!(report.contains("operational:"));
         assert!(report.contains("archival:"));
-        assert!(report.contains("episode ("), "episode count line; got:\n{report}");
+        assert!(
+            report.contains("episode ("),
+            "episode count line; got:\n{report}"
+        );
         assert!(report.contains("idea ("));
         assert!(report.contains("provenance:"));
         assert!(report.contains("settled-idea"));
-        assert!(report.contains("- raw-seed"), "derived_from child rendered; got:\n{report}");
+        assert!(
+            report.contains("- raw-seed"),
+            "derived_from child rendered; got:\n{report}"
+        );
         assert!(report.contains("open questions:"));
         assert!(report.contains("edge stats:"));
         assert!(report.contains("derived_from: 1"));
@@ -388,8 +360,14 @@ mod tests {
         // both surface, deduped one row per id.
         let hits = fuzzy_recall(&store, "token", 10).expect("fuzzy");
         let names: Vec<&String> = hits.iter().map(|b| &b.name).collect();
-        assert!(names.iter().any(|n| n.as_str() == "expiry-bug"), "got {names:?}");
-        assert!(names.iter().any(|n| n.as_str() == "rotation"), "got {names:?}");
+        assert!(
+            names.iter().any(|n| n.as_str() == "expiry-bug"),
+            "got {names:?}"
+        );
+        assert!(
+            names.iter().any(|n| n.as_str() == "rotation"),
+            "got {names:?}"
+        );
         assert!(
             !names.iter().any(|n| n.as_str() == "tenant-leak"),
             "no 'token' reference; got {names:?}"
@@ -431,8 +409,22 @@ mod tests {
         // Build a chain in alpha: a → b (causal), then a synthesised
         // summary derived from a + b.
         store.use_initiative("alpha");
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "alpha-a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "alpha-b", "B").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "alpha-a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "alpha-b",
+            "B",
+        )
+        .unwrap();
         link(&store, &a, &b, EdgeType::Causal).unwrap();
         let summary = synthesise(
             &store,
@@ -446,7 +438,14 @@ mod tests {
 
         // A solitary node in beta — it's an orphan within beta's view.
         store.use_initiative("beta");
-        let solo = write_episode(&store, EpisodeKind::Observation, Significance::Low, "beta-solo", "S").unwrap();
+        let solo = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "beta-solo",
+            "S",
+        )
+        .unwrap();
 
         // Switch to beta and verify alpha's chain is invisible.
         // walk from a (alpha seed) under beta scope returns empty.
@@ -473,7 +472,11 @@ mod tests {
         assert!(cross_walk.contains(&a) && cross_walk.contains(&b));
         let cross_summary = summary_view(&store, &summary).unwrap();
         assert_eq!(cross_summary.root.id, summary);
-        assert_eq!(cross_summary.children.len(), 2, "summary derived from 2 seeds");
+        assert_eq!(
+            cross_summary.children.len(),
+            2,
+            "summary derived from 2 seeds"
+        );
     }
 
     /// Disk-mode persistence: open a fresh RocksDB-backed `Store`, write
@@ -482,13 +485,9 @@ mod tests {
     /// state through the embedded RocksDB engine.
     #[test]
     fn disk_store_persists_across_reopen() {
-        use std::env;
-        use std::fs;
+        use std::{env, fs};
 
-        let path = env::temp_dir().join(format!(
-            "kaeru-test-disk-{}",
-            super::new_node_id()
-        ));
+        let path = env::temp_dir().join(format!("kaeru-test-disk-{}", super::new_node_id()));
 
         let written_id = {
             let store = Store::open(&path).expect("open disk store");
@@ -559,9 +558,30 @@ mod tests {
     fn walk_two_hops_along_typed_chain() {
         let store = Store::open_in_memory().expect("open store");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
-        let c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
+        let c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "c",
+            "C",
+        )
+        .unwrap();
 
         link(&store, &a, &b, EdgeType::Causal).unwrap();
         link(&store, &b, &c, EdgeType::Causal).unwrap();
@@ -578,9 +598,30 @@ mod tests {
     fn walk_respects_hop_limit() {
         let store = Store::open_in_memory().expect("open");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
-        let c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
+        let c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "c",
+            "C",
+        )
+        .unwrap();
 
         link(&store, &a, &b, EdgeType::Causal).unwrap();
         link(&store, &b, &c, EdgeType::Causal).unwrap();
@@ -596,20 +637,45 @@ mod tests {
     fn walk_filters_by_edge_type() {
         let store = Store::open_in_memory().expect("open");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
 
         link(&store, &a, &b, EdgeType::RefersTo).unwrap();
 
         let reached = walk(&store, &a, &[EdgeType::Causal], 2).expect("walk");
-        assert_eq!(reached, vec![a], "only seed reached, refers_to not followed");
+        assert_eq!(
+            reached,
+            vec![a],
+            "only seed reached, refers_to not followed"
+        );
     }
 
     /// max_hops over the cap → Error::Invalid.
     #[test]
     fn walk_rejects_excessive_max_hops() {
         let store = Store::open_in_memory().expect("open");
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
         let result = walk(&store, &a, &[EdgeType::Causal], 99);
         assert!(matches!(result, Err(Error::Invalid(_))));
     }
@@ -645,10 +711,20 @@ mod tests {
         assert_eq!(snap_2500.body.as_deref(), Some("second"));
 
         let hist = history(&store, &id).expect("history");
-        assert_eq!(hist.len(), 3, "three rows: assert@1000, retract@2000, assert@2000");
-        assert!(hist.iter().any(|r| r.asserted && r.body.as_deref() == Some("first")));
+        assert_eq!(
+            hist.len(),
+            3,
+            "three rows: assert@1000, retract@2000, assert@2000"
+        );
+        assert!(
+            hist.iter()
+                .any(|r| r.asserted && r.body.as_deref() == Some("first"))
+        );
         assert!(hist.iter().any(|r| !r.asserted));
-        assert!(hist.iter().any(|r| r.asserted && r.body.as_deref() == Some("second")));
+        assert!(
+            hist.iter()
+                .any(|r| r.asserted && r.body.as_deref() == Some("second"))
+        );
     }
 
     /// Three episodes synthesised into one summary. The summary is reachable
@@ -658,9 +734,30 @@ mod tests {
     fn synthesise_many_to_one_with_derived_from_edges() {
         let store = Store::open_in_memory().expect("open");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "obs-a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "obs-b", "B").unwrap();
-        let c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "obs-c", "C").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "obs-a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "obs-b",
+            "B",
+        )
+        .unwrap();
+        let c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "obs-c",
+            "C",
+        )
+        .unwrap();
 
         let summary_id = synthesise(
             &store,
@@ -704,8 +801,22 @@ mod tests {
     fn pin_unpin_active_window_round_trip() {
         let store = Store::open_in_memory().expect("open");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "node-a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "node-b", "B").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "node-a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "node-b",
+            "B",
+        )
+        .unwrap();
 
         pin(&store, &a, "currently investigating A").expect("pin a");
         pin(&store, &b, "follow-up on A").expect("pin b");
@@ -795,16 +906,40 @@ mod tests {
         let store = Store::open_in_memory_with(config).expect("open");
 
         // 3 episodes, but cap of 2 → at most 2 returned.
-        write_episode(&store, EpisodeKind::Observation, Significance::Low, "e1", "1").unwrap();
-        write_episode(&store, EpisodeKind::Observation, Significance::Low, "e2", "2").unwrap();
-        write_episode(&store, EpisodeKind::Observation, Significance::Low, "e3", "3").unwrap();
+        write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "e1",
+            "1",
+        )
+        .unwrap();
+        write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "e2",
+            "2",
+        )
+        .unwrap();
+        write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "e3",
+            "3",
+        )
+        .unwrap();
         let recent = super::recent_episodes(&store, 3600).expect("recent");
         assert!(recent.len() <= 2, "cap of 2 honoured, got {}", recent.len());
 
         // walk with max_hops=2 must now fail (cap is 1).
         let seed = recall_id_by_name(&store, "e1").unwrap().unwrap();
         let result = walk(&store, &seed, &[EdgeType::Causal], 2);
-        assert!(matches!(result, Err(Error::Invalid(_))), "max_hops=2 exceeds custom cap=1");
+        assert!(
+            matches!(result, Err(Error::Invalid(_))),
+            "max_hops=2 exceeds custom cap=1"
+        );
     }
 
     /// `forget` retracts a node and every edge connected to it at NOW.
@@ -814,9 +949,30 @@ mod tests {
     fn forget_retracts_node_and_connected_edges() {
         let store = Store::open_in_memory().expect("open");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
-        let c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
+        let c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "c",
+            "C",
+        )
+        .unwrap();
 
         link(&store, &a, &b, EdgeType::Causal).unwrap();
         link(&store, &b, &c, EdgeType::Causal).unwrap();
@@ -881,12 +1037,33 @@ mod tests {
         let store = Store::open_in_memory().expect("open");
 
         // Linked pair — neither is an orphan.
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
         link(&store, &a, &b, EdgeType::Causal).unwrap();
 
         // Solitary episode — orphan.
-        let solo = write_episode(&store, EpisodeKind::Observation, Significance::Low, "solo", "S").unwrap();
+        let solo = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "solo",
+            "S",
+        )
+        .unwrap();
 
         // Reviewed episode — `b` becomes a contradicts target.
         mark_under_review(&store, &b, "questioning B").unwrap();
@@ -906,8 +1083,22 @@ mod tests {
     fn consolidate_out_preserves_provenance_across_tier() {
         let store = Store::open_in_memory().expect("open");
 
-        let ep_a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "ep-a", "A").unwrap();
-        let ep_b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "ep-b", "B").unwrap();
+        let ep_a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "ep-a",
+            "A",
+        )
+        .unwrap();
+        let ep_b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "ep-b",
+            "B",
+        )
+        .unwrap();
 
         // Operational draft synthesised from two episodes.
         let draft = synthesise(
@@ -942,7 +1133,10 @@ mod tests {
 
         // Walking `consolidated_to` from the old draft reaches the new archival node.
         let reached = walk(&store, &draft, &[EdgeType::ConsolidatedTo], 1).unwrap();
-        assert!(reached.contains(&archived), "draft → consolidated_to → archived");
+        assert!(
+            reached.contains(&archived),
+            "draft → consolidated_to → archived"
+        );
     }
 
     /// `consolidate_in` is the reverse direction — archival back to
@@ -952,7 +1146,14 @@ mod tests {
     fn consolidate_in_demotes_archival_to_operational() {
         let store = Store::open_in_memory().expect("open");
 
-        let seed = write_episode(&store, EpisodeKind::Observation, Significance::Low, "seed", "S").unwrap();
+        let seed = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "seed",
+            "S",
+        )
+        .unwrap();
         let archival = synthesise(
             &store,
             &[seed.clone()],
@@ -991,8 +1192,22 @@ mod tests {
     fn recollect_provenance_walks_derived_from_chain() {
         let store = Store::open_in_memory().expect("open");
 
-        let ep_a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "ep-a", "A").unwrap();
-        let ep_b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "ep-b", "B").unwrap();
+        let ep_a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "ep-a",
+            "A",
+        )
+        .unwrap();
+        let ep_b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "ep-b",
+            "B",
+        )
+        .unwrap();
 
         // Level 1: idea synthesised from two episodes.
         let idea = synthesise(
@@ -1020,12 +1235,28 @@ mod tests {
         let ids: Vec<&String> = provenance.iter().map(|b| &b.id).collect();
 
         assert!(ids.contains(&&idea), "idea is direct ancestor of outcome");
-        assert!(ids.contains(&&ep_a), "ep_a reached transitively through idea");
-        assert!(ids.contains(&&ep_b), "ep_b reached transitively through idea");
-        assert!(!ids.contains(&&outcome), "seed itself excluded from its own provenance");
+        assert!(
+            ids.contains(&&ep_a),
+            "ep_a reached transitively through idea"
+        );
+        assert!(
+            ids.contains(&&ep_b),
+            "ep_b reached transitively through idea"
+        );
+        assert!(
+            !ids.contains(&&outcome),
+            "seed itself excluded from its own provenance"
+        );
 
         // A seed with no derived_from edges → empty provenance.
-        let lonely = write_episode(&store, EpisodeKind::Observation, Significance::Low, "lonely", "no provenance").unwrap();
+        let lonely = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "lonely",
+            "no provenance",
+        )
+        .unwrap();
         let lonely_prov = recollect_provenance(&store, &lonely).expect("lonely provenance");
         assert!(lonely_prov.is_empty());
     }
@@ -1090,7 +1321,10 @@ mod tests {
         let idea_ids: Vec<&String> = ideas.iter().map(|b| &b.id).collect();
         assert!(idea_ids.contains(&&idea_a));
         assert!(idea_ids.contains(&&idea_b));
-        assert!(!idea_ids.contains(&&outcome), "outcomes filtered out of ideas");
+        assert!(
+            !idea_ids.contains(&&outcome),
+            "outcomes filtered out of ideas"
+        );
         assert!(!idea_ids.contains(&&op_summary), "operational excluded");
         for brief in &ideas {
             assert_eq!(brief.node_type, "idea");
@@ -1099,7 +1333,10 @@ mod tests {
         let outcomes = recollect_outcome(&store).expect("recollect_outcome");
         let outcome_ids: Vec<&String> = outcomes.iter().map(|b| &b.id).collect();
         assert!(outcome_ids.contains(&&outcome));
-        assert!(!outcome_ids.contains(&&idea_a), "ideas filtered out of outcomes");
+        assert!(
+            !outcome_ids.contains(&&idea_a),
+            "ideas filtered out of outcomes"
+        );
         for brief in &outcomes {
             assert_eq!(brief.node_type, "outcome");
         }
@@ -1114,9 +1351,30 @@ mod tests {
 
         // Three observation seeds + one synthesised summary above them.
         // The summary's outgoing derived_from edges point to each seed.
-        let s1 = write_episode(&store, EpisodeKind::Observation, Significance::Low, "seed-1", "first observation").unwrap();
-        let s2 = write_episode(&store, EpisodeKind::Observation, Significance::Low, "seed-2", "second observation").unwrap();
-        let s3 = write_episode(&store, EpisodeKind::Observation, Significance::Low, "seed-3", "third observation").unwrap();
+        let s1 = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "seed-1",
+            "first observation",
+        )
+        .unwrap();
+        let s2 = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "seed-2",
+            "second observation",
+        )
+        .unwrap();
+        let s3 = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "seed-3",
+            "third observation",
+        )
+        .unwrap();
         let summary = synthesise(
             &store,
             &[s1.clone(), s2.clone(), s3.clone()],
@@ -1141,9 +1399,19 @@ mod tests {
         assert!(child_ids.contains(&&s3));
 
         // A node with no derived_from / part_of relationships → empty children.
-        let lonely = write_episode(&store, EpisodeKind::Observation, Significance::Low, "lonely", "Solo node").unwrap();
+        let lonely = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "lonely",
+            "Solo node",
+        )
+        .unwrap();
         let lonely_view = summary_view(&store, &lonely).expect("summary_view lonely");
-        assert!(lonely_view.children.is_empty(), "isolated node has no drill-down targets");
+        assert!(
+            lonely_view.children.is_empty(),
+            "isolated node has no drill-down targets"
+        );
 
         // Missing seed → NotFound.
         let missing = summary_view(&store, &"non-existent".to_string());
@@ -1158,7 +1426,14 @@ mod tests {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("kaeru");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
         let b = write_episode(&store, EpisodeKind::Decision, Significance::High, "b", "B").unwrap();
         pin(&store, &a, "actively investigating").expect("pin a");
         mark_under_review(&store, &b, "inconsistent with prior decision").unwrap();
@@ -1169,7 +1444,10 @@ mod tests {
         assert!(ctx.pinned.contains(&a), "pinned set has a");
         assert!(ctx.recent.contains(&a), "recent set has a (just written)");
         assert!(ctx.recent.contains(&b), "recent set has b (just written)");
-        assert!(ctx.under_review.contains(&b), "b is in the open-review queue");
+        assert!(
+            ctx.under_review.contains(&b),
+            "b is in the open-review queue"
+        );
         assert!(!ctx.under_review.contains(&a), "a was not flagged");
     }
 
@@ -1179,8 +1457,22 @@ mod tests {
     fn unlink_retracts_edge_then_walk_does_not_reach() {
         let store = Store::open_in_memory().expect("open");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
 
         link(&store, &a, &b, EdgeType::Causal).unwrap();
         let before = walk(&store, &a, &[EdgeType::Causal], 1).unwrap();
@@ -1191,7 +1483,10 @@ mod tests {
 
         unlink(&store, &a, &b, EdgeType::Causal).unwrap();
         let after = walk(&store, &a, &[EdgeType::Causal], 1).unwrap();
-        assert!(!after.contains(&b), "after unlink: b is no longer reachable");
+        assert!(
+            !after.contains(&b),
+            "after unlink: b is no longer reachable"
+        );
         assert!(after.contains(&a), "seed always present");
     }
 
@@ -1230,9 +1525,7 @@ mod tests {
         // The hypothesis row at NOW should carry the supported status tag.
         // (No public tag-read primitive yet; we read directly via Cozo.)
         let rows = store
-            .run_read(&format!(
-                "?[tags] := *node{{id, tags @ 'NOW'}}, id = '{h}'"
-            ))
+            .run_read(&format!("?[tags] := *node{{id, tags @ 'NOW'}}, id = '{h}'"))
             .expect("read tags");
         let tags_str = format!("{:?}", rows.rows);
         assert!(
@@ -1296,7 +1589,10 @@ mod tests {
 
         // From resolution we walk supersedes 1 hop and reach the question.
         let reached = walk(&store, &resolution, &[EdgeType::Supersedes], 1).unwrap();
-        assert!(reached.contains(&question), "resolution → supersedes → question");
+        assert!(
+            reached.contains(&question),
+            "resolution → supersedes → question"
+        );
 
         // Audits: 2 write_episode + 1 mark_resolved.
         let audits = count_by_type(&store, "audit_event").expect("count audits");
@@ -1319,8 +1615,12 @@ mod tests {
         )
         .unwrap();
 
-        let review = mark_under_review(&store, &target, "Counter-example: when C is false, X fails.")
-            .expect("mark_under_review");
+        let review = mark_under_review(
+            &store,
+            &target,
+            "Counter-example: when C is false, X fails.",
+        )
+        .expect("mark_under_review");
 
         // From the review we should be able to walk contradicts 1 hop to the target.
         let reached = walk(&store, &review, &[EdgeType::Contradicts], 1).unwrap();
@@ -1385,14 +1685,24 @@ mod tests {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("p");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "local-a", "A").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "local-a",
+            "A",
+        )
+        .unwrap();
         let cloud_id = "019eccee-0000-7000-8000-0000000ccccc".to_string();
         link_remote(&store, &a, &cloud_id, EdgeType::RefersTo).unwrap();
 
         // Local walk stays local — the cloud dst is never traversed.
         let reached = walk(&store, &a, &[EdgeType::RefersTo], 1).unwrap();
         assert!(reached.contains(&a));
-        assert!(!reached.contains(&cloud_id), "soft link not followed by local walk");
+        assert!(
+            !reached.contains(&cloud_id),
+            "soft link not followed by local walk"
+        );
 
         // cloud_links surfaces the soft link for explicit resolution; the
         // default cloud has no name.
@@ -1413,17 +1723,22 @@ mod tests {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("p");
 
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "local-a", "A").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "local-a",
+            "A",
+        )
+        .unwrap();
         let cloud_id = "019eccee-0000-7000-8000-0000000ddddd".to_string();
         link_remote_to(&store, &a, &cloud_id, EdgeType::RefersTo, Some("work")).unwrap();
 
         let links = cloud_links(&store, &a).unwrap();
         assert!(
-            links
-                .iter()
-                .any(|(et, cloud, dst)| et == "refers_to"
-                    && cloud.as_deref() == Some("work")
-                    && dst == &cloud_id),
+            links.iter().any(|(et, cloud, dst)| et == "refers_to"
+                && cloud.as_deref() == Some("work")
+                && dst == &cloud_id),
             "named cloud round-trips; got {links:?}"
         );
     }
@@ -1436,8 +1751,22 @@ mod tests {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("p");
 
-        let stay = write_episode(&store, EpisodeKind::Observation, Significance::Low, "stay-local", "local config noise").unwrap();
-        let shared = write_episode(&store, EpisodeKind::Observation, Significance::Low, "team-knowledge", "worth sharing").unwrap();
+        let stay = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "stay-local",
+            "local config noise",
+        )
+        .unwrap();
+        let shared = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "team-knowledge",
+            "worth sharing",
+        )
+        .unwrap();
         set_visibility(&store, &shared, Visibility::Shared).unwrap();
 
         let review = local_nodes_for_review(&store, "p").unwrap();

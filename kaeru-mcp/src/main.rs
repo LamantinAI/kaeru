@@ -31,22 +31,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use rmcp::transport::streamable_http_server::StreamableHttpServerConfig;
-use rmcp::transport::streamable_http_server::StreamableHttpService;
+use kaeru_core::{KaeruConfig, Store};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
+use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
 use tokio::net::TcpListener;
 use tokio::signal;
 use tokio_util::sync::CancellationToken;
 use tracing::Level;
-use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt;
 use tracing_subscriber::prelude::*;
+use tracing_subscriber::{EnvFilter, fmt};
 
-use kaeru_core::KaeruConfig;
-use kaeru_core::Store;
-
-use crate::cloud_client::CloudClient;
-use crate::cloud_client::CloudRegistry;
+use crate::cloud_client::{CloudClient, CloudRegistry};
 use crate::server::KaeruServer;
 use crate::settings::KaeruMcpConfig;
 
@@ -86,7 +81,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .filter(|(_, ep)| !ep.url.trim().is_empty())
         .map(|(name, ep)| {
-            (name.clone(), CloudClient::new(ep.url.clone(), ep.token.clone()))
+            (
+                name.clone(),
+                CloudClient::new(ep.url.clone(), ep.token.clone()),
+            )
         })
         .collect();
 
@@ -104,8 +102,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         });
     }
 
-    let default_name = (!mcp_config.default_cloud.trim().is_empty())
-        .then(|| mcp_config.default_cloud.clone());
+    let default_name =
+        (!mcp_config.default_cloud.trim().is_empty()).then(|| mcp_config.default_cloud.clone());
     let clouds = CloudRegistry::new(clients, default_name);
 
     if clouds.is_empty() {
@@ -180,7 +178,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let router = match mcp_config.auth_token.trim() {
         "" => {
             if mcp_config.listen_address.is_loopback() {
-                tracing::info!("bearer-token auth disabled (no KAERU_MCP_AUTH_TOKEN); loopback bind");
+                tracing::info!(
+                    "bearer-token auth disabled (no KAERU_MCP_AUTH_TOKEN); loopback bind"
+                );
             } else {
                 tracing::warn!(
                     listen_address = %mcp_config.listen_address,

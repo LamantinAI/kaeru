@@ -7,16 +7,13 @@
 
 use std::sync::Arc;
 
-use axum::Json;
-use axum::Router;
-use axum::extract::Path;
-use axum::extract::State;
+use axum::extract::{Path, State};
 use axum::routing::{delete, get, post};
-use serde::{Deserialize, Serialize};
-
+use axum::{Json, Router};
 use kaeru_core::{
     Error, Store, delete_initiative, edges_in_initiative, nodes_in_initiative, rename_initiative,
 };
+use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::Authenticated;
 use crate::api::router::edges::EdgeView;
@@ -113,7 +110,11 @@ async fn list_edges(
     let edges = edges_in_initiative(&store, &name)?;
     let views = edges
         .into_iter()
-        .map(|(src, dst, edge_type)| EdgeView { src, dst, edge_type })
+        .map(|(src, dst, edge_type)| EdgeView {
+            src,
+            dst,
+            edge_type,
+        })
         .collect();
     Ok(Json(views))
 }

@@ -6,13 +6,11 @@
 //! - [`at`] — what the node looked like at a particular moment.
 //! - [`history`] — every assertion / retraction recorded for a node.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
-use cozo::Validity;
 use std::collections::BTreeMap;
 
-use crate::errors::Error;
-use crate::errors::Result;
+use cozo::{DataValue, ScriptMutability, Validity};
+
+use crate::errors::{Error, Result};
 use crate::graph::NodeId;
 use crate::store::Store;
 

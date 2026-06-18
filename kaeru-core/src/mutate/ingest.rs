@@ -12,12 +12,11 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
+use super::{now_validity_seconds, tags_literal};
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{EdgeType, Layer, NodeId, NodeType, Tier, Visibility};
 use crate::store::Store;
-
-use super::{now_validity_seconds, tags_literal};
 
 /// Upserts a node under an explicit `id`, asserting a new bi-temporal
 /// version at NOW. Attaches it to `initiative` (when given) through the
@@ -96,12 +95,7 @@ pub fn upsert_node(
 /// just the nodes. No initiative junction is written — edges are scoped
 /// by their endpoints' `node_initiative` membership (both endpoints in
 /// the initiative), exactly as `export` and `between` scope them.
-pub fn upsert_edge(
-    store: &Store,
-    src: &NodeId,
-    dst: &NodeId,
-    edge_type: EdgeType,
-) -> Result<()> {
+pub fn upsert_edge(store: &Store, src: &NodeId, dst: &NodeId, edge_type: EdgeType) -> Result<()> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("src".to_string(), DataValue::Str(src.clone().into()));
     params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
@@ -134,15 +128,11 @@ pub fn upsert_edge(
 #[cfg(test)]
 mod tests {
     use super::upsert_node;
-    use crate::Layer;
-    use crate::NodeType;
-    use crate::Tier;
-    use crate::Visibility;
-    use crate::get_layer;
-    use crate::get_visibility;
-    use crate::list_initiatives;
-    use crate::node_brief_by_id;
     use crate::store::Store;
+    use crate::{
+        Layer, NodeType, Tier, Visibility, get_layer, get_visibility, list_initiatives,
+        node_brief_by_id,
+    };
 
     /// Ingest preserves the supplied id verbatim (so a remote soft link
     /// resolves), stores the given visibility, and attaches the node to the
@@ -171,7 +161,11 @@ mod tests {
         assert_eq!(brief.node_type, "idea");
         assert_eq!(brief.name, "shared-idea");
         assert_eq!(get_visibility(&store, &id).unwrap(), Visibility::Shared);
-        assert_eq!(get_layer(&store, &id).unwrap(), Layer::Core, "layer preserved");
+        assert_eq!(
+            get_layer(&store, &id).unwrap(),
+            Layer::Core,
+            "layer preserved"
+        );
         assert!(
             list_initiatives(&store)
                 .unwrap()

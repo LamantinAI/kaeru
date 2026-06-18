@@ -1,14 +1,14 @@
 //! Explicit lookup by `name`, plus a `count_by_type` helper used by tests
 //! and lint diagnostics. Both are simple `*node`-anchored-at-NOW reads.
 
-use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
 
+use cozo::{DataValue, ScriptMutability};
+
+use super::{NodeBrief, NodeFull, parse_brief};
 use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
-
-use super::{NodeBrief, NodeFull, parse_brief};
 
 /// Looks up a node id by its `name` at the current moment.
 /// Returns `None` if no node matches.

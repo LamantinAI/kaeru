@@ -7,16 +7,14 @@
 //! then `Warm` — exactly the priority the `Layer` enum was designed for.
 //! `awake` builds its `layered` view on top of this.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
+use cozo::{DataValue, ScriptMutability};
+
+use super::{NodeBrief, parse_brief};
 use crate::errors::Result;
 use crate::graph::Layer;
 use crate::store::Store;
-
-use super::NodeBrief;
-use super::parse_brief;
 
 /// One layer's worth of recalled nodes.
 #[derive(Debug, Clone)]
@@ -95,13 +93,8 @@ fn nodes_with_layer(store: &Store, layer: Layer) -> Result<Vec<NodeBrief>> {
 
 #[cfg(test)]
 mod tests {
-    use crate::EpisodeKind;
-    use crate::Layer;
-    use crate::Significance;
-    use crate::awake;
     use crate::store::Store;
-    use crate::write_episode;
-    use crate::write_episode_with_layer;
+    use crate::{EpisodeKind, Layer, Significance, awake, write_episode, write_episode_with_layer};
 
     /// `awake` returns Core → Hot → Warm in order, with the right node in
     /// each bucket, plus every initiative the substrate knows.
@@ -141,7 +134,14 @@ mod tests {
         // A node in another initiative must not leak into proj's buckets,
         // but its initiative must show up in `all_initiatives`.
         store.use_initiative("other");
-        write_episode(&store, EpisodeKind::Observation, Significance::Low, "x", "y").unwrap();
+        write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "x",
+            "y",
+        )
+        .unwrap();
 
         store.use_initiative("proj");
         let ctx = awake(&store).expect("awake");
@@ -151,12 +151,26 @@ mod tests {
         assert_eq!(ctx.layered[1].layer, Layer::Hot);
         assert_eq!(ctx.layered[2].layer, Layer::Warm);
 
-        assert!(ctx.layered[0].nodes.iter().any(|b| b.id == core), "core bucket has core-fact");
-        assert!(ctx.layered[1].nodes.iter().any(|b| b.id == hot), "hot bucket has hot-task");
-        assert!(ctx.layered[2].nodes.iter().any(|b| b.id == warm), "warm bucket has warm-note");
+        assert!(
+            ctx.layered[0].nodes.iter().any(|b| b.id == core),
+            "core bucket has core-fact"
+        );
+        assert!(
+            ctx.layered[1].nodes.iter().any(|b| b.id == hot),
+            "hot bucket has hot-task"
+        );
+        assert!(
+            ctx.layered[2].nodes.iter().any(|b| b.id == warm),
+            "warm bucket has warm-note"
+        );
 
         // No cross-bucket leakage.
-        assert!(!ctx.layered[0].nodes.iter().any(|b| b.id == hot || b.id == warm));
+        assert!(
+            !ctx.layered[0]
+                .nodes
+                .iter()
+                .any(|b| b.id == hot || b.id == warm)
+        );
 
         // all_initiatives spans every initiative, not just the active one.
         assert!(ctx.all_initiatives.iter().any(|n| n == "proj"));

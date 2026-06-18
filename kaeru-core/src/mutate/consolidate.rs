@@ -3,24 +3,18 @@
 //! `derived_from` is replicated onto the new node so it survives the
 //! tier boundary.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::errors::Result;
-use crate::graph::NodeId;
-use crate::graph::NodeType;
-use crate::graph::Tier;
-use crate::graph::audit::write_audit;
-use crate::graph::new_node_id;
-use crate::store::Store;
+use cozo::{DataValue, ScriptMutability};
 
-use super::attach_edge_to_initiative;
-use super::attach_node_to_initiative;
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::read_derived_from_targets;
-use super::tags_literal;
+use super::{
+    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
+    read_derived_from_targets, tags_literal,
+};
+use crate::errors::Result;
+use crate::graph::audit::write_audit;
+use crate::graph::{NodeId, NodeType, Tier, new_node_id};
+use crate::store::Store;
 
 /// Tier-promotion mutation: turns an operational node into an archival
 /// counterpart, preserving provenance.
@@ -113,7 +107,9 @@ fn consolidate(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s1, p1, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     // Step 2 — assert new node at the target tier.
     let assert_secs = now_validity_seconds();
@@ -131,7 +127,9 @@ fn consolidate(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s2, p2, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s2, p2, ScriptMutability::Mutable)?;
     attach_node_to_initiative(store, &new_id)?;
 
     // Step 3 — replicate derived_from edges so provenance survives the

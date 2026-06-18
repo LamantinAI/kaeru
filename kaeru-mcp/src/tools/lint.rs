@@ -1,14 +1,10 @@
 //! Diagnostic tool: `lint`.
 
+use kaeru_core::Store;
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use kaeru_core::Store;
-
-use crate::utils::brief_suffix;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{brief_suffix, text, to_mcp, with_initiative};
 
 pub fn lint(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {

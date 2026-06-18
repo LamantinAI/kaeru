@@ -2,18 +2,11 @@
 
 use std::str::FromStr;
 
+use kaeru_core::{Error, Layer, Store, set_layer as core_set_layer};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use kaeru_core::Error;
-use kaeru_core::Layer;
-use kaeru_core::Store;
-use kaeru_core::set_layer as core_set_layer;
-
-use crate::utils::resolve_name_or_id;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
 
 pub fn forget(
     store: &Store,
@@ -52,9 +45,7 @@ pub fn revise(
         let id = resolve_name_or_id(store, name)?;
         let brief = kaeru_core::node_brief_by_id(store, &id)
             .map_err(to_mcp)?
-            .ok_or_else(|| {
-                to_mcp(Error::NotFound(format!("node {name:?} not found at NOW")))
-            })?;
+            .ok_or_else(|| to_mcp(Error::NotFound(format!("node {name:?} not found at NOW"))))?;
         let new_name = rename.unwrap_or(&brief.name);
         let preserved_body = if body.is_none() {
             kaeru_core::summary_view(store, &id)

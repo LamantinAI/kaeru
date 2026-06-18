@@ -6,9 +6,9 @@
 //! - archival-only: Idea, Outcome, Reference.
 //! - both (semantics distinguished by `tier`): Concept, Entity, Summary.
 
-use serde::Deserialize;
-use serde::Serialize;
 use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::errors::Error;

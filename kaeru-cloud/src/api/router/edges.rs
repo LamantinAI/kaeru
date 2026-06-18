@@ -14,13 +14,12 @@
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::{Json, Router};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::post;
-use serde::{Deserialize, Serialize};
-
+use axum::{Json, Router};
 use kaeru_core::{EdgeType, Store, upsert_edge};
+use serde::{Deserialize, Serialize};
 
 use crate::api::extractors::Authenticated;
 use crate::api::state::AppState;
@@ -54,7 +53,9 @@ async fn ingest_edge(
     let edge_type =
         EdgeType::from_str(&req.edge_type).map_err(|e| ApiError::BadRequest(e.to_string()))?;
     if req.src.trim().is_empty() || req.dst.trim().is_empty() {
-        return Err(ApiError::BadRequest("src and dst must not be empty".to_string()));
+        return Err(ApiError::BadRequest(
+            "src and dst must not be empty".to_string(),
+        ));
     }
 
     upsert_edge(&store, &req.src, &req.dst, edge_type)?;

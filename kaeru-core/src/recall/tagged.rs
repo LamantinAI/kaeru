@@ -2,15 +2,13 @@
 //! NOW. Slices the graph by tag (`kind:observation`, `sig:high`,
 //! `role:review`, …).
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
+use cozo::{DataValue, ScriptMutability};
+
+use super::{NodeBrief, parse_brief};
 use crate::errors::Result;
 use crate::store::Store;
-
-use super::NodeBrief;
-use super::parse_brief;
 
 /// Returns briefs for nodes whose `tags` list contains `tag`, valid at
 /// NOW. Initiative-scoped when the store has a current initiative.

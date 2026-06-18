@@ -30,13 +30,38 @@ pub struct GuardHit {
 /// mistaken for an `sk-` token.
 const TOKEN_PREFIXES: &[(&str, usize, &str, &str)] = &[
     ("sk-", 20, "openai_key", "looks like an OpenAI API key"),
-    ("ghp_", 20, "github_pat", "looks like a GitHub personal access token"),
-    ("gho_", 20, "github_oauth", "looks like a GitHub OAuth token"),
-    ("ghs_", 20, "github_server", "looks like a GitHub server token"),
-    ("github_pat_", 20, "github_fine_pat", "looks like a fine-grained GitHub token"),
+    (
+        "ghp_",
+        20,
+        "github_pat",
+        "looks like a GitHub personal access token",
+    ),
+    (
+        "gho_",
+        20,
+        "github_oauth",
+        "looks like a GitHub OAuth token",
+    ),
+    (
+        "ghs_",
+        20,
+        "github_server",
+        "looks like a GitHub server token",
+    ),
+    (
+        "github_pat_",
+        20,
+        "github_fine_pat",
+        "looks like a fine-grained GitHub token",
+    ),
     ("xoxb-", 10, "slack_bot", "looks like a Slack bot token"),
     ("xoxp-", 10, "slack_user", "looks like a Slack user token"),
-    ("AKIA", 16, "aws_access_key", "looks like an AWS access key id"),
+    (
+        "AKIA",
+        16,
+        "aws_access_key",
+        "looks like an AWS access key id",
+    ),
     ("AIza", 30, "google_api_key", "looks like a Google API key"),
 ];
 
@@ -59,7 +84,11 @@ pub fn scan(content: &str) -> Vec<GuardHit> {
 
     for (prefix, min_suffix, rule, reason) in TOKEN_PREFIXES {
         if let Some(matched) = find_prefixed_token(content, prefix, *min_suffix) {
-            hits.push(GuardHit { rule, reason, matched });
+            hits.push(GuardHit {
+                rule,
+                reason,
+                matched,
+            });
         }
     }
 
@@ -123,7 +152,9 @@ fn find_secret_assignment(content: &str) -> Option<String> {
         if key.is_empty() || !SECRET_KEY_MARKERS.iter().any(|m| key.contains(m)) {
             continue;
         }
-        let value = rhs.trim().trim_matches(|c| c == '"' || c == '\'' || c == ' ');
+        let value = rhs
+            .trim()
+            .trim_matches(|c| c == '"' || c == '\'' || c == ' ');
         if value.len() >= 8 {
             return Some(truncate(line.trim()));
         }
@@ -143,8 +174,7 @@ fn truncate(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::is_clean;
-    use super::scan;
+    use super::{is_clean, scan};
 
     #[test]
     fn clean_content_has_no_hits() {

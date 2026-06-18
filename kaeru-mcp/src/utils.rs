@@ -10,13 +10,12 @@
 //! Nothing in here knows about specific MCP tools; it's pure glue.
 //! Call sites live in `tools/<group>.rs`.
 
-use chrono::{DateTime, NaiveDate, Utc};
-use rmcp::ErrorData as McpError;
-use rmcp::model::{CallToolResult, Content};
-
 use std::str::FromStr;
 
+use chrono::{DateTime, NaiveDate, Utc};
 use kaeru_core::{Error, Layer, NodeBrief, NodeId, Store, SummaryView, Tier};
+use rmcp::ErrorData as McpError;
+use rmcp::model::{CallToolResult, Content};
 
 // =========================================================================
 // Output builders
@@ -107,9 +106,7 @@ pub fn with_initiative<T>(
 pub fn resolve_name(store: &Store, name: &str) -> Result<NodeId, McpError> {
     kaeru_core::recall_id_by_name(store, name)
         .map_err(to_mcp)?
-        .ok_or_else(|| {
-            to_mcp(Error::NotFound(format!("no node named {name:?} at NOW")))
-        })
+        .ok_or_else(|| to_mcp(Error::NotFound(format!("no node named {name:?} at NOW"))))
 }
 
 /// UUIDv7 has 36 chars with dashes at fixed positions; cheap heuristic

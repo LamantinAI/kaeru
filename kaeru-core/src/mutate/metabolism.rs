@@ -2,21 +2,17 @@
 //! every connected edge; `improve` rewrites name/body in place via
 //! retract+reassert.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::errors::Error;
-use crate::errors::Result;
+use cozo::{DataValue, ScriptMutability};
+
+use super::{
+    build_body_tags, now_validity_seconds, read_connected_edges, read_type_tier_now, tags_literal,
+};
+use crate::errors::{Error, Result};
 use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
 use crate::store::Store;
-
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::read_connected_edges;
-use super::read_type_tier_now;
-use super::tags_literal;
 
 /// Bi-temporal forget: retracts a node and every edge connected to it
 /// (inbound or outbound) at NOW. Non-destructive — historical assertions
@@ -36,7 +32,10 @@ pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
         let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
         p.insert("src".to_string(), DataValue::Str(src.clone().into()));
         p.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
-        p.insert("edge_type".to_string(), DataValue::Str(edge_type.clone().into()));
+        p.insert(
+            "edge_type".to_string(),
+            DataValue::Str(edge_type.clone().into()),
+        );
         let s = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties] <-
@@ -44,7 +43,9 @@ pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
             :put edge {{src, dst, edge_type, validity => weight, properties}}
             "#
         );
-        store.db_ref().run_script(&s, p, ScriptMutability::Mutable)?;
+        store
+            .db_ref()
+            .run_script(&s, p, ScriptMutability::Mutable)?;
     }
 
     // Retract the node itself.
@@ -75,12 +76,7 @@ pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
 /// on the new revision. Callers who need to preserve those should write
 /// dedicated primitives (`retag`, `tag`, etc.) — they will land alongside
 /// the broader metabolism layer.
-pub fn improve(
-    store: &Store,
-    node_id: &NodeId,
-    new_name: &str,
-    new_body: &str,
-) -> Result<()> {
+pub fn improve(store: &Store, node_id: &NodeId, new_name: &str, new_body: &str) -> Result<()> {
     let (type_str, tier_str) = read_type_tier_now(store, node_id)?
         .ok_or_else(|| Error::NotFound(format!("node {node_id} not found at NOW")))?;
 
@@ -95,7 +91,9 @@ pub fn improve(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s1, p1, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     // Step 2 — re-assert with new name/body, preserved type/tier.
     let assert_secs = now_validity_seconds();
@@ -114,7 +112,9 @@ pub fn improve(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s2, p2, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
     write_audit(store.db_ref(), "improve", "system", &[node_id.clone()])?;
     Ok(())

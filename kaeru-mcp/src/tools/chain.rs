@@ -3,10 +3,9 @@
 //! shortest weighted path without saving). Chains let recall return a
 //! connected reasoning trail instead of an isolated, context-poor node.
 
+use kaeru_core::Store;
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
-
-use kaeru_core::Store;
 
 use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
 
@@ -78,7 +77,13 @@ pub fn read_chain(
         }
         let mut out = format!("chain `{name_or_id}` ({} nodes):\n", members.len());
         for (i, m) in members.iter().enumerate() {
-            out.push_str(&format!("{}. {} ({}) — {}\n", i + 1, m.name, m.node_type, m.id));
+            out.push_str(&format!(
+                "{}. {} ({}) — {}\n",
+                i + 1,
+                m.name,
+                m.node_type,
+                m.id
+            ));
             if let Some(e) = &m.body_excerpt {
                 out.push_str(&format!("   {e}\n"));
             }

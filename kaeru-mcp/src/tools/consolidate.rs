@@ -1,18 +1,10 @@
 //! Consolidation: `settle`, `reopen`, `synthesise`, `supersede`.
 
+use kaeru_core::{Error, NodeType, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use kaeru_core::Error;
-use kaeru_core::NodeType;
-use kaeru_core::Store;
-
-use crate::utils::parse_tier;
-use crate::utils::resolve_name;
-use crate::utils::resolve_name_or_id;
-use crate::utils::text;
-use crate::utils::to_mcp;
-use crate::utils::with_initiative;
+use crate::utils::{parse_tier, resolve_name, resolve_name_or_id, text, to_mcp, with_initiative};
 
 pub fn settle(
     store: &Store,
@@ -78,15 +70,9 @@ pub fn synthesise(
         for n in from {
             seed_ids.push(resolve_name(store, n)?);
         }
-        let id = kaeru_core::synthesise(
-            store,
-            &seed_ids,
-            new_type,
-            target_tier,
-            new_name,
-            new_body,
-        )
-        .map_err(to_mcp)?;
+        let id =
+            kaeru_core::synthesise(store, &seed_ids, new_type, target_tier, new_name, new_body)
+                .map_err(to_mcp)?;
         Ok(text(&format!(
             "synthesised: {new_name} ({} / {}) — {id}",
             new_type.as_str(),
@@ -111,15 +97,8 @@ pub fn supersede(
             Some(t) => parse_tier(t).map_err(to_mcp)?,
             None => new_type.default_tier(),
         };
-        let id = kaeru_core::supersedes(
-            store,
-            &old_id,
-            new_type,
-            target_tier,
-            new_name,
-            new_body,
-        )
-        .map_err(to_mcp)?;
+        let id = kaeru_core::supersedes(store, &old_id, new_type, target_tier, new_name, new_body)
+            .map_err(to_mcp)?;
         Ok(text(&format!(
             "superseded: {old} → {new_name} ({} / {}) — {id}",
             new_type.as_str(),

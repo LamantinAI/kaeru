@@ -34,14 +34,11 @@
 //! backfill): read the relation out, then `:replace <rel> { ...new schema }`
 //! with the same rows — Cozo fills the added column from its default.
 
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
-use cozo::DbInstance;
-use cozo::ScriptMutability;
+use cozo::{DbInstance, ScriptMutability};
 
-use crate::errors::Error;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 
 /// One forward-only migration. `name` must be unique and sort in application
 /// order; `up` must be idempotent (safe to run against a vault that already
@@ -77,9 +74,8 @@ pub(crate) fn run_migrations(db: &DbInstance, fresh: bool) -> Result<()> {
         if applied.contains(m.name) {
             continue;
         }
-        (m.up)(db).map_err(|e| {
-            Error::SchemaBootstrap(format!("migration `{}` failed: {e:?}", m.name))
-        })?;
+        (m.up)(db)
+            .map_err(|e| Error::SchemaBootstrap(format!("migration `{}` failed: {e:?}", m.name)))?;
         stamp(db, m.name)?;
     }
     Ok(())
@@ -176,13 +172,12 @@ fn m0001_chain_member(db: &DbInstance) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::index_exists;
-    use super::relation_exists;
-    use super::run_migrations;
-    use crate::store::Store;
-    use cozo::DbInstance;
-    use cozo::ScriptMutability;
     use std::collections::BTreeMap;
+
+    use cozo::{DbInstance, ScriptMutability};
+
+    use super::{index_exists, relation_exists, run_migrations};
+    use crate::store::Store;
 
     /// A fresh `Store` open stamps every registered migration as applied
     /// (baseline) — none should be left pending.
@@ -218,12 +213,21 @@ mod tests {
             ScriptMutability::Mutable,
         )
         .unwrap();
-        assert!(!relation_exists(&db, "chain_member").unwrap(), "absent before");
+        assert!(
+            !relation_exists(&db, "chain_member").unwrap(),
+            "absent before"
+        );
 
         run_migrations(&db, false).expect("migrate legacy");
 
-        assert!(relation_exists(&db, "chain_member").unwrap(), "created by 0001");
-        assert!(index_exists(&db, "chain_member", "by_node").unwrap(), "index created");
+        assert!(
+            relation_exists(&db, "chain_member").unwrap(),
+            "created by 0001"
+        );
+        assert!(
+            index_exists(&db, "chain_member", "by_node").unwrap(),
+            "index created"
+        );
 
         let journal = db
             .run_script(
@@ -253,9 +257,9 @@ mod tests {
     /// `chain_member` present — without wiping the row that was already there.
     #[test]
     fn disk_legacy_vault_upgrades_on_reopen() {
+        use std::{env, fs};
+
         use crate::new_node_id;
-        use std::env;
-        use std::fs;
 
         let path = env::temp_dir().join(format!("kaeru-mig-disk-{}", new_node_id()));
 
@@ -276,7 +280,10 @@ mod tests {
                 ScriptMutability::Mutable,
             )
             .unwrap();
-            assert!(!relation_exists(&db, "chain_member").unwrap(), "absent at create");
+            assert!(
+                !relation_exists(&db, "chain_member").unwrap(),
+                "absent at create"
+            );
         }
 
         // Reopen through Store::open — bootstrap sees `node` present (legacy),

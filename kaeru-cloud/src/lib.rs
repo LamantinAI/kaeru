@@ -17,10 +17,9 @@ pub mod errors;
 
 use std::sync::Arc;
 
+use kaeru_core::Store;
 use tokio::net::TcpListener;
 use tokio::signal;
-
-use kaeru_core::Store;
 
 use crate::api::router::api_router;
 use crate::api::state::AppState;
@@ -45,7 +44,10 @@ pub async fn run(cloud_config: KaeruCloudConfig, store: Store) -> Result<(), Sta
 
     let router = api_router(state);
 
-    let address = format!("{}:{}", cloud_config.listen_address, cloud_config.listen_port);
+    let address = format!(
+        "{}:{}",
+        cloud_config.listen_address, cloud_config.listen_port
+    );
     let listener = TcpListener::bind(&address).await?;
     tracing::info!(%address, "kaeru-cloud listening — point the local daemon's cloud tools here");
 

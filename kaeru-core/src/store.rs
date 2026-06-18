@@ -4,17 +4,15 @@
 //! schema bootstrap. Higher-level primitives (`write_episode`, `recall`,
 //! `link`, `walk`, ...) sit in sibling modules and run scripts through here.
 
-use cozo::DbInstance;
-use cozo::NamedRows;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
 
+use cozo::{DbInstance, NamedRows, ScriptMutability};
+
 use crate::config::KaeruConfig;
-use crate::errors::Error;
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 
 /// In-process handle to the kaeru substrate.
 pub struct Store {
@@ -77,9 +75,7 @@ impl Store {
 
         let path_str = config.vault_path.to_string_lossy();
         let db = DbInstance::new("rocksdb", path_str.as_ref(), "").map_err(|e| {
-            Error::Substrate(format!(
-                "failed to open cozo rocksdb at {path_str}: {e:?}"
-            ))
+            Error::Substrate(format!("failed to open cozo rocksdb at {path_str}: {e:?}"))
         })?;
 
         let store = Self {
@@ -115,10 +111,7 @@ impl Store {
 
     /// Returns a copy of the current initiative name, if any.
     pub fn current_initiative(&self) -> Option<String> {
-        self.current_initiative
-            .lock()
-            .ok()
-            .and_then(|g| g.clone())
+        self.current_initiative.lock().ok().and_then(|g| g.clone())
     }
 
     /// Runs a CozoScript that may mutate state.
@@ -154,9 +147,9 @@ impl Store {
     /// one (new relations / columns added since it was created). See
     /// [`crate::migrate`].
     fn bootstrap_schema(&self) -> Result<()> {
-        let existing = self
-            .db
-            .run_script("::relations", BTreeMap::new(), ScriptMutability::Immutable)?;
+        let existing =
+            self.db
+                .run_script("::relations", BTreeMap::new(), ScriptMutability::Immutable)?;
         let node_present = existing.rows.iter().any(|row| {
             row.first()
                 .and_then(|v| v.get_str())
@@ -179,9 +172,11 @@ impl Store {
     /// Creates the FTS indexes on `node:fts_name` and `node:fts_body`
     /// if they don't yet exist. Idempotent.
     fn ensure_fts_indexes(&self) -> Result<()> {
-        let listed = self
-            .db
-            .run_script("::indices node", BTreeMap::new(), ScriptMutability::Immutable)?;
+        let listed = self.db.run_script(
+            "::indices node",
+            BTreeMap::new(),
+            ScriptMutability::Immutable,
+        )?;
         let mut existing: std::collections::HashSet<String> = std::collections::HashSet::new();
         for row in &listed.rows {
             if let Some(name) = row.first().and_then(|v| v.get_str()) {
@@ -347,7 +342,15 @@ mod tests {
             .iter()
             .filter_map(|row| row.first().and_then(|v| v.get_str()).map(String::from))
             .collect();
-        for expected in ["node", "edge", "node_initiative", "edge_initiative", "session_pin", "initiative", "chain_member"] {
+        for expected in [
+            "node",
+            "edge",
+            "node_initiative",
+            "edge_initiative",
+            "session_pin",
+            "initiative",
+            "chain_member",
+        ] {
             assert!(
                 names.iter().any(|n| n == expected),
                 "{expected} relation must be present"

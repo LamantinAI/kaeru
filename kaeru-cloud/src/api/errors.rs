@@ -5,8 +5,7 @@
 
 use axum::Json;
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
 use crate::errors::ApiError;

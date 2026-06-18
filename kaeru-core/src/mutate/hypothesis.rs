@@ -3,18 +3,18 @@
 //! tags, retract, re-assert with new status tag) plus an optional
 //! `verifies` / `falsifies` edge.
 
-use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
 
-use crate::errors::{Error, Result};
-use crate::graph::audit::write_audit;
-use crate::graph::{HypothesisStatus, Layer, NodeId, new_node_id};
-use crate::store::Store;
+use cozo::{DataValue, ScriptMutability};
 
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
     read_name_body_now, tags_literal,
 };
+use crate::errors::{Error, Result};
+use crate::graph::audit::write_audit;
+use crate::graph::{HypothesisStatus, Layer, NodeId, new_node_id};
+use crate::store::Store;
 
 /// Creates a new hypothesis node carrying `claim` as its body.
 /// Initial status is `Open` (encoded in tags). Returns the hypothesis id.
@@ -53,7 +53,12 @@ pub fn formulate_hypothesis_with_layer(
         .run_script(&script, params, ScriptMutability::Mutable)?;
 
     attach_node_to_initiative(store, &id)?;
-    write_audit(store.db_ref(), "formulate_hypothesis", "system", &[id.clone()])?;
+    write_audit(
+        store.db_ref(),
+        "formulate_hypothesis",
+        "system",
+        &[id.clone()],
+    )?;
     Ok(id)
 }
 
@@ -82,13 +87,18 @@ pub fn run_experiment(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s1, p1, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     // Step 2 — targets edge: experiment → hypothesis.
     let edge_secs = now_validity_seconds();
     let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
     p2.insert("src".to_string(), DataValue::Str(id.clone().into()));
-    p2.insert("dst".to_string(), DataValue::Str(hypothesis_id.clone().into()));
+    p2.insert(
+        "dst".to_string(),
+        DataValue::Str(hypothesis_id.clone().into()),
+    );
     let s2 = format!(
         r#"
         ?[src, dst, edge_type, validity, weight, properties] <-
@@ -96,7 +106,9 @@ pub fn run_experiment(
         :put edge {{src, dst, edge_type, validity => weight, properties}}
         "#
     );
-    store.db_ref().run_script(&s2, p2, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
     attach_node_to_initiative(store, &id)?;
     attach_edge_to_initiative(store, &id, hypothesis_id, "targets")?;
@@ -128,7 +140,10 @@ pub fn update_hypothesis_status(
     // Step 1 — retract current row.
     let retract_secs = now_validity_seconds();
     let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
-    p1.insert("id".to_string(), DataValue::Str(hypothesis_id.clone().into()));
+    p1.insert(
+        "id".to_string(),
+        DataValue::Str(hypothesis_id.clone().into()),
+    );
     let s1 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
@@ -136,7 +151,9 @@ pub fn update_hypothesis_status(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s1, p1, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     // Step 2 — re-assert with new status tag.
     let assert_secs = now_validity_seconds();
@@ -149,7 +166,10 @@ pub fn update_hypothesis_status(
     };
     let tags = tags_literal(&all_tags);
     let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
-    p2.insert("id".to_string(), DataValue::Str(hypothesis_id.clone().into()));
+    p2.insert(
+        "id".to_string(),
+        DataValue::Str(hypothesis_id.clone().into()),
+    );
     p2.insert("name".to_string(), DataValue::Str(name.into()));
     match body {
         Some(b) => {
@@ -166,7 +186,9 @@ pub fn update_hypothesis_status(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s2, p2, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
     // Step 3 — verdict edge (only for Supported / Refuted).
     let verdict_edge = match new_status {
@@ -178,7 +200,10 @@ pub fn update_hypothesis_status(
         let edge_secs = now_validity_seconds();
         let mut p3: BTreeMap<String, DataValue> = BTreeMap::new();
         p3.insert("src".to_string(), DataValue::Str(by.clone().into()));
-        p3.insert("dst".to_string(), DataValue::Str(hypothesis_id.clone().into()));
+        p3.insert(
+            "dst".to_string(),
+            DataValue::Str(hypothesis_id.clone().into()),
+        );
         let s3 = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties] <-
@@ -186,7 +211,9 @@ pub fn update_hypothesis_status(
             :put edge {{src, dst, edge_type, validity => weight, properties}}
             "#
         );
-        store.db_ref().run_script(&s3, p3, ScriptMutability::Mutable)?;
+        store
+            .db_ref()
+            .run_script(&s3, p3, ScriptMutability::Mutable)?;
         attach_edge_to_initiative(store, by, hypothesis_id, edge_type_str)?;
     }
 

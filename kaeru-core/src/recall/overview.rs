@@ -7,11 +7,9 @@
 //! and read the shape without round-tripping through the filesystem.
 //! Honours `Store.current_initiative()`.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
 use crate::store::Store;
@@ -104,7 +102,14 @@ pub fn overview(store: &Store) -> Result<String> {
             out.push_str(&format!("  {} ({})\n", root.name, root.node_type));
             let mut seen: HashSet<&str> = HashSet::new();
             seen.insert(root.id.as_str());
-            render_subtree(&mut out, &root.id, &outgoing_derived_from, &id_to_name, &mut seen, 2);
+            render_subtree(
+                &mut out,
+                &root.id,
+                &outgoing_derived_from,
+                &id_to_name,
+                &mut seen,
+                2,
+            );
         }
         out.push('\n');
     }

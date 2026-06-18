@@ -2,10 +2,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use kaeru_core::{NodeSnapshot, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
-
-use kaeru_core::{NodeSnapshot, Store};
 
 use crate::utils::{parse_when, resolve_name, text, to_mcp, with_initiative};
 
@@ -64,7 +63,10 @@ fn render(s: &NodeSnapshot, when: Option<&str>) -> String {
         }
     }
     out.push_str(&format!("{} ({} / {})\n", s.name, s.tier, s.node_type));
-    out.push_str(&format!("layer: {}   visibility: {}\n", s.layer, s.visibility));
+    out.push_str(&format!(
+        "layer: {}   visibility: {}\n",
+        s.layer, s.visibility
+    ));
     if !s.tags.is_empty() {
         out.push_str(&format!("tags: {}\n", s.tags.join(", ")));
     }

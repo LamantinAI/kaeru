@@ -9,11 +9,10 @@ use std::collections::{BTreeMap, HashSet};
 
 use cozo::{DataValue, ScriptMutability};
 
+use super::{NodeBrief, node_brief_by_id};
 use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
-
-use super::{NodeBrief, node_brief_by_id};
 
 /// Ordered node ids along the shortest weighted path from `from` to `to`,
 /// or an empty vec when unreachable. Initiative-scoped via
@@ -142,10 +141,38 @@ mod tests {
     fn shortest_path_prefers_strong_edges() {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("p");
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
-        let c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
-        let d = write_episode(&store, EpisodeKind::Observation, Significance::Low, "d", "D").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
+        let c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "c",
+            "C",
+        )
+        .unwrap();
+        let d = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "d",
+            "D",
+        )
+        .unwrap();
 
         link_with_weight(&store, &a, &b, EdgeType::RefersTo, 0.2).unwrap();
         link_with_weight(&store, &b, &d, EdgeType::RefersTo, 0.2).unwrap();
@@ -167,15 +194,43 @@ mod tests {
         cfg.chain_min_weight = 0.5;
         let store = Store::open_in_memory_with(cfg).expect("open");
         store.use_initiative("p");
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
         // Only a weak route exists; the floor removes it.
         link_with_weight(&store, &a, &b, EdgeType::RefersTo, 0.2).unwrap();
-        assert!(shortest_path(&store, &a, &b).unwrap().is_empty(), "weak edge filtered out");
+        assert!(
+            shortest_path(&store, &a, &b).unwrap().is_empty(),
+            "weak edge filtered out"
+        );
 
         // A strong-enough edge survives the same floor.
-        let c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
+        let c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "c",
+            "C",
+        )
+        .unwrap();
         link_with_weight(&store, &a, &c, EdgeType::RefersTo, 0.8).unwrap();
-        assert_eq!(shortest_path(&store, &a, &c).unwrap(), vec![a, c], "strong edge kept");
+        assert_eq!(
+            shortest_path(&store, &a, &c).unwrap(),
+            vec![a, c],
+            "strong edge kept"
+        );
     }
 }

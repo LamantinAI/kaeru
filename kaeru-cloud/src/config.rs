@@ -6,14 +6,10 @@
 //! as the local daemon does. Defaults are merged with `KAERU_CLOUD_*` env
 //! overrides through the `config` crate.
 
-use std::net::IpAddr;
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 
-use config::Config;
-use config::ConfigError;
-use config::Environment;
-use serde::Deserialize;
-use serde::Serialize;
+use config::{Config, ConfigError, Environment};
+use serde::{Deserialize, Serialize};
 
 /// Tunables for the cloud HTTP service. Env mapping:
 /// `KAERU_CLOUD_<FIELD_UPPERCASE>` (e.g. `KAERU_CLOUD_LISTEN_PORT`,

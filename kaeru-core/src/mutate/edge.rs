@@ -1,17 +1,14 @@
 //! Edge-level mutations: `link` (assert) and `unlink` (retract).
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::errors::Result;
-use crate::graph::EdgeType;
-use crate::graph::NodeId;
-use crate::graph::audit::write_audit;
-use crate::store::Store;
+use cozo::{DataValue, ScriptMutability};
 
-use super::attach_edge_to_initiative;
-use super::now_validity_seconds;
+use super::{attach_edge_to_initiative, now_validity_seconds};
+use crate::errors::Result;
+use crate::graph::audit::write_audit;
+use crate::graph::{EdgeType, NodeId};
+use crate::store::Store;
 
 /// Creates a typed directed edge at full strength (`weight = 1.0`) and
 /// writes an audit_event.
@@ -55,7 +52,12 @@ pub fn link_with_weight(
         .run_script(&script, params, ScriptMutability::Mutable)?;
 
     attach_edge_to_initiative(store, src, dst, edge_type.as_str())?;
-    write_audit(store.db_ref(), "link", "system", &[src.clone(), dst.clone()])?;
+    write_audit(
+        store.db_ref(),
+        "link",
+        "system",
+        &[src.clone(), dst.clone()],
+    )?;
     Ok(())
 }
 
@@ -98,7 +100,10 @@ pub fn link_remote_to(
 
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("src".to_string(), DataValue::Str(src.clone().into()));
-    params.insert("dst".to_string(), DataValue::Str(dst_cloud_id.clone().into()));
+    params.insert(
+        "dst".to_string(),
+        DataValue::Str(dst_cloud_id.clone().into()),
+    );
     params.insert(
         "edge_type".to_string(),
         DataValue::Str(edge_type.as_str().into()),
@@ -134,12 +139,7 @@ pub fn link_remote_to(
 ///
 /// No-op-safe: retracting an edge that was never asserted is harmless —
 /// the substrate just records a retraction with no effect on reads.
-pub fn unlink(
-    store: &Store,
-    src: &NodeId,
-    dst: &NodeId,
-    edge_type: EdgeType,
-) -> Result<()> {
+pub fn unlink(store: &Store, src: &NodeId, dst: &NodeId, edge_type: EdgeType) -> Result<()> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("src".to_string(), DataValue::Str(src.clone().into()));
     params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));

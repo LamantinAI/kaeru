@@ -21,15 +21,11 @@
 
 use std::sync::Arc;
 
-use axum::extract::Request;
-use axum::extract::State;
-use axum::http::HeaderValue;
-use axum::http::StatusCode;
-use axum::http::header::AUTHORIZATION;
-use axum::http::header::WWW_AUTHENTICATE;
+use axum::extract::{Request, State};
+use axum::http::header::{AUTHORIZATION, WWW_AUTHENTICATE};
+use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::Next;
-use axum::response::IntoResponse;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 
 /// axum middleware that rejects any request lacking a matching bearer
 /// token. The expected token is injected as state via
@@ -96,9 +92,9 @@ fn unauthorized() -> Response {
 
 #[cfg(test)]
 mod tests {
-    use super::bearer_token;
-    use super::constant_time_eq;
     use axum::http::HeaderValue;
+
+    use super::{bearer_token, constant_time_eq};
 
     fn parse(raw: &str) -> Option<String> {
         bearer_token(&HeaderValue::from_str(raw).unwrap()).map(str::to_owned)

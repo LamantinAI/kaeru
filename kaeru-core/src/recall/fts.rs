@@ -7,16 +7,13 @@
 //! deduplicated by node id. The score that wins for a duplicate id is
 //! the larger of the per-index scores.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
-use std::collections::BTreeMap;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
+use cozo::{DataValue, ScriptMutability};
+
+use super::{NodeBrief, parse_brief};
 use crate::errors::Result;
 use crate::store::Store;
-
-use super::NodeBrief;
-use super::parse_brief;
 
 /// Maximum results [`fuzzy_recall`] may return per call. Mirrors the
 /// pattern used elsewhere — bound the working set so the agent's
@@ -88,10 +85,7 @@ pub fn fuzzy_recall(store: &Store, query: &str, limit: usize) -> Result<Vec<Node
         let Some(id) = row.first().and_then(|v| v.get_str()).map(String::from) else {
             continue;
         };
-        let score = row
-            .get(4)
-            .and_then(|v| v.get_float())
-            .unwrap_or(0.0);
+        let score = row.get(4).and_then(|v| v.get_float()).unwrap_or(0.0);
         let brief = parse_brief(row.as_slice(), excerpt_chars);
         match best.get(&id) {
             Some((prev, _)) if *prev >= score => continue,

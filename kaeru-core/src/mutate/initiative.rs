@@ -10,11 +10,10 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, NamedRows, ScriptMutability};
 
+use super::forget;
 use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::store::Store;
-
-use super::forget;
 
 /// Counts moved by [`rename_initiative`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +75,9 @@ pub fn rename_initiative(store: &Store, old: &str, new: &str) -> Result<RenameSt
         ));
     }
     if old == new_t {
-        return Err(Error::Invalid("old and new names are identical".to_string()));
+        return Err(Error::Invalid(
+            "old and new names are identical".to_string(),
+        ));
     }
 
     // Collision guard: refuse if `new` already has any node or a policy row.
@@ -238,7 +239,7 @@ mod tests {
     use crate::graph::EdgeType;
     use crate::store::Store;
     use crate::{
-        EpisodeKind, Significance, SharePolicy, get_share_policy, link, list_initiatives,
+        EpisodeKind, SharePolicy, Significance, get_share_policy, link, list_initiatives,
         recall_id_by_name, set_share_policy, write_episode,
     };
 
@@ -246,8 +247,22 @@ mod tests {
     fn rename_moves_nodes_edges_and_policy() {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("old-proj");
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
         link(&store, &a, &b, EdgeType::Causal).unwrap();
         set_share_policy(&store, "old-proj", SharePolicy::Team).unwrap();
 
@@ -259,8 +274,14 @@ mod tests {
         assert!(!inits.iter().any(|n| n == "old-proj"), "old name gone");
 
         // Policy moved to the new name; old falls back to the default.
-        assert_eq!(get_share_policy(&store, "new-proj").unwrap(), SharePolicy::Team);
-        assert_eq!(get_share_policy(&store, "old-proj").unwrap(), SharePolicy::Private);
+        assert_eq!(
+            get_share_policy(&store, "new-proj").unwrap(),
+            SharePolicy::Team
+        );
+        assert_eq!(
+            get_share_policy(&store, "old-proj").unwrap(),
+            SharePolicy::Private
+        );
 
         // Nodes resolve under the new scope, not the old.
         store.use_initiative("new-proj");
@@ -273,18 +294,49 @@ mod tests {
     fn rename_rejects_existing_target() {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("a");
-        write_episode(&store, EpisodeKind::Observation, Significance::Low, "na", "x").unwrap();
+        write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "na",
+            "x",
+        )
+        .unwrap();
         store.use_initiative("b");
-        write_episode(&store, EpisodeKind::Observation, Significance::Low, "nb", "y").unwrap();
-        assert!(rename_initiative(&store, "a", "b").is_err(), "merge into existing refused");
+        write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "nb",
+            "y",
+        )
+        .unwrap();
+        assert!(
+            rename_initiative(&store, "a", "b").is_err(),
+            "merge into existing refused"
+        );
     }
 
     #[test]
     fn delete_forgets_exclusive_keeps_shared() {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("proj");
-        let x = write_episode(&store, EpisodeKind::Observation, Significance::Low, "x-excl", "X").unwrap();
-        let y = write_episode(&store, EpisodeKind::Observation, Significance::Low, "y-shared", "Y").unwrap();
+        let x = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "x-excl",
+            "X",
+        )
+        .unwrap();
+        let y = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "y-shared",
+            "Y",
+        )
+        .unwrap();
 
         // Also attach y to a second initiative `keep` (direct junction write).
         store
@@ -308,9 +360,15 @@ mod tests {
         assert!(inits.iter().any(|n| n == "keep"));
 
         store.use_initiative("keep");
-        assert!(recall_id_by_name(&store, "y-shared").unwrap().is_some(), "y kept");
+        assert!(
+            recall_id_by_name(&store, "y-shared").unwrap().is_some(),
+            "y kept"
+        );
         store.clear_initiative();
-        assert!(recall_id_by_name(&store, "x-excl").unwrap().is_none(), "x forgotten at NOW");
+        assert!(
+            recall_id_by_name(&store, "x-excl").unwrap().is_none(),
+            "x forgotten at NOW"
+        );
         let _ = x;
     }
 }

@@ -3,14 +3,14 @@
 //! to. Mutations populate `node_initiative` automatically when the
 //! `Store` has a `current_initiative` set.
 
-use cozo::{DataValue, ScriptMutability};
 use std::collections::BTreeMap;
 
+use cozo::{DataValue, ScriptMutability};
+
+use super::{NodeBrief, parse_brief};
 use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
-
-use super::{NodeBrief, parse_brief};
 
 /// Returns every initiative name that has at least one node attached
 /// through the `node_initiative` junction. Sorted alphabetically.

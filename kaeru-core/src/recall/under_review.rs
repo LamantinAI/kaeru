@@ -1,9 +1,9 @@
 //! `under_review_pinned` — open-review queue surfaced by
 //! `mark_under_review`. Targets of inbound `contradicts` edges valid at NOW.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
+
+use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
 use crate::graph::NodeId;

@@ -11,20 +11,13 @@
 
 use std::sync::Arc;
 
-use rmcp::ErrorData as McpError;
-use rmcp::ServerHandler;
+use kaeru_core::Store;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::CallToolResult;
-use rmcp::model::Implementation;
-use rmcp::model::ProtocolVersion;
-use rmcp::model::ServerCapabilities;
-use rmcp::model::ServerInfo;
-use rmcp::tool;
-use rmcp::tool_handler;
-use rmcp::tool_router;
-
-use kaeru_core::Store;
+use rmcp::model::{
+    CallToolResult, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
+};
+use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 
 use crate::cloud_client::CloudRegistry;
 use crate::params::*;
@@ -57,22 +50,30 @@ impl KaeruServer {
 #[tool_router]
 impl KaeruServer {
     // ----- Re-entry / session -------------------------------------------
-    #[tool(description = "Restore session context: pinned set, recent episodes (24h), open reviews. Run this when re-entering a project.")]
+    #[tool(
+        description = "Restore session context: pinned set, recent episodes (24h), open reviews. Run this when re-entering a project."
+    )]
     fn awake(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         tools::session::awake(&self.store, p.initiative.as_deref())
     }
 
-    #[tool(description = "Print a terminal-readable map of the substrate: counts by tier/type, provenance forests, open questions, edge stats.")]
+    #[tool(
+        description = "Print a terminal-readable map of the substrate: counts by tier/type, provenance forests, open questions, edge stats."
+    )]
     fn overview(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         tools::session::overview(&self.store, p.initiative.as_deref())
     }
 
-    #[tool(description = "List initiatives that have at least one node attached. Use this first when re-entering, then pick one for subsequent calls.")]
+    #[tool(
+        description = "List initiatives that have at least one node attached. Use this first when re-entering, then pick one for subsequent calls."
+    )]
     fn initiatives(&self) -> Result<CallToolResult, McpError> {
         tools::session::initiatives(&self.store)
     }
 
-    #[tool(description = "List episodes whose latest assertion is within the time window (defaults 24h). Use `since` like `30m`, `3h`, `2d`, or raw seconds.")]
+    #[tool(
+        description = "List episodes whose latest assertion is within the time window (defaults 24h). Use `since` like `30m`, `3h`, `2d`, or raw seconds."
+    )]
     fn recent(&self, Parameters(p): Parameters<RecentParams>) -> Result<CallToolResult, McpError> {
         tools::session::recent(&self.store, &p.since, p.initiative.as_deref())
     }
@@ -87,112 +88,266 @@ impl KaeruServer {
         tools::session::unpin(&self.store, &p.name, p.initiative.as_deref())
     }
 
-    #[tool(description = "Show resolved configuration: vault path and every cap (initiative not relevant).")]
+    #[tool(
+        description = "Show resolved configuration: vault path and every cap (initiative not relevant)."
+    )]
     fn config(&self) -> Result<CallToolResult, McpError> {
         tools::session::config(&self.store)
     }
 
-    #[tool(description = "Read FIRST before bulk-importing knowledge. Returns the import playbook: scope by initiative, pick the verb by epistemic status, stamp the memory layer at creation by importance, and link after capturing.")]
+    #[tool(
+        description = "Read FIRST before bulk-importing knowledge. Returns the import playbook: scope by initiative, pick the verb by epistemic status, stamp the memory layer at creation by importance, and link after capturing."
+    )]
     fn import(&self) -> Result<CallToolResult, McpError> {
         tools::session::import_guide()
     }
 
-    #[tool(description = "Explicit layered recall — surface nodes from specific memory layers (default `cold,frozen`) that `awake` does not load. Use when you deliberately need archived/not-surfaced material. `layers` is a comma/space list; scoped to `initiative` when given.")]
-    fn surface(&self, Parameters(p): Parameters<SurfaceParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Explicit layered recall — surface nodes from specific memory layers (default `cold,frozen`) that `awake` does not load. Use when you deliberately need archived/not-surfaced material. `layers` is a comma/space list; scoped to `initiative` when given."
+    )]
+    fn surface(
+        &self,
+        Parameters(p): Parameters<SurfaceParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::session::surface(&self.store, p.layers.as_deref(), p.initiative.as_deref())
     }
 
     // ----- Capture -------------------------------------------------------
-    #[tool(description = "Write a deliberately-named operational episode. Use when you know you'll want to recall by exact name. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call.")]
-    async fn episode(&self, Parameters(p): Parameters<EpisodeParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::episode(&self.store, self.clouds.get(None), &p.name, &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
+    #[tool(
+        description = "Write a deliberately-named operational episode. Use when you know you'll want to recall by exact name. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call."
+    )]
+    async fn episode(
+        &self,
+        Parameters(p): Parameters<EpisodeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::capture::episode(
+            &self.store,
+            self.clouds.get(None),
+            &p.name,
+            &p.body,
+            p.layer.as_deref(),
+            p.visibility.as_deref(),
+            p.initiative.as_deref(),
+        )
+        .await
     }
 
-    #[tool(description = "Low-friction episode write — auto-named from body's first words plus a unique id suffix. Defaults to observation/low. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call.")]
+    #[tool(
+        description = "Low-friction episode write — auto-named from body's first words plus a unique id suffix. Defaults to observation/low. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call."
+    )]
     async fn jot(&self, Parameters(p): Parameters<JotParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::jot(&self.store, self.clouds.get(None), &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
+        tools::capture::jot(
+            &self.store,
+            self.clouds.get(None),
+            &p.body,
+            p.layer.as_deref(),
+            p.visibility.as_deref(),
+            p.initiative.as_deref(),
+        )
+        .await
     }
 
-    #[tool(description = "Create a typed edge between two named nodes. Edge type defaults to `refers_to`. Optional `weight` (0..1) or `strong=true` sets the connection strength used by knowledge chains — stronger links make shorter chain paths.")]
+    #[tool(
+        description = "Create a typed edge between two named nodes. Edge type defaults to `refers_to`. Optional `weight` (0..1) or `strong=true` sets the connection strength used by knowledge chains — stronger links make shorter chain paths."
+    )]
     fn link(&self, Parameters(p): Parameters<LinkParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::link(&self.store, &p.from, &p.to, &p.edge_type, p.weight, p.strong, p.initiative.as_deref())
+        tools::capture::link(
+            &self.store,
+            &p.from,
+            &p.to,
+            &p.edge_type,
+            p.weight,
+            p.strong,
+            p.initiative.as_deref(),
+        )
     }
 
-    #[tool(description = "Retract a previously-asserted edge. Bi-temporal — historical reads still see it.")]
+    #[tool(
+        description = "Retract a previously-asserted edge. Bi-temporal — historical reads still see it."
+    )]
     fn unlink(&self, Parameters(p): Parameters<LinkParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::unlink(&self.store, &p.from, &p.to, &p.edge_type, p.initiative.as_deref())
+        tools::capture::unlink(
+            &self.store,
+            &p.from,
+            &p.to,
+            &p.edge_type,
+            p.initiative.as_deref(),
+        )
     }
 
     // ----- Knowledge chains ---------------------------------------------
-    #[tool(description = "Save the shortest weighted path between two nodes as a knowledge chain — an ordered, recallable reasoning trail. Stronger links (see `link` weight/strong) make shorter paths. Reports if the two are unconnected.")]
+    #[tool(
+        description = "Save the shortest weighted path between two nodes as a knowledge chain — an ordered, recallable reasoning trail. Stronger links (see `link` weight/strong) make shorter paths. Reports if the two are unconnected."
+    )]
     fn chain(&self, Parameters(p): Parameters<ChainParams>) -> Result<CallToolResult, McpError> {
-        tools::chain::chain(&self.store, &p.from, &p.to, p.name.as_deref(), p.initiative.as_deref())
+        tools::chain::chain(
+            &self.store,
+            &p.from,
+            &p.to,
+            p.name.as_deref(),
+            p.initiative.as_deref(),
+        )
     }
 
-    #[tool(description = "List the knowledge chains a node belongs to. When a single node is context-poor, see its chains and `read_chain` the relevant one.")]
+    #[tool(
+        description = "List the knowledge chains a node belongs to. When a single node is context-poor, see its chains and `read_chain` the relevant one."
+    )]
     fn chains(&self, Parameters(p): Parameters<ChainsParams>) -> Result<CallToolResult, McpError> {
         tools::chain::chains(&self.store, &p.name, p.initiative.as_deref())
     }
 
-    #[tool(description = "Read a knowledge chain's ordered members in full — the connected reasoning trail, instead of an isolated node.")]
-    fn read_chain(&self, Parameters(p): Parameters<ReadChainParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Read a knowledge chain's ordered members in full — the connected reasoning trail, instead of an isolated node."
+    )]
+    fn read_chain(
+        &self,
+        Parameters(p): Parameters<ReadChainParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::chain::read_chain(&self.store, &p.name, p.initiative.as_deref())
     }
 
-    #[tool(description = "Compute the shortest weighted path between two nodes WITHOUT saving it (preview). Use `chain` to persist one.")]
+    #[tool(
+        description = "Compute the shortest weighted path between two nodes WITHOUT saving it (preview). Use `chain` to persist one."
+    )]
     fn path(&self, Parameters(p): Parameters<PathParams>) -> Result<CallToolResult, McpError> {
         tools::chain::path(&self.store, &p.from, &p.to, p.initiative.as_deref())
     }
 
-    #[tool(description = "Record an archival reference. Two flavours: external source (pass `url` for papers / gists / dashboards) OR persona / entity (skip `url` for people, places, books without links). Both land in archival tier — long-term recall. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call.")]
-    async fn cite(&self, Parameters(p): Parameters<CiteParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::cite(&self.store, self.clouds.get(None), &p.name, p.url.as_deref(), &p.body, p.layer.as_deref(), p.visibility.as_deref(), p.initiative.as_deref()).await
+    #[tool(
+        description = "Record an archival reference. Two flavours: external source (pass `url` for papers / gists / dashboards) OR persona / entity (skip `url` for people, places, books without links). Both land in archival tier — long-term recall. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call."
+    )]
+    async fn cite(
+        &self,
+        Parameters(p): Parameters<CiteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::capture::cite(
+            &self.store,
+            self.clouds.get(None),
+            &p.name,
+            p.url.as_deref(),
+            &p.body,
+            p.layer.as_deref(),
+            p.visibility.as_deref(),
+            p.initiative.as_deref(),
+        )
+        .await
     }
 
     // ----- Cloud sharing & recall ---------------------------------------
-    #[tool(description = "Read or set an initiative's cloud sharing policy (Gate 1). Omit `policy` to read. Values: private (default — never leaves), team (shared nodes may sync), ask. Default for any initiative is private.")]
+    #[tool(
+        description = "Read or set an initiative's cloud sharing policy (Gate 1). Omit `policy` to read. Values: private (default — never leaves), team (shared nodes may sync), ask. Default for any initiative is private."
+    )]
     fn policy(&self, Parameters(p): Parameters<PolicyParams>) -> Result<CallToolResult, McpError> {
         tools::cloud::policy(&self.store, &p.initiative, p.policy.as_deref())
     }
 
-    #[tool(description = "Share a node to the team cloud. Gated: the initiative must be `team` (set via `policy`) AND the node must pass the pre-share secret guard. On success the node is marked shared locally and a copy is pushed to the cloud under the same id. Pass force=true to override the guard. In a multi-cloud setup pass `cloud` to target a specific cloud (default: the configured default).")]
-    async fn share(&self, Parameters(p): Parameters<ShareParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::share(&self.store, self.clouds.get(p.cloud.as_deref()), &p.name, &p.initiative, p.force).await
+    #[tool(
+        description = "Share a node to the team cloud. Gated: the initiative must be `team` (set via `policy`) AND the node must pass the pre-share secret guard. On success the node is marked shared locally and a copy is pushed to the cloud under the same id. Pass force=true to override the guard. In a multi-cloud setup pass `cloud` to target a specific cloud (default: the configured default)."
+    )]
+    async fn share(
+        &self,
+        Parameters(p): Parameters<ShareParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::cloud::share(
+            &self.store,
+            self.clouds.get(p.cloud.as_deref()),
+            &p.name,
+            &p.initiative,
+            p.force,
+        )
+        .await
     }
 
-    #[tool(description = "List shared nodes the cloud holds for an initiative — discovery for cross-session / cross-user recall. Then `pull` one to bring it into the local vault. In a multi-cloud setup pass `cloud` to target a specific cloud.")]
-    async fn cloud_recall(&self, Parameters(p): Parameters<CloudRecallParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "List shared nodes the cloud holds for an initiative — discovery for cross-session / cross-user recall. Then `pull` one to bring it into the local vault. In a multi-cloud setup pass `cloud` to target a specific cloud."
+    )]
+    async fn cloud_recall(
+        &self,
+        Parameters(p): Parameters<CloudRecallParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::cloud::cloud_recall(self.clouds.get(p.cloud.as_deref()), &p.initiative).await
     }
 
-    #[tool(description = "Pull a shared node from the cloud into the local vault by id, attaching it to the given initiative — the recall mechanism for team knowledge you don't have locally yet. In a multi-cloud setup pass `cloud` to target a specific cloud.")]
-    async fn pull(&self, Parameters(p): Parameters<PullParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::pull(&self.store, self.clouds.get(p.cloud.as_deref()), &p.id, &p.initiative).await
+    #[tool(
+        description = "Pull a shared node from the cloud into the local vault by id, attaching it to the given initiative — the recall mechanism for team knowledge you don't have locally yet. In a multi-cloud setup pass `cloud` to target a specific cloud."
+    )]
+    async fn pull(
+        &self,
+        Parameters(p): Parameters<PullParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::cloud::pull(
+            &self.store,
+            self.clouds.get(p.cloud.as_deref()),
+            &p.id,
+            &p.initiative,
+        )
+        .await
     }
 
-    #[tool(description = "Soft-link a local node to a cloud node by id (dst_store=cloud) — a reference without copying. Resolved lazily via `cloud_links`. Edge type defaults to refers_to. In a multi-cloud setup pass `cloud` to record which cloud the dst lives in.")]
-    fn link_cloud(&self, Parameters(p): Parameters<LinkCloudParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::link_cloud(&self.store, &self.clouds, &p.name, &p.cloud_id, p.edge_type.as_deref().unwrap_or("refers_to"), p.cloud.as_deref(), &p.initiative)
+    #[tool(
+        description = "Soft-link a local node to a cloud node by id (dst_store=cloud) — a reference without copying. Resolved lazily via `cloud_links`. Edge type defaults to refers_to. In a multi-cloud setup pass `cloud` to record which cloud the dst lives in."
+    )]
+    fn link_cloud(
+        &self,
+        Parameters(p): Parameters<LinkCloudParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::cloud::link_cloud(
+            &self.store,
+            &self.clouds,
+            &p.name,
+            &p.cloud_id,
+            p.edge_type.as_deref().unwrap_or("refers_to"),
+            p.cloud.as_deref(),
+            &p.initiative,
+        )
     }
 
-    #[tool(description = "Resolve a node's cloud soft links — fetch and show the cloud nodes they point to. The lazy-resolution path for soft links. Routes each link to the cloud it was created against (multi-cloud aware).")]
-    async fn cloud_links(&self, Parameters(p): Parameters<CloudLinksParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Resolve a node's cloud soft links — fetch and show the cloud nodes they point to. The lazy-resolution path for soft links. Routes each link to the cloud it was created against (multi-cloud aware)."
+    )]
+    async fn cloud_links(
+        &self,
+        Parameters(p): Parameters<CloudLinksParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::cloud::cloud_links(&self.store, &self.clouds, &p.name, &p.initiative).await
     }
 
-    #[tool(description = "Batch sync-review of a team initiative's still-local nodes: splits them into PROPOSE SHARE (guard-clean) vs KEEP LOCAL (secret-guard flagged). Review once, then `share` the approved ones — low-friction periodic sharing instead of deciding per capture.")]
-    fn sync_review(&self, Parameters(p): Parameters<SyncReviewParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Batch sync-review of a team initiative's still-local nodes: splits them into PROPOSE SHARE (guard-clean) vs KEEP LOCAL (secret-guard flagged). Review once, then `share` the approved ones — low-friction periodic sharing instead of deciding per capture."
+    )]
+    fn sync_review(
+        &self,
+        Parameters(p): Parameters<SyncReviewParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::cloud::sync_review(&self.store, &p.initiative)
     }
 
-    #[tool(description = "Rename an initiative — moves all its nodes, edges, and sharing policy to the new name (fails if the new name already exists). Local by default; pass cloud=true to ALSO rename it in the shared cloud (team-wide, affects everyone).")]
-    async fn rename_initiative(&self, Parameters(p): Parameters<RenameInitiativeParams>) -> Result<CallToolResult, McpError> {
-        tools::initiative::rename_initiative(&self.store, self.clouds.get(None), &p.old, &p.new, p.cloud).await
+    #[tool(
+        description = "Rename an initiative — moves all its nodes, edges, and sharing policy to the new name (fails if the new name already exists). Local by default; pass cloud=true to ALSO rename it in the shared cloud (team-wide, affects everyone)."
+    )]
+    async fn rename_initiative(
+        &self,
+        Parameters(p): Parameters<RenameInitiativeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::initiative::rename_initiative(
+            &self.store,
+            self.clouds.get(None),
+            &p.old,
+            &p.new,
+            p.cloud,
+        )
+        .await
     }
 
-    #[tool(description = "Delete an initiative — drops its scoping and forgets nodes exclusive to it (bi-temporal: recoverable via `at` at a past time). Nodes shared with other initiatives only lose this membership. Local by default; pass cloud=true to ALSO delete it from the shared cloud (team-wide, removes it for everyone).")]
-    async fn delete_initiative(&self, Parameters(p): Parameters<DeleteInitiativeParams>) -> Result<CallToolResult, McpError> {
-        tools::initiative::delete_initiative(&self.store, self.clouds.get(None), &p.name, p.cloud).await
+    #[tool(
+        description = "Delete an initiative — drops its scoping and forgets nodes exclusive to it (bi-temporal: recoverable via `at` at a past time). Nodes shared with other initiatives only lose this membership. Local by default; pass cloud=true to ALSO delete it from the shared cloud (team-wide, removes it for everyone)."
+    )]
+    async fn delete_initiative(
+        &self,
+        Parameters(p): Parameters<DeleteInitiativeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::initiative::delete_initiative(&self.store, self.clouds.get(None), &p.name, p.cloud)
+            .await
     }
 
     // ----- Lookup --------------------------------------------------------
@@ -201,17 +356,23 @@ impl KaeruServer {
         tools::lookup::recall(&self.store, &p.name, p.initiative.as_deref())
     }
 
-    #[tool(description = "Drill into a node — name → brief + 1-hop drill-down children (sources via derived_from, parts via part_of).")]
+    #[tool(
+        description = "Drill into a node — name → brief + 1-hop drill-down children (sources via derived_from, parts via part_of)."
+    )]
     fn drill(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::lookup::drill(&self.store, &p.name, p.initiative.as_deref())
     }
 
-    #[tool(description = "Walk derived_from ancestors of a node back to its sources — the provenance chain.")]
+    #[tool(
+        description = "Walk derived_from ancestors of a node back to its sources — the provenance chain."
+    )]
     fn trace(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::lookup::trace(&self.store, &p.name, p.initiative.as_deref())
     }
 
-    #[tool(description = "Full-text search across name and body via Cozo FTS. No stemming — search the form you wrote. For inflection-tolerant matching across any language append `*`: `утечк*` finds `утечку`/`утечке`, `token*` finds `tokens`/`tokenize`. Search in the SAME language as the original capture, not in English. Results are ordered by score, then newest-first within equal scores.")]
+    #[tool(
+        description = "Full-text search across name and body via Cozo FTS. No stemming — search the form you wrote. For inflection-tolerant matching across any language append `*`: `утечк*` finds `утечку`/`утечке`, `token*` finds `tokens`/`tokenize`. Search in the SAME language as the original capture, not in English. Results are ordered by score, then newest-first within equal scores."
+    )]
     fn search(&self, Parameters(p): Parameters<SearchParams>) -> Result<CallToolResult, McpError> {
         tools::lookup::search(&self.store, &p.query, p.limit, p.initiative.as_deref())
     }
@@ -226,72 +387,146 @@ impl KaeruServer {
         tools::lookup::outcomes(&self.store, p.initiative.as_deref())
     }
 
-    #[tool(description = "List nodes whose `tags` array contains the given tag — exact match. Common tag families: `kind:<type>` (observation, experiment, idea, reference, …), `sig:<level>` (low/medium/high), `role:<role>` (jot/review/synthesise/revised), `lang:<code>` (ru/en/mixed/other — auto-detected from body), `topic:<word>` (up to 5 content tokens auto-derived from body — same form as in body, no stemming), `status:<state>` (only for hypotheses). For loose matching use the `search` tool with `prefix*` instead. Newest-first when multiple match.")]
+    #[tool(
+        description = "List nodes whose `tags` array contains the given tag — exact match. Common tag families: `kind:<type>` (observation, experiment, idea, reference, …), `sig:<level>` (low/medium/high), `role:<role>` (jot/review/synthesise/revised), `lang:<code>` (ru/en/mixed/other — auto-detected from body), `topic:<word>` (up to 5 content tokens auto-derived from body — same form as in body, no stemming), `status:<state>` (only for hypotheses). For loose matching use the `search` tool with `prefix*` instead. Newest-first when multiple match."
+    )]
     fn tagged(&self, Parameters(p): Parameters<TaggedParams>) -> Result<CallToolResult, McpError> {
         tools::lookup::tagged(&self.store, &p.tag, p.initiative.as_deref())
     }
 
-    #[tool(description = "Show every edge between two nodes (both directions) at NOW. Answers `why are A and B connected?`.")]
-    fn between(&self, Parameters(p): Parameters<BetweenParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Show every edge between two nodes (both directions) at NOW. Answers `why are A and B connected?`."
+    )]
+    fn between(
+        &self,
+        Parameters(p): Parameters<BetweenParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::lookup::between(&self.store, &p.a, &p.b, p.initiative.as_deref())
     }
 
     // ----- Bi-temporal ---------------------------------------------------
-    #[tool(description = "Read a node IN FULL — every field plus the complete, untruncated body. `drill` / `search` / `recall` only show short excerpts; reach for `at` when you need a node's whole content. Optional `when` time-travels to a past moment (unix seconds, RFC-3339, or `5m` / `2h` ago); omit it for the node as it is now.")]
+    #[tool(
+        description = "Read a node IN FULL — every field plus the complete, untruncated body. `drill` / `search` / `recall` only show short excerpts; reach for `at` when you need a node's whole content. Optional `when` time-travels to a past moment (unix seconds, RFC-3339, or `5m` / `2h` ago); omit it for the node as it is now."
+    )]
     fn at(&self, Parameters(p): Parameters<AtParams>) -> Result<CallToolResult, McpError> {
-        tools::temporal::at(&self.store, &p.name, p.when.as_deref(), p.initiative.as_deref())
+        tools::temporal::at(
+            &self.store,
+            &p.name,
+            p.when.as_deref(),
+            p.initiative.as_deref(),
+        )
     }
 
-    #[tool(description = "Print every assertion / retraction recorded for a node, chronologically. + means asserted, - means retracted.")]
+    #[tool(
+        description = "Print every assertion / retraction recorded for a node, chronologically. + means asserted, - means retracted."
+    )]
     fn history(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::temporal::history(&self.store, &p.name, p.initiative.as_deref())
     }
 
     // ----- Hypothesis cycle ---------------------------------------------
-    #[tool(description = "Formulate a hypothesis. Auto-named. Optional `about` links via refers_to.")]
+    #[tool(
+        description = "Formulate a hypothesis. Auto-named. Optional `about` links via refers_to."
+    )]
     fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, McpError> {
-        tools::hypothesis::claim(&self.store, &p.text, p.about.as_deref(), p.layer.as_deref(), p.initiative.as_deref())
+        tools::hypothesis::claim(
+            &self.store,
+            &p.text,
+            p.about.as_deref(),
+            p.layer.as_deref(),
+            p.initiative.as_deref(),
+        )
     }
 
-    #[tool(description = "Run an experiment against an open hypothesis. Auto-named from the method body.")]
+    #[tool(
+        description = "Run an experiment against an open hypothesis. Auto-named from the method body."
+    )]
     fn test(&self, Parameters(p): Parameters<TestParams>) -> Result<CallToolResult, McpError> {
-        tools::hypothesis::test_hypothesis(&self.store, &p.hypothesis, &p.method, p.initiative.as_deref())
+        tools::hypothesis::test_hypothesis(
+            &self.store,
+            &p.hypothesis,
+            &p.method,
+            p.initiative.as_deref(),
+        )
     }
 
-    #[tool(description = "Mark a hypothesis as supported, attaching `by` as the verifying evidence.")]
-    fn confirm(&self, Parameters(p): Parameters<VerdictParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Mark a hypothesis as supported, attaching `by` as the verifying evidence."
+    )]
+    fn confirm(
+        &self,
+        Parameters(p): Parameters<VerdictParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::hypothesis::confirm(&self.store, &p.hypothesis, &p.by, p.initiative.as_deref())
     }
 
-    #[tool(description = "Mark a hypothesis as refuted, attaching `by` as the falsifying counter-evidence.")]
+    #[tool(
+        description = "Mark a hypothesis as refuted, attaching `by` as the falsifying counter-evidence."
+    )]
     fn refute(&self, Parameters(p): Parameters<VerdictParams>) -> Result<CallToolResult, McpError> {
         tools::hypothesis::refute(&self.store, &p.hypothesis, &p.by, p.initiative.as_deref())
     }
 
     // ----- Review-flow ---------------------------------------------------
-    #[tool(description = "Flag a node for review — creates a high-significance review episode + contradicts edge. Target unchanged.")]
+    #[tool(
+        description = "Flag a node for review — creates a high-significance review episode + contradicts edge. Target unchanged."
+    )]
     fn flag(&self, Parameters(p): Parameters<FlagParams>) -> Result<CallToolResult, McpError> {
         tools::review::flag(&self.store, &p.target, &p.reason, p.initiative.as_deref())
     }
 
-    #[tool(description = "Resolve an open question by recording that `by` answers it (creates a supersedes edge).")]
-    fn resolve(&self, Parameters(p): Parameters<ResolveParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Resolve an open question by recording that `by` answers it (creates a supersedes edge)."
+    )]
+    fn resolve(
+        &self,
+        Parameters(p): Parameters<ResolveParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::review::resolve(&self.store, &p.question, &p.by, p.initiative.as_deref())
     }
 
     // ----- Consolidation -------------------------------------------------
-    #[tool(description = "Promote operational draft → archival counterpart. Provenance via derived_from is replicated across the tier.")]
-    fn settle(&self, Parameters(p): Parameters<ConsolidateParams>) -> Result<CallToolResult, McpError> {
-        tools::consolidate::settle(&self.store, &p.source, &p.new_type, &p.new_name, &p.new_body, p.initiative.as_deref())
+    #[tool(
+        description = "Promote operational draft → archival counterpart. Provenance via derived_from is replicated across the tier."
+    )]
+    fn settle(
+        &self,
+        Parameters(p): Parameters<ConsolidateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::consolidate::settle(
+            &self.store,
+            &p.source,
+            &p.new_type,
+            &p.new_name,
+            &p.new_body,
+            p.initiative.as_deref(),
+        )
     }
 
-    #[tool(description = "Bring an archival node back into the operational tier (mirror of `settle`).")]
-    fn reopen(&self, Parameters(p): Parameters<ConsolidateParams>) -> Result<CallToolResult, McpError> {
-        tools::consolidate::reopen(&self.store, &p.source, &p.new_type, &p.new_name, &p.new_body, p.initiative.as_deref())
+    #[tool(
+        description = "Bring an archival node back into the operational tier (mirror of `settle`)."
+    )]
+    fn reopen(
+        &self,
+        Parameters(p): Parameters<ConsolidateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::consolidate::reopen(
+            &self.store,
+            &p.source,
+            &p.new_type,
+            &p.new_name,
+            &p.new_body,
+            p.initiative.as_deref(),
+        )
     }
 
-    #[tool(description = "Many-to-one consolidation — create a new node from several seeds, with derived_from edges to each.")]
-    fn synthesise(&self, Parameters(p): Parameters<SynthesiseParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Many-to-one consolidation — create a new node from several seeds, with derived_from edges to each."
+    )]
+    fn synthesise(
+        &self,
+        Parameters(p): Parameters<SynthesiseParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::consolidate::synthesise(
             &self.store,
             &p.from,
@@ -303,8 +538,13 @@ impl KaeruServer {
         )
     }
 
-    #[tool(description = "Replace a node with a fresh one carrying new content, connected by a supersedes edge. Use when the change is large enough to warrant a new identity.")]
-    fn supersede(&self, Parameters(p): Parameters<SupersedeParams>) -> Result<CallToolResult, McpError> {
+    #[tool(
+        description = "Replace a node with a fresh one carrying new content, connected by a supersedes edge. Use when the change is large enough to warrant a new identity."
+    )]
+    fn supersede(
+        &self,
+        Parameters(p): Parameters<SupersedeParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::consolidate::supersede(
             &self.store,
             &p.old,
@@ -317,28 +557,44 @@ impl KaeruServer {
     }
 
     // ----- Tasks (todos) -------------------------------------------------
-    #[tool(description = "Capture a todo as a Task node. Auto-named from body. Tags: kind:task, status:open, optional due:YYYY-MM-DD. `due` accepts ISO date, RFC-3339, or future duration like `3d`/`2w`.")]
+    #[tool(
+        description = "Capture a todo as a Task node. Auto-named from body. Tags: kind:task, status:open, optional due:YYYY-MM-DD. `due` accepts ISO date, RFC-3339, or future duration like `3d`/`2w`."
+    )]
     fn task(&self, Parameters(p): Parameters<TaskParams>) -> Result<CallToolResult, McpError> {
-        tools::task::task(&self.store, &p.body, p.due.as_deref(), p.layer.as_deref(), p.initiative.as_deref())
+        tools::task::task(
+            &self.store,
+            &p.body,
+            p.due.as_deref(),
+            p.layer.as_deref(),
+            p.initiative.as_deref(),
+        )
     }
 
-    #[tool(description = "Mark a task done — RMW retract+reassert with status:done, preserving id and name. Accepts task name or UUIDv7 id.")]
+    #[tool(
+        description = "Mark a task done — RMW retract+reassert with status:done, preserving id and name. Accepts task name or UUIDv7 id."
+    )]
     fn done(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::task::done(&self.store, &p.name, p.initiative.as_deref())
     }
 
     // ----- Metabolism ----------------------------------------------------
-    #[tool(description = "Bi-temporal forget — retract a node and every edge connected to it. Historical reads still see it; reads at NOW skip.")]
+    #[tool(
+        description = "Bi-temporal forget — retract a node and every edge connected to it. Historical reads still see it; reads at NOW skip."
+    )]
     fn forget(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::metabolism::forget(&self.store, &p.name, p.initiative.as_deref())
     }
 
-    #[tool(description = "Set a node's memory layer — controls recall priority (injected Core → Hot → Warm → Cold → Frozen). Accepts name or id; layer one of core/hot/warm/cold/frozen.")]
+    #[tool(
+        description = "Set a node's memory layer — controls recall priority (injected Core → Hot → Warm → Cold → Frozen). Accepts name or id; layer one of core/hot/warm/cold/frozen."
+    )]
     fn layer(&self, Parameters(p): Parameters<LayerParams>) -> Result<CallToolResult, McpError> {
         tools::metabolism::set_layer(&self.store, &p.name, &p.layer, p.initiative.as_deref())
     }
 
-    #[tool(description = "Rewrite a node's body and/or rename. Implemented as retract+reassert so history sees both versions.")]
+    #[tool(
+        description = "Rewrite a node's body and/or rename. Implemented as retract+reassert so history sees both versions."
+    )]
     fn revise(&self, Parameters(p): Parameters<ReviseParams>) -> Result<CallToolResult, McpError> {
         tools::metabolism::revise(
             &self.store,
@@ -350,12 +606,16 @@ impl KaeruServer {
     }
 
     // ----- Diagnostics / snapshot ---------------------------------------
-    #[tool(description = "Diagnostic snapshot — orphan nodes (no edges) and unresolved reviews (inbound contradicts).")]
+    #[tool(
+        description = "Diagnostic snapshot — orphan nodes (no edges) and unresolved reviews (inbound contradicts)."
+    )]
     fn lint(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         tools::lint::lint(&self.store, p.initiative.as_deref())
     }
 
-    #[tool(description = "Snapshot the substrate as an Obsidian-friendly markdown vault (README + INDEX + LOG + pages). Output dir is created if missing.")]
+    #[tool(
+        description = "Snapshot the substrate as an Obsidian-friendly markdown vault (README + INDEX + LOG + pages). Output dir is created if missing."
+    )]
     fn export(&self, Parameters(p): Parameters<ExportParams>) -> Result<CallToolResult, McpError> {
         tools::vault::export(&self.store, &p.output_dir, p.initiative.as_deref())
     }

@@ -23,28 +23,19 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Json;
-use axum::Router;
-use axum::extract::Query;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::response::sse::Event;
-use axum::response::sse::KeepAlive;
-use axum::response::sse::Sse;
-use axum::routing::get;
-use axum::routing::post;
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use rmcp::ServiceExt;
-use rmcp::service::RoleServer;
-use rmcp::service::RxJsonRpcMessage;
-use rmcp::service::TxJsonRpcMessage;
+use rmcp::service::{RoleServer, RxJsonRpcMessage, TxJsonRpcMessage};
 use rmcp::transport::Transport;
 use serde::Deserialize;
-use tokio::sync::Mutex;
-use tokio::sync::mpsc;
-use tokio_stream::Stream;
-use tokio_stream::StreamExt;
+use tokio::sync::{Mutex, mpsc};
 use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::{Stream, StreamExt};
 use uuid::Uuid;
 
 use crate::server::KaeruServer;
@@ -90,11 +81,7 @@ async fn open_stream(
     let (from_post_tx, from_post_rx) =
         mpsc::channel::<RxJsonRpcMessage<RoleServer>>(CHANNEL_BUFFER);
 
-    state
-        .sessions
-        .lock()
-        .await
-        .insert(session_id, from_post_tx);
+    state.sessions.lock().await.insert(session_id, from_post_tx);
 
     let transport = SseTransport {
         outbound: to_sse_tx,
@@ -123,15 +110,16 @@ async fn open_stream(
     let endpoint_uri = format!("{}?session_id={}", state.messages_path, session_id);
     let endpoint_event = Event::default().event("endpoint").data(endpoint_uri);
 
-    let messages = ReceiverStream::new(to_sse_rx).filter_map(|msg| {
-        match serde_json::to_string(&msg) {
-            Ok(json) => Some(Ok::<_, Infallible>(Event::default().event("message").data(json))),
+    let messages =
+        ReceiverStream::new(to_sse_rx).filter_map(|msg| match serde_json::to_string(&msg) {
+            Ok(json) => Some(Ok::<_, Infallible>(
+                Event::default().event("message").data(json),
+            )),
             Err(e) => {
                 tracing::warn!(error = %e, "dropping unserializable SSE message");
                 None
             }
-        }
-    });
+        });
     let stream = tokio_stream::once(Ok::<_, Infallible>(endpoint_event)).chain(messages);
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(SSE_KEEP_ALIVE))

@@ -1,14 +1,12 @@
 //! Typed graph traversal from a seed node, following only edges in
 //! `edge_types`, up to `max_hops` hops away.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::graph::EdgeType;
-use crate::errors::Error;
-use crate::errors::Result;
-use crate::graph::NodeId;
+use cozo::{DataValue, ScriptMutability};
+
+use crate::errors::{Error, Result};
+use crate::graph::{EdgeType, NodeId};
 use crate::store::Store;
 
 /// Typed graph traversal from a seed node, following only edges in

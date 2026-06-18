@@ -3,10 +3,9 @@
 
 use std::str::FromStr;
 
+use kaeru_core::{Layer, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
-
-use kaeru_core::{Layer, Store};
 
 use crate::utils::{
     brief_suffix, parse_duration_secs, resolve_name_or_id, text, to_mcp, with_initiative,
@@ -155,7 +154,11 @@ pub fn surface(
     with_initiative(store, initiative, || {
         let spec = layers.unwrap_or("cold,frozen");
         let mut parsed: Vec<Layer> = Vec::new();
-        for tok in spec.split([',', ' ']).map(str::trim).filter(|s| !s.is_empty()) {
+        for tok in spec
+            .split([',', ' '])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             parsed.push(Layer::from_str(tok).map_err(to_mcp)?);
         }
         if parsed.is_empty() {

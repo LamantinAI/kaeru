@@ -5,9 +5,9 @@
 //! `under_review` flow; `supersedes` retracts the previous version through the
 //! bi-temporal substrate; etc. Edges are not just associations.
 
-use serde::Deserialize;
-use serde::Serialize;
 use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
 
 use crate::errors::Error;
 

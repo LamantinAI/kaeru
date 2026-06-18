@@ -7,16 +7,13 @@
 //! set only after the cloud accepts it, so it never marks a node shared
 //! that isn't actually in the cloud. `link` / `unlink` stay purely local.
 
+use kaeru_core::{EdgeType, EpisodeKind, Significance, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use kaeru_core::{EdgeType, EpisodeKind, Significance, Store};
-
 use crate::cloud_client::CloudClient;
 use crate::tools::cloud::push_to_cloud;
-use crate::utils::{
-    parse_layer, parse_wants_shared, resolve_name, text, to_mcp, with_initiative,
-};
+use crate::utils::{parse_layer, parse_wants_shared, resolve_name, text, to_mcp, with_initiative};
 
 /// When `want_share`, attempts to push the just-created node `id` to the
 /// cloud and appends the outcome to `msg`. Needs both a configured cloud
@@ -43,7 +40,9 @@ async fn maybe_share(
             msg.push_str("\n(shared requested, but cloud not configured — saved local)");
         }
         (_, None) => {
-            msg.push_str("\n(shared requested, but no initiative — saved local; pass initiative to share)");
+            msg.push_str(
+                "\n(shared requested, but no initiative — saved local; pass initiative to share)",
+            );
         }
     }
     Ok(())

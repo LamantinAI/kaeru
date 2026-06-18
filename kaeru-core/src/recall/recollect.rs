@@ -2,16 +2,14 @@
 //! and `recollect_provenance`. Mirrors of operational-side recall on the
 //! cortex side.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
+use cozo::{DataValue, ScriptMutability};
+
+use super::{NodeBrief, parse_brief};
 use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
-
-use super::NodeBrief;
-use super::parse_brief;
 
 /// Returns archival-tier idea nodes valid at NOW as briefs, ordered
 /// newest-first by validity. Mirror of `recent_episodes` on the

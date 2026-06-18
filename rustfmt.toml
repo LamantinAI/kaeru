@@ -1,0 +1,5 @@
+# Import style: merge items from the same module into one `use mod::{A, B}`,
+# and keep std / external-crate / local groups separated. Both options are
+# nightly-only — format with `cargo +nightly fmt`.
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"

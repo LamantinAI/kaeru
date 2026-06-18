@@ -1,24 +1,18 @@
 //! `synthesise` — many-to-one consolidation that preserves provenance via
 //! `derived_from` edges from the new node to each seed.
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
 use std::collections::BTreeMap;
 
-use crate::errors::Error;
-use crate::errors::Result;
-use crate::graph::NodeId;
-use crate::graph::NodeType;
-use crate::graph::Tier;
-use crate::graph::audit::write_audit;
-use crate::graph::new_node_id;
-use crate::store::Store;
+use cozo::{DataValue, ScriptMutability};
 
-use super::attach_edge_to_initiative;
-use super::attach_node_to_initiative;
-use super::build_body_tags;
-use super::now_validity_seconds;
-use super::tags_literal;
+use super::{
+    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
+    tags_literal,
+};
+use crate::errors::{Error, Result};
+use crate::graph::audit::write_audit;
+use crate::graph::{NodeId, NodeType, Tier, new_node_id};
+use crate::store::Store;
 
 /// Many-to-one consolidation: creates a new node carrying the synthesised
 /// content and links it to each seed via `derived_from`, preserving the
@@ -67,7 +61,9 @@ pub fn synthesise(
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
-    store.db_ref().run_script(&s1, p1, ScriptMutability::Mutable)?;
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     attach_node_to_initiative(store, &new_id)?;
 

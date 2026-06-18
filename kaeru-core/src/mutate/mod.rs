@@ -6,12 +6,10 @@
 //! re-exports the public surface and houses cross-submodule helpers
 //! (timestamp generation, RMW reads).
 
-use cozo::DataValue;
-use cozo::ScriptMutability;
-use std::collections::BTreeMap;
-use std::collections::HashSet;
-use std::time::SystemTime;
-use std::time::UNIX_EPOCH;
+use std::collections::{BTreeMap, HashSet};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
 use crate::graph::NodeId;
@@ -39,8 +37,7 @@ pub use consolidate::{consolidate_in, consolidate_out};
 pub use edge::{link, link_remote, link_remote_to, link_with_weight, unlink};
 pub use episode::{jot, jot_with_layer, write_episode, write_episode_with_layer};
 pub use hypothesis::{
-    formulate_hypothesis, formulate_hypothesis_with_layer, run_experiment,
-    update_hypothesis_status,
+    formulate_hypothesis, formulate_hypothesis_with_layer, run_experiment, update_hypothesis_status,
 };
 pub use ingest::{upsert_edge, upsert_node};
 pub use initiative::{DeleteStats, RenameStats, delete_initiative, rename_initiative};
@@ -209,10 +206,7 @@ pub(crate) fn read_name_body_now(
 
 /// Reads a node's `(type, tier)` strings at NOW for primitives that
 /// preserve them through retract+reassert.
-pub(crate) fn read_type_tier_now(
-    store: &Store,
-    id: &NodeId,
-) -> Result<Option<(String, String)>> {
+pub(crate) fn read_type_tier_now(store: &Store, id: &NodeId) -> Result<Option<(String, String)>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
     let script = r#"
@@ -307,10 +301,7 @@ pub(crate) fn attach_edge_to_initiative(
 /// Returns dst ids of `derived_from` edges where `src_id` is the source
 /// at NOW. Used by [`consolidate`] to replicate provenance edges across
 /// the tier boundary.
-pub(crate) fn read_derived_from_targets(
-    store: &Store,
-    src_id: &NodeId,
-) -> Result<Vec<NodeId>> {
+pub(crate) fn read_derived_from_targets(store: &Store, src_id: &NodeId) -> Result<Vec<NodeId>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("src".to_string(), DataValue::Str(src_id.clone().into()));
     let script = r#"

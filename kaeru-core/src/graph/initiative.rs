@@ -6,9 +6,9 @@
 //! must permit it. The policy is asked once and persists — not re-asked per
 //! capture.
 
-use serde::Deserialize;
-use serde::Serialize;
 use std::str::FromStr;
+
+use serde::{Deserialize, Serialize};
 
 use crate::errors::Error;
 

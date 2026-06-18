@@ -1,9 +1,8 @@
 //! Hypothesis-experiment cycle: `claim`, `test`, `confirm`, `refute`.
 
+use kaeru_core::{EdgeType, HypothesisStatus, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
-
-use kaeru_core::{EdgeType, HypothesisStatus, Store};
 
 use crate::utils::{derive_auto_name, parse_layer, resolve_name, text, to_mcp, with_initiative};
 
@@ -36,8 +35,8 @@ pub fn test_hypothesis(
     with_initiative(store, initiative, || {
         let hyp_id = resolve_name(store, hypothesis)?;
         let auto_name = derive_auto_name(method, "experiment");
-        let exp_id = kaeru_core::run_experiment(store, &hyp_id, &auto_name, method)
-            .map_err(to_mcp)?;
+        let exp_id =
+            kaeru_core::run_experiment(store, &hyp_id, &auto_name, method).map_err(to_mcp)?;
         Ok(text(&format!("experiment: {auto_name} — {exp_id}")))
     })
 }
@@ -51,13 +50,8 @@ pub fn confirm(
     with_initiative(store, initiative, || {
         let hyp_id = resolve_name(store, hypothesis)?;
         let by_id = resolve_name(store, by)?;
-        kaeru_core::update_hypothesis_status(
-            store,
-            &hyp_id,
-            HypothesisStatus::Supported,
-            &by_id,
-        )
-        .map_err(to_mcp)?;
+        kaeru_core::update_hypothesis_status(store, &hyp_id, HypothesisStatus::Supported, &by_id)
+            .map_err(to_mcp)?;
         Ok(text(&format!("confirmed: {hypothesis}")))
     })
 }
@@ -71,13 +65,8 @@ pub fn refute(
     with_initiative(store, initiative, || {
         let hyp_id = resolve_name(store, hypothesis)?;
         let by_id = resolve_name(store, by)?;
-        kaeru_core::update_hypothesis_status(
-            store,
-            &hyp_id,
-            HypothesisStatus::Refuted,
-            &by_id,
-        )
-        .map_err(to_mcp)?;
+        kaeru_core::update_hypothesis_status(store, &hyp_id, HypothesisStatus::Refuted, &by_id)
+            .map_err(to_mcp)?;
         Ok(text(&format!("refuted: {hypothesis}")))
     })
 }

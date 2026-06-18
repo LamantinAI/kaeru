@@ -145,15 +145,13 @@ impl CloudRegistry {
     /// If `default` is unset but exactly one client exists, that one becomes
     /// the implicit default.
     pub fn new(clients: HashMap<String, CloudClient>, default: Option<String>) -> Self {
-        let default = default
-            .filter(|d| clients.contains_key(d))
-            .or_else(|| {
-                if clients.len() == 1 {
-                    clients.keys().next().cloned()
-                } else {
-                    None
-                }
-            });
+        let default = default.filter(|d| clients.contains_key(d)).or_else(|| {
+            if clients.len() == 1 {
+                clients.keys().next().cloned()
+            } else {
+                None
+            }
+        });
         Self { clients, default }
     }
 
@@ -192,8 +190,9 @@ impl CloudRegistry {
 
 #[cfg(test)]
 mod tests {
-    use super::{CloudClient, CloudRegistry};
     use std::collections::HashMap;
+
+    use super::{CloudClient, CloudRegistry};
 
     fn reg(names: &[&str], default: Option<&str>) -> CloudRegistry {
         let clients = names

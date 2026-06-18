@@ -6,7 +6,6 @@
 use std::sync::Arc;
 
 use axum::extract::FromRef;
-
 use kaeru_core::Store;
 
 #[derive(Clone)]
