@@ -121,12 +121,12 @@ pub async fn push_to_cloud(
     // still local is skipped — it gets pushed when that endpoint is shared.
     let edges = kaeru_core::edges_of(store, &full.id).map_err(to_mcp)?;
     let mut edges_pushed = 0;
-    for (src, dst, edge_type) in &edges {
+    for (src, dst, edge_type, weight) in &edges {
         let other = if *src == full.id { dst } else { src };
         if kaeru_core::get_visibility(store, other).map_err(to_mcp)? != Visibility::Shared {
             continue;
         }
-        let ebody = serde_json::json!({ "src": src, "dst": dst, "edge_type": edge_type });
+        let ebody = serde_json::json!({ "src": src, "dst": dst, "edge_type": edge_type, "weight": weight });
         let (ecode, _) = cloud
             .post_edge(&ebody)
             .await
@@ -308,6 +308,8 @@ async fn recreate_local_edges(
         if src.is_empty() || dst.is_empty() || et.is_empty() {
             continue;
         }
+        // Preserve the cloud edge's weight (default 1.0 for older payloads).
+        let weight = it.get("weight").and_then(|x| x.as_f64()).unwrap_or(1.0);
         let both_local = kaeru_core::node_brief_by_id(store, &src.to_string())
             .ok()
             .flatten()
@@ -323,7 +325,8 @@ async fn recreate_local_edges(
             continue;
         };
         with_initiative(store, Some(initiative), || {
-            kaeru_core::link(store, &src.to_string(), &dst.to_string(), edge).map_err(to_mcp)
+            kaeru_core::link_with_weight(store, &src.to_string(), &dst.to_string(), edge, weight)
+                .map_err(to_mcp)
         })?;
         linked += 1;
     }

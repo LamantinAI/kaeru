@@ -226,6 +226,38 @@ columns added by a newer build are applied to an existing vault in place, so a
 routine upgrade needs no action. Migrations are add-only — there is no
 down-migration or destructive-change path.
 
+### Routine upgrade (seamless — but export first)
+
+A normal version bump is **seamless**: the new binary migrates your existing
+vault in place on start and your data is preserved. Still, **export every
+initiative first** as a one-command safety net before upgrading — cheap
+insurance, and the markdown is a clean fallback if anything looks off.
+
+1. **Back up — export each initiative** (ask the agent, or call directly):
+
+   ```text
+   initiatives                      # list them
+   export(output_dir: "~/kaeru-backup/<initiative>", initiative: "<initiative>")
+   ```
+
+2. **Upgrade the binary and restart:**
+
+   ```bash
+   cd kaeru && git pull
+   cargo install --path kaeru-mcp --force
+   systemctl --user restart kaeru-mcp        # or restart your manual process
+   ```
+
+3. **Verify:** `awake` / `overview` per initiative — counts should match what
+   you had. Migrations auto-applied; nothing else to do.
+
+4. **Rollback (only if needed):** your pre-upgrade markdown export is the
+   fallback — see the semantic rebuild below. Keep the export until you've
+   confirmed the upgrade is healthy.
+
+If a release note flags a **non-additive** change (rare, pre-1.0), follow the
+semantic rebuild instead of relying on auto-migration.
+
 When an upgrade involves a change migrations can't cover (a destructive or
 incompatible schema shift, flagged in the release notes), rebuild the vault
 semantically rather than with a blind database rewrite:

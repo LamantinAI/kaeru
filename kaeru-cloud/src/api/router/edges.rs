@@ -36,6 +36,15 @@ pub struct EdgeIngestReq {
     pub src: String,
     pub dst: String,
     pub edge_type: String,
+    /// Connection strength in `[0, 1]`. Carried so the cloud preserves it
+    /// across share / pull; re-posting an edge with a new weight is also the
+    /// cloud-side edit handle. Defaults to `1.0` when omitted.
+    #[serde(default = "default_weight")]
+    pub weight: f64,
+}
+
+fn default_weight() -> f64 {
+    1.0
 }
 
 #[derive(Debug, Serialize)]
@@ -43,6 +52,7 @@ pub struct EdgeView {
     pub src: String,
     pub dst: String,
     pub edge_type: String,
+    pub weight: f64,
 }
 
 async fn ingest_edge(
@@ -58,7 +68,7 @@ async fn ingest_edge(
         ));
     }
 
-    upsert_edge(&store, &req.src, &req.dst, edge_type)?;
+    upsert_edge(&store, &req.src, &req.dst, edge_type, req.weight)?;
 
     Ok((
         StatusCode::CREATED,
@@ -66,6 +76,7 @@ async fn ingest_edge(
             src: req.src,
             dst: req.dst,
             edge_type: edge_type.as_str().to_string(),
+            weight: req.weight.clamp(0.0, 1.0),
         }),
     ))
 }

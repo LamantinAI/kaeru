@@ -66,17 +66,18 @@ pub fn nodes_in_initiative(store: &Store, initiative: &str) -> Result<Vec<NodeBr
 pub fn edges_in_initiative(
     store: &Store,
     initiative: &str,
-) -> Result<Vec<(NodeId, NodeId, String)>> {
+) -> Result<Vec<(NodeId, NodeId, String, f64)>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("init".to_string(), DataValue::Str(initiative.into()));
 
     let script = r#"
-        ?[src, dst, edge_type] := *edge{src, dst, edge_type, dst_store @ 'NOW'},
-                                  dst_store = 'local',
-                                  *node_initiative{initiative, node_id: src},
-                                  initiative = $init,
-                                  *node_initiative{initiative: i2, node_id: dst},
-                                  i2 = $init
+        ?[src, dst, edge_type, weight] :=
+            *edge{src, dst, edge_type, weight, dst_store @ 'NOW'},
+            dst_store = 'local',
+            *node_initiative{initiative, node_id: src},
+            initiative = $init,
+            *node_initiative{initiative: i2, node_id: dst},
+            i2 = $init
     "#;
     let rows = store
         .db_ref()
@@ -89,7 +90,8 @@ pub fn edges_in_initiative(
             let src = row.first().and_then(|v| v.get_str())?.to_string();
             let dst = row.get(1).and_then(|v| v.get_str())?.to_string();
             let edge_type = row.get(2).and_then(|v| v.get_str())?.to_string();
-            Some((src, dst, edge_type))
+            let weight = row.get(3).and_then(|v| v.get_float()).unwrap_or(1.0);
+            Some((src, dst, edge_type, weight))
         })
         .collect();
     Ok(edges)

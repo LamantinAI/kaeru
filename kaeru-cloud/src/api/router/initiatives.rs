@@ -110,10 +110,11 @@ async fn list_edges(
     let edges = edges_in_initiative(&store, &name)?;
     let views = edges
         .into_iter()
-        .map(|(src, dst, edge_type)| EdgeView {
+        .map(|(src, dst, edge_type, weight)| EdgeView {
             src,
             dst,
             edge_type,
+            weight,
         })
         .collect();
     Ok(Json(views))

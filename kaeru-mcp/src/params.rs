@@ -207,6 +207,21 @@ fn default_edge_type() -> String {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReweightParams {
+    /// Source node name or id.
+    pub from: String,
+    /// Destination node name or id.
+    pub to: String,
+    /// Edge type (default `refers_to`).
+    #[serde(default = "default_edge_type")]
+    pub edge_type: String,
+    /// New connection strength in `0..1` (1 = strong → shorter chain paths).
+    pub weight: f64,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ChainParams {
     /// Start node name or UUIDv7 id.
     pub from: String,

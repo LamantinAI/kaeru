@@ -175,6 +175,20 @@ impl KaeruServer {
         )
     }
 
+    #[tool(
+        description = "Set an existing edge's connection strength (weight 0..1) in place. Stronger edges make shorter knowledge-chain paths; use to tune which links matter after the fact."
+    )]
+    fn reweight(&self, Parameters(p): Parameters<ReweightParams>) -> Result<CallToolResult, McpError> {
+        tools::capture::reweight(
+            &self.store,
+            &p.from,
+            &p.to,
+            &p.edge_type,
+            p.weight,
+            p.initiative.as_deref(),
+        )
+    }
+
     // ----- Knowledge chains ---------------------------------------------
     #[tool(
         description = "Save the shortest weighted path between two nodes as a knowledge chain — an ordered, recallable reasoning trail. Stronger links (see `link` weight/strong) make shorter paths. Reports if the two are unconnected."

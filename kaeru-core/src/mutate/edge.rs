@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 
 use super::{attach_edge_to_initiative, now_validity_seconds};
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{EdgeType, NodeId};
 use crate::store::Store;
@@ -58,6 +58,68 @@ pub fn link_with_weight(
         "system",
         &[src.clone(), dst.clone()],
     )?;
+    Ok(())
+}
+
+/// Updates the `weight` of an existing edge **in place** at NOW, leaving
+/// every other field (validity key, properties, dst_store) untouched. The
+/// edit handle behind the `reweight` tool and weight rebalancing.
+///
+/// In-place — the current row is re-`:put` under its own `validity` key with
+/// only `weight` changed — so it never mints a new bi-temporal version. This
+/// deliberately mirrors `set_layer`: a fresh assertion at a later whole-second
+/// races the `@ 'NOW'` validity tie-break and can resolve to the wrong
+/// version, so we overwrite the current row instead. Returns `NotFound` if
+/// the edge is not valid at NOW. `weight` is clamped to `[0, 1]`.
+pub fn set_edge_weight(
+    store: &Store,
+    src: &NodeId,
+    dst: &NodeId,
+    edge_type: EdgeType,
+    weight: f64,
+) -> Result<()> {
+    let w = weight.clamp(0.0, 1.0);
+
+    let mut rp: BTreeMap<String, DataValue> = BTreeMap::new();
+    rp.insert("src".to_string(), DataValue::Str(src.clone().into()));
+    rp.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+    rp.insert("et".to_string(), DataValue::Str(edge_type.as_str().into()));
+
+    let read = r#"
+        ?[validity, properties, dst_store] :=
+            *edge{src, dst, edge_type, validity, properties, dst_store @ 'NOW'},
+            src = $src, dst = $dst, edge_type = $et
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(read, rp.clone(), ScriptMutability::Immutable)?;
+    let row = rows.rows.first().ok_or_else(|| {
+        Error::NotFound(format!(
+            "edge {src} -[{}]-> {dst} not found at NOW",
+            edge_type.as_str()
+        ))
+    })?;
+
+    let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+    p.insert("src".to_string(), DataValue::Str(src.clone().into()));
+    p.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+    p.insert("et".to_string(), DataValue::Str(edge_type.as_str().into()));
+    p.insert("validity".to_string(), row[0].clone());
+    p.insert("properties".to_string(), row[1].clone());
+    p.insert("dst_store".to_string(), row[2].clone());
+
+    let put = format!(
+        r#"
+        ?[src, dst, edge_type, validity, weight, properties, dst_store] <-
+            [[$src, $dst, $et, $validity, {w:.6}, $properties, $dst_store]]
+        :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}
+        "#
+    );
+    store
+        .db_ref()
+        .run_script(&put, p, ScriptMutability::Mutable)?;
+
+    write_audit(store.db_ref(), "set_edge_weight", "system", &[src.clone(), dst.clone()])?;
     Ok(())
 }
 

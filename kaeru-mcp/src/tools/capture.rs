@@ -13,7 +13,10 @@ use rmcp::model::CallToolResult;
 
 use crate::cloud_client::CloudClient;
 use crate::tools::cloud::push_to_cloud;
-use crate::utils::{parse_layer, parse_wants_shared, resolve_name, text, to_mcp, with_initiative};
+use crate::utils::{
+    parse_layer, parse_wants_shared, resolve_name, resolve_name_or_id, text, to_mcp,
+    with_initiative,
+};
 
 /// When `want_share`, attempts to push the just-created node `id` to the
 /// cloud and appends the outcome to `msg`. Needs both a configured cloud
@@ -142,6 +145,30 @@ pub fn unlink(
         Ok(text(&format!(
             "unlinked: {from} -[{}]-> {to}",
             edge.as_str()
+        )))
+    })
+}
+
+/// Sets the connection strength (`weight`, 0..1) of an existing edge —
+/// in-place, no new version. Stronger edges make shorter knowledge-chain
+/// paths. Use to tune which links matter after the fact.
+pub fn reweight(
+    store: &Store,
+    from: &str,
+    to: &str,
+    edge_type_str: &str,
+    weight: f64,
+    initiative: Option<&str>,
+) -> Result<CallToolResult, McpError> {
+    with_initiative(store, initiative, || {
+        let edge: EdgeType = edge_type_str.parse().map_err(to_mcp)?;
+        let from_id = resolve_name_or_id(store, from)?;
+        let to_id = resolve_name_or_id(store, to)?;
+        kaeru_core::set_edge_weight(store, &from_id, &to_id, edge, weight).map_err(to_mcp)?;
+        Ok(text(&format!(
+            "reweighted: {from} -[{}]-> {to} = {:.2}",
+            edge.as_str(),
+            weight.clamp(0.0, 1.0)
         )))
     })
 }

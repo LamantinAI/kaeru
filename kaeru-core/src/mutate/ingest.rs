@@ -95,7 +95,17 @@ pub fn upsert_node(
 /// just the nodes. No initiative junction is written — edges are scoped
 /// by their endpoints' `node_initiative` membership (both endpoints in
 /// the initiative), exactly as `export` and `between` scope them.
-pub fn upsert_edge(store: &Store, src: &NodeId, dst: &NodeId, edge_type: EdgeType) -> Result<()> {
+///
+/// `weight` (clamped to `[0, 1]`) is carried through so the connection
+/// strength survives share / pull, not just the edge's existence.
+pub fn upsert_edge(
+    store: &Store,
+    src: &NodeId,
+    dst: &NodeId,
+    edge_type: EdgeType,
+    weight: f64,
+) -> Result<()> {
+    let w = weight.clamp(0.0, 1.0);
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("src".to_string(), DataValue::Str(src.clone().into()));
     params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
@@ -108,7 +118,7 @@ pub fn upsert_edge(store: &Store, src: &NodeId, dst: &NodeId, edge_type: EdgeTyp
     let script = format!(
         r#"
         ?[src, dst, edge_type, validity, weight, properties] <-
-            [[$src, $dst, $edge_type, [{now_secs}.0, true], 1.0, null]]
+            [[$src, $dst, $edge_type, [{now_secs}.0, true], {w:.6}, null]]
         :put edge {{src, dst, edge_type, validity => weight, properties}}
         "#
     );
