@@ -4,6 +4,10 @@
 # daemon is reachable. The snapshot can contain real vault content, so it is
 # git-ignored; never commit it.
 #
+# The daemon must have the viz endpoint enabled (KAERU_MCP_VIZ_ENABLE=1) with an
+# allow-list configured (KAERU_MCP_VIZ_INITIATIVES). `initiatives_csv` here only
+# NARROWS within that configured allow-list — it can't widen the export.
+#
 # Usage:  scripts/bake-graph-snapshot.sh [initiatives_csv]
 #   KAERU_VIZ_URL   daemon base url (default http://127.0.0.1:9876)
 #   KAERU_VIZ_DENY  CSV of initiative-name substrings that must NOT appear in

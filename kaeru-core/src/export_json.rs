@@ -23,13 +23,25 @@ use crate::guard;
 use crate::store::Store;
 
 /// Options controlling scope and sanitization of the export.
+///
+/// The allow-list is the authoritative ceiling. `restrict_initiatives` can only
+/// **narrow within** it (intersection) — it can never widen the set — so an
+/// untrusted request param cannot bypass the operator's configured scope.
 #[derive(Debug, Clone, Default)]
 pub struct ExportOpts {
     /// When `Some`, only nodes attached to a matching initiative are exported
-    /// (`*` suffix = prefix glob, e.g. `"hi3516*"`). `None` = every initiative.
+    /// (`*` suffix = prefix glob, e.g. `"hi3516*"`). `Some(empty)` exports
+    /// nothing; `None` = every initiative (trusted callers only).
     pub allow_initiatives: Option<Vec<String>>,
+    /// Optional *additional* filter ANDed with `allow_initiatives` — a node's
+    /// initiative must match this too. Used to narrow within the allow ceiling
+    /// (e.g. a per-request `?initiatives=`); it can never expand the set.
+    pub restrict_initiatives: Option<Vec<String>>,
     /// Initiatives to exclude even if they match the allow list.
     pub deny_initiatives: Vec<String>,
+    /// Export only `visibility = shared` nodes (the local/shared contract:
+    /// `local` nodes never leave the machine). Off = include `local` too.
+    pub shared_only: bool,
     /// Include the **full** body (else a short excerpt). Redaction still applies.
     pub include_bodies: bool,
     /// Run the public secret/credential guard and redact flagged nodes.
@@ -166,11 +178,15 @@ pub struct ChainExport {
     pub members: Vec<String>,
 }
 
-/// Assembles the whole graph (cross-initiative) into [`GraphExport`].
+/// Assembles the whole (scoped) graph into [`GraphExport`].
 ///
 /// Read-only: issues only immutable `run_read` queries, so it is safe to call
 /// against the live daemon. `current_initiative` does not affect the result —
 /// every query is global and joins `node_initiative` explicitly for scoping.
+///
+/// Returns the whole result in one document — there is no pagination. That is
+/// fine for a visualizer / demo; a very large vault may want a streaming or
+/// paged variant before this is used as a general bulk-export API.
 pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport> {
     let excerpt = store.config().body_excerpt_chars;
 
@@ -240,6 +256,12 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
         .rows
     {
         let Some(id) = str_at(&row, 0) else { continue };
+        let visibility = str_at(&row, 6).unwrap_or_else(|| "local".into());
+        // Honour the local/shared contract: by default `local` nodes (which
+        // "never leave the machine") are not exported.
+        if opts.shared_only && visibility != "shared" {
+            continue;
+        }
         let inits = allowed_inits(node_inits.get(&id), opts);
         if inits.is_empty() {
             continue;
@@ -251,7 +273,7 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
             name: str_at(&row, 3).unwrap_or_default(),
             body: str_at(&row, 4),
             tags: list_at(&row, 5),
-            visibility: str_at(&row, 6).unwrap_or_else(|| "local".into()),
+            visibility,
             layer: str_at(&row, 7).unwrap_or_else(|| "warm".into()),
             id,
             inits,
@@ -405,7 +427,12 @@ fn allowed_inits(inits: Option<&Vec<String>>, opts: &ExportOpts) -> Vec<String> 
                 Some(pats) => pats.iter().any(|p| pat_match(i, p)),
                 None => true,
             };
-            allowed && !opts.deny_initiatives.iter().any(|p| pat_match(i, p))
+            // `restrict` only narrows — a node must match it too (if present).
+            let within_restrict = match &opts.restrict_initiatives {
+                Some(pats) => pats.iter().any(|p| pat_match(i, p)),
+                None => true,
+            };
+            allowed && within_restrict && !opts.deny_initiatives.iter().any(|p| pat_match(i, p))
         })
         .cloned()
         .collect()
@@ -462,8 +489,8 @@ fn truncate(s: &str, max_chars: usize) -> String {
 mod tests {
     use super::{ExportOpts, export_graph_json};
     use crate::store::Store;
-    use crate::{EdgeType, EpisodeKind, NodeType, Significance};
-    use crate::{create_chain, link_with_weight, write_episode};
+    use crate::{EdgeType, EpisodeKind, NodeType, Significance, Visibility};
+    use crate::{create_chain, link_with_weight, set_visibility, write_episode};
 
     #[test]
     fn export_filters_initiatives_and_redacts_secrets() {
@@ -522,5 +549,46 @@ mod tests {
         assert_eq!(g.initiatives.len(), 1);
         assert_eq!(g.initiatives[0].name, "alpha");
         let _ = NodeType::Idea; // silence unused import if test trimmed
+    }
+
+    #[test]
+    fn export_shared_only_and_restrict_narrow_scope() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("alpha");
+        let _a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
+        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
+        set_visibility(&store, &b, Visibility::Shared).unwrap();
+        store.use_initiative("beta");
+        let _c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
+
+        // shared_only → only the shared node `b`.
+        let g = export_graph_json(&store, &ExportOpts { shared_only: true, ..Default::default() }).unwrap();
+        let names: Vec<&str> = g.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert_eq!(names, vec!["b"], "shared_only excludes local nodes");
+
+        // restrict narrows WITHIN allow: allow=[alpha,beta], restrict=[alpha] → alpha only.
+        let g = export_graph_json(&store, &ExportOpts {
+            allow_initiatives: Some(vec!["alpha".into(), "beta".into()]),
+            restrict_initiatives: Some(vec!["alpha".into()]),
+            ..Default::default()
+        }).unwrap();
+        let inits: std::collections::HashSet<&str> =
+            g.nodes.iter().flat_map(|n| n.initiatives.iter().map(String::as_str)).collect();
+        assert!(inits.contains("alpha") && !inits.contains("beta"));
+
+        // restrict can NEVER widen past allow: allow=[alpha], restrict=[beta] → empty.
+        let g = export_graph_json(&store, &ExportOpts {
+            allow_initiatives: Some(vec!["alpha".into()]),
+            restrict_initiatives: Some(vec!["beta".into()]),
+            ..Default::default()
+        }).unwrap();
+        assert!(g.nodes.is_empty(), "restrict cannot expand the allow set");
+
+        // Safe-empty: Some(empty) allow exports nothing.
+        let g = export_graph_json(&store, &ExportOpts {
+            allow_initiatives: Some(vec![]),
+            ..Default::default()
+        }).unwrap();
+        assert!(g.nodes.is_empty(), "empty allow-list = safe-empty default");
     }
 }

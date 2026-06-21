@@ -120,10 +120,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let server = KaeruServer::new(store, clouds);
 
-    // Read-only `/graph.json` export for the kaeru-viz visualizer. Shares the
-    // daemon's `Arc<Store>`; every node is redacted by the public guard. The
-    // initiative allow/deny scope is configuration-driven (no names in source):
-    // `KAERU_MCP_VIZ_INITIATIVES` (allow; empty = all) and `KAERU_MCP_VIZ_DENY`.
+    // Read-only `/graph.json` export for the kaeru-viz visualizer — OFF unless
+    // `KAERU_MCP_VIZ_ENABLE` is set, so a daemon never exposes a whole-graph
+    // export unasked. When on, scope is operator-configured (no names in
+    // source): `KAERU_MCP_VIZ_INITIATIVES` is the allow ceiling (empty =
+    // nothing), `KAERU_MCP_VIZ_DENY` is always denied, and only `shared` nodes
+    // export unless `KAERU_MCP_VIZ_INCLUDE_LOCAL=1`.
+    let viz_enabled = matches!(
+        std::env::var("KAERU_MCP_VIZ_ENABLE").ok().as_deref(),
+        Some("1") | Some("true") | Some("yes")
+    );
     let viz_csv = |key: &str| -> Vec<String> {
         std::env::var(key)
             .ok()
@@ -136,11 +142,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
             })
             .unwrap_or_default()
     };
-    let viz_router = viz::router(
-        server.store(),
-        viz_csv("KAERU_MCP_VIZ_INITIATIVES"),
-        viz_csv("KAERU_MCP_VIZ_DENY"),
-    );
+    let viz_router = viz_enabled.then(|| {
+        viz::router(
+            server.store(),
+            viz::VizConfig {
+                allow: viz_csv("KAERU_MCP_VIZ_INITIATIVES"),
+                deny: viz_csv("KAERU_MCP_VIZ_DENY"),
+                include_local: matches!(
+                    std::env::var("KAERU_MCP_VIZ_INCLUDE_LOCAL").ok().as_deref(),
+                    Some("1") | Some("true") | Some("yes")
+                ),
+            },
+        )
+    });
+    if viz_enabled {
+        tracing::info!("kaeru-viz /graph.json endpoint enabled (KAERU_MCP_VIZ_ENABLE)");
+    }
 
     let cancel = CancellationToken::new();
 
@@ -192,10 +209,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .with_cancellation_token(cancel.child_token()),
     );
 
-    let router = axum::Router::new()
+    let mut router = axum::Router::new()
         .nest_service(&mcp_config.mount_path, service)
-        .merge(sse_router)
-        .merge(viz_router);
+        .merge(sse_router);
+    if let Some(viz_router) = viz_router {
+        router = router.merge(viz_router);
+    }
 
     // Bearer-token gate, layered over the whole router so it covers the
     // streamable HTTP and legacy SSE transports alike. Off when no token

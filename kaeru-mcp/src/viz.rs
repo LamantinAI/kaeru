@@ -1,12 +1,18 @@
 //! Read-only `/graph.json` endpoint for the `kaeru-viz` visualizer.
 //!
-//! Serves the whole substrate as one JSON document via
-//! [`kaeru_core::export_graph_json`]. Every node is run through the public
-//! secret guard (redaction), and the initiative allow/deny scope is driven
-//! entirely by configuration — there are **no** vault-specific names in this
-//! source. An operator exposing this for a public audience sets
-//! `KAERU_MCP_VIZ_INITIATIVES` (allow) and `KAERU_MCP_VIZ_DENY` (deny) to a
-//! curated list; per-request `?initiatives=a,b&deny=c` overrides them.
+//! Serves the substrate as one JSON document via [`kaeru_core::export_graph_json`].
+//! Safe by default and operator-driven — there are **no** vault-specific names
+//! in this source:
+//!
+//! - **Opt-in:** the route is only mounted when `KAERU_MCP_VIZ_ENABLE` is set
+//!   (wired in `main.rs`); a daemon never exposes a whole-graph export unasked.
+//! - **Safe-empty allow:** `KAERU_MCP_VIZ_INITIATIVES` is the authoritative
+//!   ceiling; empty (the default) exports nothing. A request's `?initiatives=`
+//!   only *narrows within* it (intersection) — it can never widen the set.
+//! - **Shared-only:** by default only `visibility = shared` nodes are exported;
+//!   `local` nodes stay on the machine unless `KAERU_MCP_VIZ_INCLUDE_LOCAL=1`.
+//! - **Redacted:** every node passes the public secret/credential guard.
+//! - `KAERU_MCP_VIZ_DENY` is always-applied; `?deny=` adds to it.
 
 use std::sync::Arc;
 
@@ -19,52 +25,57 @@ use serde::Deserialize;
 
 use kaeru_core::{ExportOpts, Store, export_graph_json};
 
+/// Endpoint configuration, all operator-controlled (no names in source).
+#[derive(Clone)]
+pub struct VizConfig {
+    /// Authoritative allow-list ceiling (`KAERU_MCP_VIZ_INITIATIVES`). **Empty =
+    /// export nothing** — the operator must opt in. Requests can only narrow it.
+    pub allow: Vec<String>,
+    /// Always-applied deny-list (`KAERU_MCP_VIZ_DENY`).
+    pub deny: Vec<String>,
+    /// Export `local` nodes too (`KAERU_MCP_VIZ_INCLUDE_LOCAL`). Default false —
+    /// only `shared` nodes leave the daemon.
+    pub include_local: bool,
+}
+
 #[derive(Clone)]
 struct VizState {
     store: Arc<Store>,
-    /// Default allow-list (from config). Empty = every initiative is exported
-    /// (still redacted); curate it for a public deployment.
-    default_allow: Vec<String>,
-    /// Default deny-list (from config), always applied.
-    default_deny: Vec<String>,
+    cfg: VizConfig,
 }
 
 #[derive(Debug, Deserialize)]
 struct GraphQuery {
-    /// CSV of initiative names / globs to allow (overrides the configured set).
+    /// CSV of names / globs to **narrow within** the configured allow-list
+    /// (intersection — it can never widen the exported set).
     initiatives: Option<String>,
-    /// CSV of initiative names / globs to deny (added to the configured set).
+    /// CSV of names / globs to additionally deny.
     deny: Option<String>,
     /// Include full bodies instead of excerpts (still redacted). Default false.
     bodies: Option<bool>,
 }
 
-/// Builds the viz router. `allow` / `deny` come from configuration
-/// (`KAERU_MCP_VIZ_INITIATIVES` / `KAERU_MCP_VIZ_DENY`); both may be empty.
-pub fn router(store: Arc<Store>, allow: Vec<String>, deny: Vec<String>) -> Router {
+/// Builds the viz router from operator config.
+pub fn router(store: Arc<Store>, cfg: VizConfig) -> Router {
     Router::new()
         .route("/graph.json", get(graph_json))
-        .with_state(VizState {
-            store,
-            default_allow: allow,
-            default_deny: deny,
-        })
+        .with_state(VizState { store, cfg })
 }
 
 async fn graph_json(State(st): State<VizState>, Query(q): Query<GraphQuery>) -> impl IntoResponse {
-    // Allow-list: request override, else configured default, else None (all).
-    let allow = match q.initiatives {
-        Some(csv) => Some(csv_to_vec(&csv)),
-        None if st.default_allow.is_empty() => None,
-        None => Some(st.default_allow.clone()),
-    };
-    let mut deny = st.default_deny.clone();
+    // The configured allow-list is the authoritative ceiling — ALWAYS `Some`,
+    // so an empty config exports nothing. A request's `?initiatives=` becomes a
+    // *narrowing* filter (intersection), never a replacement, so a caller can't
+    // widen past what the operator opted into.
+    let mut deny = st.cfg.deny.clone();
     if let Some(csv) = q.deny {
         deny.extend(csv_to_vec(&csv));
     }
     let opts = ExportOpts {
-        allow_initiatives: allow,
+        allow_initiatives: Some(st.cfg.allow.clone()),
+        restrict_initiatives: q.initiatives.as_deref().map(csv_to_vec),
         deny_initiatives: deny,
+        shared_only: !st.cfg.include_local,
         include_bodies: q.bodies.unwrap_or(false),
         redact: true,
     };
