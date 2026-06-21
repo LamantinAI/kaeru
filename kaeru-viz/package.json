@@ -1,0 +1,19 @@
+{
+  "name": "kaeru-viz",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "3D galaxy visualizer for a kaeru knowledge base — conference-talk build",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "3d-force-graph": "^1.73.4",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  }
+}
