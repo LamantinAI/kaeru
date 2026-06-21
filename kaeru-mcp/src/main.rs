@@ -27,6 +27,7 @@ mod utils;
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::future::IntoFuture;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
@@ -134,6 +135,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let sse_router = sse::router(
         server.clone(),
+        cancel.child_token(),
         &mcp_config.sse_path,
         &mcp_config.messages_path,
     );
@@ -211,13 +213,36 @@ async fn main() -> Result<(), Box<dyn Error>> {
         "kaeru-mcp listening — point MCP clients here"
     );
 
-    axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown(cancel))
-        .await?;
-
-    tracing::info!("kaeru-mcp stopped");
+    // Serve with graceful shutdown, but bound the drain: long-lived MCP
+    // streams (the streamable-HTTP GET channel, legacy SSE) don't always
+    // close the instant their sessions are cancelled, so an unbounded
+    // graceful shutdown can block until systemd's `TimeoutStopSec` (90s by
+    // default) SIGKILLs the daemon. Once shutdown is requested we give
+    // in-flight work a short grace window, then force the process to exit.
+    let graceful = axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown(cancel.clone()))
+        .into_future();
+    tokio::pin!(graceful);
+    tokio::select! {
+        res = &mut graceful => {
+            res?;
+            tracing::info!("kaeru-mcp stopped");
+        }
+        () = grace_deadline(cancel, SHUTDOWN_GRACE) => {
+            tracing::warn!(
+                grace_secs = SHUTDOWN_GRACE.as_secs(),
+                "shutdown grace window elapsed with connections still open; forcing exit"
+            );
+        }
+    }
     Ok(())
 }
+
+/// How long graceful shutdown is allowed to drain in-flight connections
+/// after a stop is requested before the daemon forces exit. Kept well under
+/// systemd's default `TimeoutStopSec` (90s) so a clean stop never escalates
+/// to SIGKILL.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(3);
 
 /// Waits for either Ctrl-C or SIGTERM, then cancels the rmcp service
 /// token so in-flight sessions wind down cleanly. SIGTERM coverage is
@@ -245,4 +270,12 @@ async fn shutdown(cancel: CancellationToken) {
         _ = terminate => tracing::info!("SIGTERM received"),
     }
     cancel.cancel();
+}
+
+/// Resolves once shutdown has been requested (`cancel` fired) **and** the
+/// grace window has elapsed — the backstop that bounds how long the daemon
+/// waits for stubborn long-lived connections to drain.
+async fn grace_deadline(cancel: CancellationToken, grace: Duration) {
+    cancel.cancelled().await;
+    tokio::time::sleep(grace).await;
 }

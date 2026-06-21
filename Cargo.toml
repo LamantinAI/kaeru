@@ -41,7 +41,7 @@ config = "0.14"
 # not available: it tied each session to its own subprocess and made
 # multi-session use impossible (RocksDB is single-writer).
 rmcp = { version = "1.6", features = ["server", "transport-streamable-http-server", "macros"] }
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "time"] }
 tokio-util = "0.7"
 tokio-stream = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query"] }
