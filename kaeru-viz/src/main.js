@@ -252,26 +252,43 @@ function setFocus(name) {
 }
 function setCross(b) { crossMode = b; refresh() }
 function setSpin(on, speed = 0.55) { const c = Graph.controls(); c.autoRotate = on; c.autoRotateSpeed = speed }
+function clearFocus() { focusInit = null; $('focus').value = ''; refresh() }
+// Frame the whole sphere lifted into the empty top area so the bottom demo
+// card doesn't occlude it. The look-point sits on the vertical spin axis
+// (x=z=0), so auto-rotate stays clean (no wobble).
+function frameGalaxyHigh(ms = 1400) {
+  let maxR = 1
+  for (const n of nodes) {
+    if (n.isHub || n.x == null) continue
+    const r = Math.hypot(n.x, n.y, n.z)
+    if (r > maxR) maxR = r
+  }
+  const cam = Graph.camera()
+  const half = Math.tan((((cam && cam.fov) || 50) * Math.PI / 180) / 2)
+  const D = (maxR * 1.12) / half
+  const up = D * half * 0.34 // lift ≈ 17% of view height
+  Graph.cameraPosition({ x: 0, y: -up, z: D }, { x: 0, y: -up, z: 0 }, ms)
+}
 
 const SCENES = [
   {
     tag: 'a knowledge galaxy',
     title: 'One mind. A knowledge galaxy.',
     narr: "Months of one AI agent's work across many open-source projects, all in one memory. It forms a galaxy because the same rule shapes both: what belongs together, pulls together. Each cluster a project, each point a thought — a small universe of one mind's work.",
-    apply() { resetChain(); resetTime(); setFocus(null); setCross(false); setGlow(true); setColorMode('initiative'); Graph.zoomToFit(1600, 110, (n) => !n.isHub); setSpin(true, 0.55) },
+    apply() { resetChain(); resetTime(); clearFocus(); setCross(false); setGlow(true); setColorMode('initiative'); frameGalaxyHigh(1600); setSpin(true, 0.55) },
   },
   {
     tag: 'bi-temporal substrate',
     title: 'Watch the knowledge grow.',
     narr: 'Every node and edge is bi-temporal — we record exactly when each insight was asserted. So we can rewind and replay months of thinking accumulating, project by project.',
-    apply() { resetChain(); setFocus(null); setCross(false); setSpin(false); setColorMode('initiative'); startTimeLapse() },
+    apply() { resetChain(); clearFocus(); setCross(false); setSpin(false); setColorMode('initiative'); frameGalaxyHigh(); startTimeLapse() },
   },
   {
     tag: 'reasoning chains',
     title: 'How — not just what.',
     narr: 'Reasoning is preserved, not just results. A knowledge chain is the load-bearing path between insights. Watch how one conclusion was actually reached — node by node, in order.',
     apply() {
-      resetTime(); setFocus(null); setCross(false); setSpin(false)
+      resetTime(); clearFocus(); setCross(false); setSpin(false)
       // Demo the richest trail: the longest chain (name-free, always best).
       const c = data.chains.reduce((best, x) => (x.members.length > (best ? best.members.length : 0) ? x : best), null)
       if (c) { chainPick.value = data.chains.indexOf(c); startReplay(c) }
@@ -293,13 +310,13 @@ const SCENES = [
     tag: 'memory layers',
     title: 'Important glows first.',
     narr: 'Memory has priority. Core and Hot glow largest and load on every re-entry; Warm is the working set; Cold and Frozen wait until explicitly asked. The important stuff surfaces first.',
-    apply() { resetChain(); resetTime(); setFocus(null); setCross(false); setSpin(false); setGlow(true); setColorMode('layer') },
+    apply() { resetChain(); resetTime(); clearFocus(); setCross(false); setSpin(false); setGlow(true); setColorMode('layer'); frameGalaxyHigh() },
   },
   {
     tag: 'two tiers',
     title: 'Hippocampus & cortex.',
     narr: 'Two tiers, like the brain. Operational (hippocampus) is fast, messy working thought. Archival (cortex) is settled, durable knowledge. Operational decays and gets revisited; archival is what survives.',
-    apply() { resetChain(); resetTime(); setFocus(null); setCross(false); setSpin(false); setColorMode('tier') },
+    apply() { resetChain(); resetTime(); clearFocus(); setCross(false); setSpin(false); setColorMode('tier'); frameGalaxyHigh() },
   },
 ]
 
