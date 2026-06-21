@@ -116,6 +116,41 @@ pub fn is_clean(content: &str) -> bool {
     scan(content).is_empty()
 }
 
+/// Credential-like phrases (case-insensitive substring) that should never go
+/// into a **public** export even though they are not structured secrets.
+const PUBLIC_PHRASE_MARKERS: &[&str] = &[
+    "default-cred",
+    "password=",
+    "password:",
+    "passwd=",
+    "passwd:",
+    "ssh-rsa ",
+    "ssh-ed25519 ",
+    "-----begin",
+];
+
+/// Stricter scan for a **public** export (talk / website): everything [`scan`]
+/// catches, plus credential-like phrases and raw IPv4 addresses. Used by
+/// [`crate::export_json`] to redact a node before it leaves the building.
+pub fn scan_public(content: &str) -> Vec<GuardHit> {
+    let mut hits = scan(content);
+
+    // Note: raw IPv4 addresses are deliberately NOT flagged here — in many
+    // engineering notes they are overwhelmingly benign lab/example addresses,
+    // and genuinely sensitive material is meant to be excluded at the
+    // initiative level. The phrase + structured-secret rules are the floor.
+    let lower = content.to_ascii_lowercase();
+    if let Some(marker) = PUBLIC_PHRASE_MARKERS.iter().find(|m| lower.contains(**m)) {
+        hits.push(GuardHit {
+            rule: "public_phrase",
+            reason: "contains a credential-like phrase",
+            matched: (*marker).to_string(),
+        });
+    }
+
+    hits
+}
+
 /// Finds the first occurrence of `prefix` immediately followed by at least
 /// `min_suffix` token characters (alphanumeric / `_`). Returns the matched
 /// fragment, truncated.

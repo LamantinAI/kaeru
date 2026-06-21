@@ -11,6 +11,7 @@
 pub mod config;
 pub mod errors;
 pub mod export;
+pub mod export_json;
 pub mod graph;
 pub mod guard;
 mod migrate;
@@ -22,6 +23,10 @@ pub mod store;
 pub use config::KaeruConfig;
 pub use errors::{Error, Result};
 pub use export::{ExportSummary, export_vault};
+pub use export_json::{
+    ChainExport, EdgeExport, ExportOpts, GraphExport, GraphMeta, InitiativeStat, NodeExport,
+    ProjectLink, export_graph_json,
+};
 pub use graph::{
     DstStore, EdgeType, EpisodeKind, HypothesisStatus, Layer, NodeId, NodeSnapshot, NodeType,
     Revision, SharePolicy, Significance, Tier, Visibility, at, history, new_node_id,
