@@ -1,0 +1,19 @@
+[package]
+name = "kaeru-rig"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "rig Tools that give a rig agent persistent memory backed by kaeru (kaeru-core)."
+
+[dependencies]
+kaeru-core = { workspace = true }
+rig-core = "0.35"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

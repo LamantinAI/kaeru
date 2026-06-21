@@ -49,11 +49,12 @@ kaeru/
 ├── kaeru-core/                 ← library: substrate, schema, primitives
 ├── kaeru-mcp/                  ← binary `kaeru-mcp`: Model Context Protocol server (the agent's surface)
 ├── kaeru-cloud/                ← binary `kaeru-cloud`: shared cloud tier (Axum REST over kaeru-core)
+├── kaeru-rig/                  ← library: `rig` Tools that give a rig agent kaeru memory
 └── skills/
     └── kaeru-skill/            ← portable agent skill (Claude Code / etc.)
 ```
 
-Future integration crates: `kaeru-langchain` (Python bridge), `kaeru-rig` (Rig framework). Not yet started.
+`kaeru-rig` is the [rig](https://github.com/0xPlaygrounds/rig) framework adapter — the full curator verb set as discrete rig `Tool`s over an embedded `Arc<Store>`, so a rig agent reads and writes one vault. Future: `kaeru-langchain` (Python bridge), not yet started.
 
 ## Install
 
@@ -147,7 +148,7 @@ Pre-1.0. Implemented and covered by a green test suite: the substrate and curato
 - **MCP concurrency.** Each call is atomic, but when an agent batch-fires many calls, reads can race ahead of pending writes.
 - **Whole-second `Validity` resolution.** Two opposing mutations on the same node/edge within one second (e.g. `link` then an immediate `unlink`, or a `forget` right after a write) resolve ambiguously. Interactive use is fine — human pacing always crosses the boundary; the test suite sleeps between such operations.
 - **Audit events** aren't attached to the initiative junction yet (export filters them by `affected_refs` intersection — a working workaround).
-- **No LangChain / Rig adapters** yet.
+- **Rig adapter shipped, LangChain not yet.** `kaeru-rig` gives a [rig](https://github.com/0xPlaygrounds/rig) agent the full memory toolset; a Python / LangChain bridge is still to come.
 - **Migrations are forward-only and add-only.** A `migration_journal` runs schema additions (new relations / columns) on open; there is no down-migration or destructive-change path yet. Snapshot via `export` before a major upgrade is still prudent pre-1.0.
 
 ## Contributing
