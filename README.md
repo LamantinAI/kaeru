@@ -8,6 +8,10 @@ Inspired by the LLM-wiki pattern (Karpathy, gist `442a6bf555914893e9891c11519de9
 
 Name: 蛙 (*kaeru*, "frog"; homophonic with 帰る "to return" and 変える "to change") — the agent that returns, recalls, and reshapes.
 
+![A kaeru vault rendered as a knowledge galaxy by kaeru-viz](kaeru-viz/screenshot.png)
+
+<sub>A kaeru vault rendered by [`kaeru-viz`](kaeru-viz/) — one cluster per initiative, nodes sized by memory layer, with reasoning-chain replay and a time-lapse of how the knowledge grew.</sub>
+
 ## Overview
 
 `kaeru` is built around a typed property graph stored in CozoDB. Two tiers, biological analogy:
