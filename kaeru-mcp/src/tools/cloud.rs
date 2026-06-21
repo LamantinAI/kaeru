@@ -126,7 +126,8 @@ pub async fn push_to_cloud(
         if kaeru_core::get_visibility(store, other).map_err(to_mcp)? != Visibility::Shared {
             continue;
         }
-        let ebody = serde_json::json!({ "src": src, "dst": dst, "edge_type": edge_type, "weight": weight });
+        let ebody =
+            serde_json::json!({ "src": src, "dst": dst, "edge_type": edge_type, "weight": weight });
         let (ecode, _) = cloud
             .post_edge(&ebody)
             .await

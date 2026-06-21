@@ -119,7 +119,12 @@ pub fn set_edge_weight(
         .db_ref()
         .run_script(&put, p, ScriptMutability::Mutable)?;
 
-    write_audit(store.db_ref(), "set_edge_weight", "system", &[src.clone(), dst.clone()])?;
+    write_audit(
+        store.db_ref(),
+        "set_edge_weight",
+        "system",
+        &[src.clone(), dst.clone()],
+    )?;
     Ok(())
 }
 

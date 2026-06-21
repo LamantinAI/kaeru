@@ -178,7 +178,10 @@ impl KaeruServer {
     #[tool(
         description = "Set an existing edge's connection strength (weight 0..1) in place. Stronger edges make shorter knowledge-chain paths; use to tune which links matter after the fact."
     )]
-    fn reweight(&self, Parameters(p): Parameters<ReweightParams>) -> Result<CallToolResult, McpError> {
+    fn reweight(
+        &self,
+        Parameters(p): Parameters<ReweightParams>,
+    ) -> Result<CallToolResult, McpError> {
         tools::capture::reweight(
             &self.store,
             &p.from,
