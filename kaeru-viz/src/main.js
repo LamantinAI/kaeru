@@ -272,8 +272,9 @@ const SCENES = [
     narr: 'Reasoning is preserved, not just results. A knowledge chain is the load-bearing path between insights. Watch how one conclusion was actually reached — node by node, in order.',
     apply() {
       resetTime(); setFocus(null); setCross(false); setSpin(false)
-      const c = data.chains[0]
-      if (c) { chainPick.value = 0; startReplay(c) }
+      // Demo the richest trail: the longest chain (name-free, always best).
+      const c = data.chains.reduce((best, x) => (x.members.length > (best ? best.members.length : 0) ? x : best), null)
+      if (c) { chainPick.value = data.chains.indexOf(c); startReplay(c) }
     },
   },
   {
