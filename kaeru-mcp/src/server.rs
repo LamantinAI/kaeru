@@ -45,6 +45,12 @@ impl KaeruServer {
             tool_router: Self::tool_router(),
         }
     }
+
+    /// Shared substrate handle — used by the read-only `/graph.json` viz
+    /// endpoint, which exports the whole graph for the visualizer.
+    pub fn store(&self) -> Arc<Store> {
+        self.store.clone()
+    }
 }
 
 #[tool_router]

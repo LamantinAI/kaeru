@@ -24,6 +24,7 @@ mod settings;
 mod sse;
 mod tools;
 mod utils;
+mod viz;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -119,6 +120,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let server = KaeruServer::new(store, clouds);
 
+    // Read-only `/graph.json` export for the kaeru-viz visualizer. Shares the
+    // daemon's `Arc<Store>`; every node is redacted by the public guard. The
+    // initiative allow/deny scope is configuration-driven (no names in source):
+    // `KAERU_MCP_VIZ_INITIATIVES` (allow; empty = all) and `KAERU_MCP_VIZ_DENY`.
+    let viz_csv = |key: &str| -> Vec<String> {
+        std::env::var(key)
+            .ok()
+            .map(|s| {
+                s.split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let viz_router = viz::router(
+        server.store(),
+        viz_csv("KAERU_MCP_VIZ_INITIATIVES"),
+        viz_csv("KAERU_MCP_VIZ_DENY"),
+    );
+
     let cancel = CancellationToken::new();
 
     let mut session_manager = LocalSessionManager::default();
@@ -171,7 +194,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let router = axum::Router::new()
         .nest_service(&mcp_config.mount_path, service)
-        .merge(sse_router);
+        .merge(sse_router)
+        .merge(viz_router);
 
     // Bearer-token gate, layered over the whole router so it covers the
     // streamable HTTP and legacy SSE transports alike. Off when no token
