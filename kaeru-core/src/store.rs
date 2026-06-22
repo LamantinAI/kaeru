@@ -20,6 +20,14 @@ pub struct Store {
     /// Process-local current initiative. Set via `use_initiative`,
     /// read by primitives that scope by initiative (junction lookups).
     current_initiative: Mutex<Option<String>>,
+    /// Serializes scope sessions ([`Store::scoped`]). The current initiative
+    /// is process-local mutable state shared by every handle to this store;
+    /// holding this guard across a set-initiative-then-operate sequence keeps
+    /// two concurrent scoped callers (e.g. a `kaeru-rig` `spawn_blocking`
+    /// pool) from interleaving each other's scope. Distinct from
+    /// `current_initiative` so primitives can still read the scope without
+    /// deadlocking against the guard.
+    scope_guard: Mutex<()>,
     /// Tunable caps and defaults read by curator-API primitives.
     /// Captured at `Store` construction time so concurrent tests under
     /// `cargo test` can each pin their own config without racing on
@@ -43,6 +51,7 @@ impl Store {
         let store = Self {
             db,
             current_initiative: Mutex::new(None),
+            scope_guard: Mutex::new(()),
             config,
         };
         store.bootstrap_schema()?;
@@ -81,6 +90,7 @@ impl Store {
         let store = Self {
             db,
             current_initiative: Mutex::new(None),
+            scope_guard: Mutex::new(()),
             config,
         };
         store.bootstrap_schema()?;
@@ -112,6 +122,31 @@ impl Store {
     /// Returns a copy of the current initiative name, if any.
     pub fn current_initiative(&self) -> Option<String> {
         self.current_initiative.lock().ok().and_then(|g| g.clone())
+    }
+
+    /// Runs `f` with the current initiative atomically set to `initiative`
+    /// (`None` = cross-initiative), serialized against other `scoped` callers
+    /// on this store.
+    ///
+    /// The current initiative is process-local state shared by every handle to
+    /// the store, so a bare "set scope, then run a primitive" sequence races
+    /// when two callers interleave (e.g. distinct `kaeru-rig` `KaeruMemory`
+    /// handles with different initiatives sharing one `Arc<Store>` across the
+    /// `spawn_blocking` pool). This holds an internal guard across the whole
+    /// set-then-operate sequence so each scoped session is atomic. The guard
+    /// is separate from `current_initiative`, so primitives inside `f` read the
+    /// scope normally without deadlocking. Poisoning is recovered from — a
+    /// panicked prior session does not wedge the store.
+    pub fn scoped<T>(&self, initiative: Option<&str>, f: impl FnOnce(&Self) -> T) -> T {
+        let _guard = self
+            .scope_guard
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match initiative {
+            Some(name) => self.use_initiative(name),
+            None => self.clear_initiative(),
+        }
+        f(self)
     }
 
     /// Runs a CozoScript that may mutate state.
@@ -366,6 +401,18 @@ mod tests {
         assert_eq!(store.current_initiative().as_deref(), Some("kaeru"));
         store.clear_initiative();
         assert!(store.current_initiative().is_none());
+    }
+
+    /// `scoped` sets the active initiative for the closure (and clears it for
+    /// `None`). Serialization is exercised implicitly by every scoped caller;
+    /// here we assert the scope is what the closure observes.
+    #[test]
+    fn scoped_sets_initiative_for_the_closure() {
+        let store = Store::open_in_memory().expect("open");
+        let seen = store.scoped(Some("alpha"), |s| s.current_initiative());
+        assert_eq!(seen.as_deref(), Some("alpha"));
+        let cleared = store.scoped(None, |s| s.current_initiative());
+        assert!(cleared.is_none(), "None scope clears the initiative");
     }
 
     /// Empirical experiment: does `Validity` + `[String]?` column compose

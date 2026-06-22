@@ -86,26 +86,21 @@ impl KaeruMemory {
         }
     }
 
-    /// Runs synchronous store work `f` on a blocking thread, after scoping the
-    /// shared store to this memory's initiative. The active initiative is
-    /// process-local state on the `Store`; it is set per-call (always to this
-    /// memory's fixed initiative, so concurrent calls from one handle don't
-    /// race). A panic / join failure surfaces as `{"error": …}`.
+    /// Runs synchronous store work `f` on a blocking thread, scoped to this
+    /// memory's initiative. Scoping + the work go through [`Store::scoped`],
+    /// which serializes scope sessions on the store — so even two
+    /// `KaeruMemory` handles with *different* initiatives sharing one
+    /// `Arc<Store>` across the `spawn_blocking` pool can't interleave each
+    /// other's scope. A panic / join failure surfaces as `{"error": …}`.
     pub(crate) async fn run<F>(&self, f: F) -> Value
     where
         F: FnOnce(&Store) -> Value + Send + 'static,
     {
         let store = self.store.clone();
         let init = self.initiative.clone();
-        tokio::task::spawn_blocking(move || {
-            match &init {
-                Some(i) => store.use_initiative(i),
-                None => store.clear_initiative(),
-            }
-            f(&store)
-        })
-        .await
-        .unwrap_or_else(|e| json!({ "error": format!("memory task failed: {e}") }))
+        tokio::task::spawn_blocking(move || store.scoped(init.as_deref(), f))
+            .await
+            .unwrap_or_else(|e| json!({ "error": format!("memory task failed: {e}") }))
     }
 }
 

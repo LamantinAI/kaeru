@@ -161,13 +161,11 @@ they are not mistaken for safety guarantees:
 Confirmed defects found in review, not yet fixed — distinct from the deliberate
 gaps above. Pick these up when touching the relevant area:
 
-- **`kaeru-rig` initiative scoping is racy across the `spawn_blocking` pool.**
-  `KaeruMemory::run` sets a process-local initiative scope inside each blocking
-  task on a shared `Arc<Store>`. Two `KaeruMemory` handles with *different*
-  initiatives on one store can interleave scope mutations across pool threads.
-  The docs say "one `KaeruMemory` per vault" but nothing enforces it. Fix:
-  thread the initiative through the call instead of process-local scope, or
-  serialize store access.
+- _None currently open._
+
+Fixed: `kaeru-rig` initiative-scoping race across the `spawn_blocking` pool —
+now serialized through `Store::scoped`, which holds an internal guard across
+the set-scope-then-operate sequence (`kaeru-core/src/store.rs`).
 
 ## Out Of Scope
 
