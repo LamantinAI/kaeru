@@ -25,9 +25,8 @@ use axum::extract::{Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
 use axum::routing::get;
-use serde::Deserialize;
-
 use kaeru_core::{ExportOpts, Store, export_graph_json};
+use serde::Deserialize;
 
 /// Endpoint configuration, all operator-controlled (no names in source).
 #[derive(Clone)]
@@ -95,9 +94,12 @@ async fn graph_json(State(st): State<VizState>, Query(q): Query<GraphQuery>) -> 
     match result {
         Ok(Ok(graph)) => match serde_json::to_string(&graph) {
             Ok(json) => {
-                let mut resp =
-                    (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], json)
-                        .into_response();
+                let mut resp = (
+                    StatusCode::OK,
+                    [(header::CONTENT_TYPE, "application/json")],
+                    json,
+                )
+                    .into_response();
                 // Cross-origin reads are opt-in: emit ACAO only when the
                 // operator configured an origin (default: same-origin only).
                 if let Some(origin) = st.cfg.allow_origin.as_deref()

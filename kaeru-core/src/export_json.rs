@@ -73,10 +73,30 @@ pub struct ProjectLink {
 
 /// Generic auto-derived topics that carry no cross-project signal.
 const TOPIC_STOP: &[&str] = &[
-    "topic:fix", "topic:test", "topic:build", "topic:first", "topic:after", "topic:phase",
-    "topic:root", "topic:running", "topic:merged", "topic:master", "topic:earlier",
-    "topic:correction", "topic:bug", "topic:finding", "topic:the", "topic:name", "topic:local",
-    "topic:new", "topic:final", "topic:initial", "topic:via", "topic:not", "topic:and", "topic:---",
+    "topic:fix",
+    "topic:test",
+    "topic:build",
+    "topic:first",
+    "topic:after",
+    "topic:phase",
+    "topic:root",
+    "topic:running",
+    "topic:merged",
+    "topic:master",
+    "topic:earlier",
+    "topic:correction",
+    "topic:bug",
+    "topic:finding",
+    "topic:the",
+    "topic:name",
+    "topic:local",
+    "topic:new",
+    "topic:final",
+    "topic:initial",
+    "topic:via",
+    "topic:not",
+    "topic:and",
+    "topic:---",
 ];
 
 /// Inverse-frequency-weighted project affinity over exported nodes' `topic:`
@@ -85,7 +105,9 @@ fn project_affinity(nodes: &[NodeExport]) -> Vec<ProjectLink> {
     let stop: HashSet<&str> = TOPIC_STOP.iter().copied().collect();
     let mut topic_inits: HashMap<&str, HashSet<&str>> = HashMap::new();
     for n in nodes {
-        let Some(init) = n.initiatives.first() else { continue };
+        let Some(init) = n.initiatives.first() else {
+            continue;
+        };
         for t in &n.tags {
             if t.starts_with("topic:") && !stop.contains(t.as_str()) {
                 topic_inits.entry(t).or_default().insert(init);
@@ -203,7 +225,10 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
 
     // node_id -> earliest asserted second (creation).
     let mut node_created: HashMap<String, f64> = HashMap::new();
-    for row in store.run_read("?[id, validity] := *node{id, validity}")?.rows {
+    for row in store
+        .run_read("?[id, validity] := *node{id, validity}")?
+        .rows
+    {
         if let (Some(id), Some((secs, true))) = (str_at(&row, 0), validity_at(&row, 1)) {
             node_created
                 .entry(id)
@@ -489,8 +514,10 @@ fn truncate(s: &str, max_chars: usize) -> String {
 mod tests {
     use super::{ExportOpts, export_graph_json};
     use crate::store::Store;
-    use crate::{EdgeType, EpisodeKind, NodeType, Significance, Visibility};
-    use crate::{create_chain, link_with_weight, set_visibility, write_episode};
+    use crate::{
+        EdgeType, EpisodeKind, NodeType, Significance, Visibility, create_chain, link_with_weight,
+        set_visibility, write_episode,
+    };
 
     #[test]
     fn export_filters_initiatives_and_redacts_secrets() {
@@ -498,10 +525,22 @@ mod tests {
 
         // alpha: two linked episodes + a chain.
         store.use_initiative("alpha");
-        let a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a-node", "A")
-            .unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b-node", "B")
-            .unwrap();
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a-node",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b-node",
+            "B",
+        )
+        .unwrap();
         link_with_weight(&store, &a, &b, EdgeType::RefersTo, 1.0).unwrap();
         let chain = create_chain(&store, &a, &b, Some("a-to-b"))
             .unwrap()
@@ -519,8 +558,14 @@ mod tests {
 
         // secretproj: a whole initiative excluded by the allow list.
         store.use_initiative("secretproj");
-        write_episode(&store, EpisodeKind::Observation, Significance::Low, "hidden", "nope")
-            .unwrap();
+        write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "hidden",
+            "nope",
+        )
+        .unwrap();
 
         let opts = ExportOpts {
             allow_initiatives: Some(vec!["alpha".into()]),
@@ -534,14 +579,26 @@ mod tests {
         assert!(!names.iter().any(|n| *n == "hidden"), "excluded initiative");
 
         // The secret node is present but redacted (body dropped, name replaced).
-        let red = g.nodes.iter().find(|n| n.id == secret).expect("secret node present");
+        let red = g
+            .nodes
+            .iter()
+            .find(|n| n.id == secret)
+            .expect("secret node present");
         assert!(red.redacted && red.body.is_none() && red.name.contains("redacted"));
         assert_eq!(g.meta.redacted_count, 1);
 
         // Edge a→b present with weight + creation time; chain present, ordered.
-        assert!(g.edges.iter().any(|e| e.src == a && e.dst == b && e.weight == 1.0));
+        assert!(
+            g.edges
+                .iter()
+                .any(|e| e.src == a && e.dst == b && e.weight == 1.0)
+        );
         assert!(g.nodes.iter().all(|n| n.created_secs.is_some()));
-        let c = g.chains.iter().find(|c| c.id == chain).expect("chain exported");
+        let c = g
+            .chains
+            .iter()
+            .find(|c| c.id == chain)
+            .expect("chain exported");
         assert_eq!(c.members.first(), Some(&a));
         assert_eq!(c.members.last(), Some(&b));
 
@@ -555,40 +612,83 @@ mod tests {
     fn export_shared_only_and_restrict_narrow_scope() {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("alpha");
-        let _a = write_episode(&store, EpisodeKind::Observation, Significance::Low, "a", "A").unwrap();
-        let b = write_episode(&store, EpisodeKind::Observation, Significance::Low, "b", "B").unwrap();
+        let _a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "a",
+            "A",
+        )
+        .unwrap();
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "b",
+            "B",
+        )
+        .unwrap();
         set_visibility(&store, &b, Visibility::Shared).unwrap();
         store.use_initiative("beta");
-        let _c = write_episode(&store, EpisodeKind::Observation, Significance::Low, "c", "C").unwrap();
+        let _c = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "c",
+            "C",
+        )
+        .unwrap();
 
         // shared_only → only the shared node `b`.
-        let g = export_graph_json(&store, &ExportOpts { shared_only: true, ..Default::default() }).unwrap();
+        let g = export_graph_json(
+            &store,
+            &ExportOpts {
+                shared_only: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
         let names: Vec<&str> = g.nodes.iter().map(|n| n.name.as_str()).collect();
         assert_eq!(names, vec!["b"], "shared_only excludes local nodes");
 
         // restrict narrows WITHIN allow: allow=[alpha,beta], restrict=[alpha] → alpha only.
-        let g = export_graph_json(&store, &ExportOpts {
-            allow_initiatives: Some(vec!["alpha".into(), "beta".into()]),
-            restrict_initiatives: Some(vec!["alpha".into()]),
-            ..Default::default()
-        }).unwrap();
-        let inits: std::collections::HashSet<&str> =
-            g.nodes.iter().flat_map(|n| n.initiatives.iter().map(String::as_str)).collect();
+        let g = export_graph_json(
+            &store,
+            &ExportOpts {
+                allow_initiatives: Some(vec!["alpha".into(), "beta".into()]),
+                restrict_initiatives: Some(vec!["alpha".into()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let inits: std::collections::HashSet<&str> = g
+            .nodes
+            .iter()
+            .flat_map(|n| n.initiatives.iter().map(String::as_str))
+            .collect();
         assert!(inits.contains("alpha") && !inits.contains("beta"));
 
         // restrict can NEVER widen past allow: allow=[alpha], restrict=[beta] → empty.
-        let g = export_graph_json(&store, &ExportOpts {
-            allow_initiatives: Some(vec!["alpha".into()]),
-            restrict_initiatives: Some(vec!["beta".into()]),
-            ..Default::default()
-        }).unwrap();
+        let g = export_graph_json(
+            &store,
+            &ExportOpts {
+                allow_initiatives: Some(vec!["alpha".into()]),
+                restrict_initiatives: Some(vec!["beta".into()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(g.nodes.is_empty(), "restrict cannot expand the allow set");
 
         // Safe-empty: Some(empty) allow exports nothing.
-        let g = export_graph_json(&store, &ExportOpts {
-            allow_initiatives: Some(vec![]),
-            ..Default::default()
-        }).unwrap();
+        let g = export_graph_json(
+            &store,
+            &ExportOpts {
+                allow_initiatives: Some(vec![]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert!(g.nodes.is_empty(), "empty allow-list = safe-empty default");
     }
 }
