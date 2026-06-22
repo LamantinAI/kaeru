@@ -16,7 +16,7 @@ by strength, plus a time-lapse of the months of accumulation.
 
 The export is **curated + redacted by default** (safe OSS initiatives only;
 credential bodies dropped) so it is safe for a public talk. See the daemon's
-`KAERU_VIZ_INITIATIVES` env / `?initiatives=…` override and `kaeru-core/src/guard.rs`.
+`KAERU_MCP_VIZ_INITIATIVES` env / `?initiatives=…` override and `kaeru-core/src/guard.rs`.
 
 - **Live (dev):** the dev server proxies `/graph.json` to the daemon
   (`KAERU_VIZ_URL`, default `http://127.0.0.1:9876`) — always fresh, and you can

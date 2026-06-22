@@ -96,12 +96,12 @@ mem_tool!(
     |store, args| {
         let from = resolve(store, &args.from);
         let to = resolve(store, &args.to);
-        let weight = args.weight.unwrap_or(1.0);
+        let weight = args.weight.unwrap_or(1.0).clamp(0.0, 1.0);
         match args.edge_type.as_deref().unwrap_or("refers_to").parse::<EdgeType>() {
             Ok(et) => match link_with_weight(store, &from, &to, et, weight) {
                 Ok(()) => json!({
                     "linked": true, "from": from, "to": to,
-                    "edge_type": et.as_str(), "weight": weight.clamp(0.0, 1.0)
+                    "edge_type": et.as_str(), "weight": weight
                 }),
                 Err(e) => json!({ "linked": false, "error": e.to_string() }),
             },

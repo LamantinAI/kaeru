@@ -156,6 +156,19 @@ they are not mistaken for safety guarantees:
   Re-sharing/pulling the same id upserts in place (last-writer-wins, no
   version reconciliation).
 
+## Known Bugs (To Work On)
+
+Confirmed defects found in review, not yet fixed — distinct from the deliberate
+gaps above. Pick these up when touching the relevant area:
+
+- **`kaeru-rig` initiative scoping is racy across the `spawn_blocking` pool.**
+  `KaeruMemory::run` sets a process-local initiative scope inside each blocking
+  task on a shared `Arc<Store>`. Two `KaeruMemory` handles with *different*
+  initiatives on one store can interleave scope mutations across pool threads.
+  The docs say "one `KaeruMemory` per vault" but nothing enforces it. Fix:
+  thread the initiative through the call instead of process-local scope, or
+  serialize store access.
+
 ## Out Of Scope
 
 - Vector embeddings as the primary recall mode — Cozo HNSW is available but kept as fallback for cold queries; structural retrieval is the main mode.

@@ -13,6 +13,10 @@
 //!   `local` nodes stay on the machine unless `KAERU_MCP_VIZ_INCLUDE_LOCAL=1`.
 //! - **Redacted:** every node passes the public secret/credential guard.
 //! - `KAERU_MCP_VIZ_DENY` is always-applied; `?deny=` adds to it.
+//! - **Same-origin by default:** no `Access-Control-Allow-Origin` header is
+//!   sent unless the operator sets `KAERU_MCP_VIZ_ALLOW_ORIGIN` (the dev vite
+//!   proxy and the baked snapshot are both same-origin, so cross-origin access
+//!   is opt-in, not the default).
 
 use std::sync::Arc;
 
@@ -36,6 +40,10 @@ pub struct VizConfig {
     /// Export `local` nodes too (`KAERU_MCP_VIZ_INCLUDE_LOCAL`). Default false —
     /// only `shared` nodes leave the daemon.
     pub include_local: bool,
+    /// `Access-Control-Allow-Origin` value (`KAERU_MCP_VIZ_ALLOW_ORIGIN`).
+    /// `None` (default) sends no CORS header — same-origin only. Set to a
+    /// specific origin (or `*`, deliberately) to allow cross-origin reads.
+    pub allow_origin: Option<String>,
 }
 
 #[derive(Clone)]
@@ -86,15 +94,20 @@ async fn graph_json(State(st): State<VizState>, Query(q): Query<GraphQuery>) -> 
 
     match result {
         Ok(Ok(graph)) => match serde_json::to_string(&graph) {
-            Ok(json) => (
-                StatusCode::OK,
-                [
-                    (header::CONTENT_TYPE, "application/json"),
-                    (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-                ],
-                json,
-            )
-                .into_response(),
+            Ok(json) => {
+                let mut resp =
+                    (StatusCode::OK, [(header::CONTENT_TYPE, "application/json")], json)
+                        .into_response();
+                // Cross-origin reads are opt-in: emit ACAO only when the
+                // operator configured an origin (default: same-origin only).
+                if let Some(origin) = st.cfg.allow_origin.as_deref()
+                    && let Ok(val) = origin.parse()
+                {
+                    resp.headers_mut()
+                        .insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, val);
+                }
+                resp
+            }
             Err(e) => internal(format!("serialize graph: {e}")),
         },
         Ok(Err(e)) => internal(format!("export graph: {e}")),

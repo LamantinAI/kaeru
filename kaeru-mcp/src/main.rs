@@ -152,6 +152,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     std::env::var("KAERU_MCP_VIZ_INCLUDE_LOCAL").ok().as_deref(),
                     Some("1") | Some("true") | Some("yes")
                 ),
+                allow_origin: std::env::var("KAERU_MCP_VIZ_ALLOW_ORIGIN")
+                    .ok()
+                    .filter(|s| !s.is_empty()),
             },
         )
     });
