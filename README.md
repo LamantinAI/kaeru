@@ -146,10 +146,10 @@ Per-user / per-org isolation (multi-tenant) is a future addition; today each clo
 
 ## Status
 
-Pre-1.0. Implemented and covered by a green test suite: the substrate and curator API, memory layers with layered re-entry (`awake` / `surface`), bi-temporal time-travel (`at` / `history`), per-initiative scoping with `rename` / `delete`, knowledge chains (weighted edges + shortest-path), forward-only schema migrations, the MCP server, the shared `kaeru-cloud` tier (sharing, recall, soft links, sync-review) including multi-cloud, and markdown export. What still needs hardening:
+Pre-1.0. Implemented and covered by a green test suite: the substrate and curator API, memory layers with layered re-entry (`awake` / `surface`), bi-temporal time-travel (`at` / `history`), per-initiative scoping with `rename` / `delete`, knowledge chains (weighted edges + shortest-path), forward-only schema migrations, the MCP server, the shared `kaeru-cloud` tier (sharing, recall, soft links, sync-review) including multi-cloud, the `kaeru-rig` framework adapter (full curator toolset as rig Tools), and markdown export. What still needs hardening:
 
 - **Multi-tenant.** The cloud is one shared space scoped by initiative; per-user / per-org isolation isn't built yet.
-- **MCP concurrency.** Each call is atomic, but when an agent batch-fires many calls, reads can race ahead of pending writes.
+- **MCP concurrency.** Concurrent sessions share one `Store`; the per-call initiative scope is serialized through `Store::scoped`, so two sessions can't corrupt each other's scope. What remains is ordering — when an agent batch-fires async calls, a read can still land before a not-yet-applied write.
 - **Whole-second `Validity` resolution.** Two opposing mutations on the same node/edge within one second (e.g. `link` then an immediate `unlink`, or a `forget` right after a write) resolve ambiguously. Interactive use is fine — human pacing always crosses the boundary; the test suite sleeps between such operations.
 - **Audit events** aren't attached to the initiative junction yet (export filters them by `affected_refs` intersection — a working workaround).
 - **Rig adapter shipped, LangChain not yet.** `kaeru-rig` gives a [rig](https://github.com/0xPlaygrounds/rig) agent the full memory toolset; a Python / LangChain bridge is still to come.

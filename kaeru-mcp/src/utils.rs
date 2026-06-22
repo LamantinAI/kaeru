@@ -90,17 +90,14 @@ pub fn with_initiative<T>(
     initiative: Option<&str>,
     f: impl FnOnce() -> Result<T, McpError>,
 ) -> Result<T, McpError> {
-    let prev = store.current_initiative();
-    match initiative {
-        Some(name) => store.use_initiative(name),
-        None => store.clear_initiative(),
-    }
-    let result = f();
-    match prev {
-        Some(p) => store.use_initiative(&p),
-        None => store.clear_initiative(),
-    }
-    result
+    // Scope + run go through `Store::scoped`, which serializes scope sessions
+    // on the shared `Store`. The daemon hands the same `Arc<Store>` to every
+    // concurrent MCP session, so a bare set-scope-then-run would let two
+    // sessions interleave each other's initiative across threads (the same
+    // race fixed in kaeru-rig). The guard makes each session's scope atomic;
+    // no explicit restore is needed — no other scoped caller observes the
+    // intermediate state.
+    store.scoped(initiative, |_store| f())
 }
 
 pub fn resolve_name(store: &Store, name: &str) -> Result<NodeId, McpError> {

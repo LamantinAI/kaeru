@@ -33,6 +33,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::extract::{Request, State};
+use axum::http::HeaderValue;
+use axum::http::header::ACCEPT;
+use axum::middleware::Next;
+use axum::response::Response;
 use kaeru_core::{KaeruConfig, Store};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
 use rmcp::transport::streamable_http_server::{StreamableHttpServerConfig, StreamableHttpService};
@@ -249,6 +254,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     };
 
+    // rmcp's Streamable HTTP transport returns `406 Not Acceptable` to any
+    // request whose `Accept` header doesn't list BOTH `application/json` and
+    // `text/event-stream`. Several MCP clients send only `application/json` —
+    // Claude Code's HTTP transport and the `claude mcp list` health check among
+    // them — and would never connect. Normalize `Accept` on the MCP mount path
+    // so those clients are accepted. Outermost layer: runs before auth and the
+    // transport. Other paths (`/sse`, `/graph.json`) are untouched.
+    let mount: Arc<str> = Arc::from(mcp_config.mount_path.as_str());
+    let router = router.layer(axum::middleware::from_fn_with_state(
+        mount,
+        normalize_mcp_accept,
+    ));
+
     let address = format!("{}:{}", mcp_config.listen_address, mcp_config.listen_port);
     let listener = TcpListener::bind(&address).await?;
 
@@ -324,4 +342,24 @@ async fn shutdown(cancel: CancellationToken) {
 async fn grace_deadline(cancel: CancellationToken, grace: Duration) {
     cancel.cancelled().await;
     tokio::time::sleep(grace).await;
+}
+
+/// Rewrites the `Accept` header to `application/json, text/event-stream` on the
+/// MCP mount path. rmcp's Streamable HTTP transport answers `406 Not
+/// Acceptable` unless the client accepts *both* JSON and an SSE stream; some
+/// clients (Claude Code's HTTP transport, the `claude mcp list` health check)
+/// send only `application/json` and would never connect. Scoped to `mount` so
+/// `/sse` and `/graph.json` pass through unchanged.
+async fn normalize_mcp_accept(
+    State(mount): State<Arc<str>>,
+    mut request: Request,
+    next: Next,
+) -> Response {
+    if request.uri().path().starts_with(mount.as_ref()) {
+        request.headers_mut().insert(
+            ACCEPT,
+            HeaderValue::from_static("application/json, text/event-stream"),
+        );
+    }
+    next.run(request).await
 }
