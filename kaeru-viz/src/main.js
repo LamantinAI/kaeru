@@ -20,7 +20,10 @@ async function loadGraph() {
   const r = await fetch('./graph.json'); return await r.json()  // baked snapshot fallback
 }
 const data = await loadGraph()
-const nodes = data.nodes
+// `chain` nodes are meta-trails (a saved reasoning path), not insights — they
+// drive the replay selector via data.chains[].members, but must not render as
+// loose floating points in the galaxy. Keep only real insight nodes.
+const nodes = data.nodes.filter((n) => n.type !== 'chain')
 const byId = new Map(nodes.map((n) => [n.id, n]))
 const links = data.edges.map((e) => ({ source: e.src, target: e.dst, type: e.type, weight: e.weight, created: e.created_secs }))
 const primInit = (n) => (n.isHub ? n.hubInit : (n.initiatives && n.initiatives[0]) || '∅')
