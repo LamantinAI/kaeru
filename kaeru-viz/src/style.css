@@ -11,7 +11,8 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
 #graph { position: fixed; inset: 0; }
 
-#hud { position: fixed; top: 18px; left: 22px; z-index: 10; pointer-events: none; }
+#hud { position: fixed; top: 0; left: 0; z-index: 10; pointer-events: none; padding: 18px 40px 28px 22px;
+  background: radial-gradient(120% 130% at 0 0, rgba(5,6,13,0.92) 0%, rgba(5,6,13,0.6) 42%, transparent 72%); }
 #hud h1 { margin: 0; font-size: 30px; font-weight: 800; letter-spacing: -0.5px;
   text-shadow: 0 0 24px rgba(100,140,255,0.5); }
 #hud h1 .sub { display: block; font-size: 13px; font-weight: 500; color: var(--dim);
@@ -51,8 +52,8 @@ input[type=range] { flex: 1; accent-color: var(--accent); min-width: 160px; }
 #readout .pill { display: inline-block; font-size: 10px; padding: 1px 7px; border-radius: 999px;
   border: 1px solid var(--border); margin-right: 4px; color: var(--dim); }
 
-#legend { position: fixed; bottom: 92px; right: 22px; z-index: 9; font-size: 11px;
-  color: var(--dim); text-align: right; line-height: 1.7; pointer-events: none; }
+#legend { position: fixed; bottom: 160px; right: 22px; z-index: 9; font-size: 11px;
+  color: var(--dim); text-align: right; line-height: 1.6; pointer-events: none; }
 #legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px;
   margin-left: 6px; vertical-align: middle; }
 

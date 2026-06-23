@@ -238,6 +238,21 @@ Graph.controls().autoRotate = true
 Graph.controls().autoRotateSpeed = 0.5
 document.getElementById('graph').addEventListener('pointerdown', () => { Graph.controls().autoRotate = false }, { once: true })
 
+// frame the galaxy nicely on first load — lifted above the bottom panel so the
+// controls never occlude it (the app only framed inside Demo/Focus before).
+let __framedOnce = false
+Graph.onEngineStop(() => { if (!__framedOnce) { __framedOnce = true; frameGalaxyInitial(1200) } })
+
+// re-centre on window resize so the galaxy never leaves dead space (skip during
+// the guided demo / focus / chain replay, which drive their own camera).
+let __rzT
+addEventListener('resize', () => {
+  clearTimeout(__rzT)
+  __rzT = setTimeout(() => {
+    if (document.getElementById('script').hidden && !focusInit && !chain.size) frameGalaxyInitial(400)
+  }, 220)
+})
+
 // ── talk mode: a guided tour of the wow-moments ──────────────────────────────
 // Each scene narrates one beat and drives the viz into the matching state.
 const $ = (id) => document.getElementById(id)
@@ -253,22 +268,47 @@ function setFocus(name) {
 function setCross(b) { crossMode = b; refresh() }
 function setSpin(on, speed = 0.55) { const c = Graph.controls(); c.autoRotate = on; c.autoRotateSpeed = speed }
 function clearFocus() { focusInit = null; $('focus').value = ''; refresh() }
-// Frame the whole sphere lifted into the empty top area so the bottom demo
-// card doesn't occlude it. The look-point sits on the vertical spin axis
-// (x=z=0), so auto-rotate stays clean (no wobble).
-function frameGalaxyHigh(ms = 1400) {
-  let maxR = 1
+// Centre of mass + robust radius of the visible cloud. Origin is NOT the centroid
+// (14 clusters of different sizes on a sphere skew it), so framing on origin left
+// dead space on one side. Uses a 90th-percentile radius so a few far/lonely
+// clusters don't shrink the whole galaxy into the middle of a big screen.
+function galaxyBounds() {
+  const pts = []
+  let cx = 0, cy = 0, cz = 0
   for (const n of nodes) {
-    if (n.isHub || n.x == null) continue
-    const r = Math.hypot(n.x, n.y, n.z)
-    if (r > maxR) maxR = r
+    if (n.isHub || n.x == null || (n.created_secs ?? 0) > timeFilter) continue
+    pts.push(n); cx += n.x; cy += n.y; cz += n.z
   }
-  const cam = Graph.camera()
-  const half = Math.tan((((cam && cam.fov) || 50) * Math.PI / 180) / 2)
-  const D = (maxR * 1.12) / half
-  const up = D * half * 0.34 // lift ≈ 17% of view height
-  Graph.cameraPosition({ x: 0, y: -up, z: D }, { x: 0, y: -up, z: 0 }, ms)
+  if (pts.length) { cx /= pts.length; cy /= pts.length; cz /= pts.length }
+  const ds = pts.map((n) => Math.hypot(n.x - cx, n.y - cy, n.z - cz)).sort((a, b) => a - b)
+  const r = ds.length ? ds[Math.floor(ds.length * 0.9)] : 1
+  return { cx, cy, cz, maxR: Math.max(1, r) }
 }
+// Pivot the look-point on the centroid so the galaxy is always centred (auto-rotate
+// orbits this point, so it stays centred while spinning). Fully adaptive: sizes +
+// centres the galaxy into the CLEAR BAND between the fixed HUD (top) and panel /
+// demo-card (bottom). The chrome is fixed px, so on small screens it eats a bigger
+// fraction and the galaxy auto-shrinks to stay clear — works on any monitor
+// (2K / ultrawide / laptop / portrait).
+const NODE_SPREAD = 0.86  // visible node spread ≈ 86% of the framed bounding-sphere
+function frameGalaxy(ms, fillBand, botR = 175) {
+  const { cx, cy, cz, maxR } = galaxyBounds()
+  const cam = Graph.camera()
+  const vfov = (((cam && cam.fov) || 50) * Math.PI) / 180
+  const tanV = Math.tan(vfov / 2)
+  const W = window.innerWidth, H = window.innerHeight
+  const aspect = (cam && cam.aspect) || (W / H)
+  const topR = 150
+  const usableH = Math.max(220, H - topR - botR)
+  const Dh = (NODE_SPREAD * maxR * H) / (tanV * usableH * fillBand)   // fill the band by height
+  const Dw = (NODE_SPREAD * maxR) / (tanV * aspect * 0.9)             // width cap (tall screens)
+  const D = Math.max(Dh, Dw)
+  const bandCenterFrac = (topR + usableH / 2) / H                     // centre in the clear band
+  const up = D * tanV * (1 - 2 * bandCenterFrac)
+  Graph.cameraPosition({ x: cx, y: cy - up, z: cz + D }, { x: cx, y: cy - up, z: cz }, ms)
+}
+function frameGalaxyInitial(ms = 1200) { frameGalaxy(ms, 0.96, 165) }
+function frameGalaxyHigh(ms = 1400) { frameGalaxy(ms, 0.82, 230) }
 
 const SCENES = [
   {
