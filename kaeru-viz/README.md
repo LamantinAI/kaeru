@@ -10,6 +10,10 @@ It renders the JSON served by the kaeru-mcp daemon at `GET /graph.json`
 sized by memory layer (Core glows largest), edges coloured by type and weighted
 by strength, plus a time-lapse of the months of accumulation.
 
+![kaeru-viz — a live knowledge galaxy: project clusters, cross-project bridges, and a months-long time-lapse](galaxy.gif)
+
+## Overview
+
 ![kaeru-viz — a vault rendered as a knowledge galaxy](screenshot.png)
 
 ## Data
