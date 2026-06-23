@@ -36,6 +36,55 @@ initNames.forEach((name, i) => {
   initCenter[name] = { x: Math.cos(theta) * rad * R, y: y * R, z: Math.sin(theta) * rad * R }
 })
 
+// ── recomputed cross-project affinity ────────────────────────────────────────
+// kaeru-core's project_affinity uses an EN-only stop-list, so for a RU vault the
+// author's name, dates, numbers and RU generic words leak in and dominate the
+// bridges. Recompute here with a cleaner, multilingual filter (same algorithm:
+// inverse-frequency over topics shared by 2..8 initiatives, top 70, normalized).
+const TOPIC_STOP = new Set([
+  'fix','test','build','first','after','phase','root','running','merged','master','earlier',
+  'correction','bug','finding','the','name','local','new','final','initial','via','not','and','---',
+  'post','done','wip','todo','update','plan','status','draft','note','notes','task','step','work',
+  'иван','ивана','ивану','иваном','иване','григорий','григория',
+  'решение','решения','решений','полный','полная','полное','полностью','два','две','три','все','всё','всех',
+  'ветка','ветки','ветку','коммит','коммита','коммиты','отдельный','отдельная','отдельно','общий',
+  'репозиторий','репозитория','проект','проекта','проекты','проекте','новый','новая','новые','новое',
+  'факт','факты','фактов','документ','документы','документов','заказчик','заказчика','клиент',
+  'версия','версии','текущий','рабочий','статус','план','планы','задача','задачи','вопрос','вопросы',
+  'ответ','итог','итоги','дата','имя','правка','правки','правок','ошибка','сборка','первый','после','фаза','корень',
+  'мерж','мастер','ранее','через','этот','это','для','при','что','как','уже','есть','один','день',
+  'веток','тест','теста','тесты','тестов','работает','прогресс','апдейт','разбор','запись',
+  'main','live','across','three','done','wip','feat',
+])
+const topicWord = (t) => (t.startsWith('topic:') ? t.slice(6) : null)
+const goodTopic = (w) =>
+  !!w && w.length >= 4 && !TOPIC_STOP.has(w) &&
+  !/^\d+$/.test(w) && !/\d{4}/.test(w) && !/\d{1,2}[-.]\d{1,2}/.test(w)
+function recomputeProjectLinks(ns) {
+  const topicInits = new Map()
+  for (const n of ns) {
+    const init = n.initiatives && n.initiatives[0]; if (!init) continue
+    for (const t of n.tags || []) {
+      const w = topicWord(t); if (!goodTopic(w)) continue
+      let s = topicInits.get(w); if (!s) { s = new Set(); topicInits.set(w, s) } s.add(init)
+    }
+  }
+  const aff = new Map()
+  for (const s of topicInits.values()) {
+    const span = s.size; if (span < 2 || span > 8) continue
+    const wgt = 1 / span, v = [...s].sort()
+    for (let i = 0; i < v.length; i++) for (let j = i + 1; j < v.length; j++) {
+      const k = v[i] + '|' + v[j]; aff.set(k, (aff.get(k) || 0) + wgt)
+    }
+  }
+  let pairs = [...aff.entries()].map(([k, w]) => { const [a, b] = k.split('|'); return { a, b, weight: w } })
+  pairs.sort((x, y) => y.weight - x.weight); pairs = pairs.slice(0, 70)
+  const max = pairs.length ? pairs[0].weight : 1
+  for (const p of pairs) p.weight /= max
+  return pairs
+}
+data.project_links = recomputeProjectLinks(nodes)
+
 // ── cross-project relatedness (from the export's project_links) ──────────────
 // The projects aren't silos — they share subject matter that was never captured
 // as explicit edges. The export derives inter-project affinity from shared
@@ -61,7 +110,7 @@ let replayTimer = null
 
 // ── accessors ───────────────────────────────────────────────────────────────
 function nodeColor(n) {
-  if (n.isHub) return crossMode ? (initColor[n.hubInit] || '#9af') : 'rgba(0,0,0,0)'
+  if (n.isHub) return (crossMode || (!chain.size && !focusInit)) ? (initColor[n.hubInit] || '#9af') : 'rgba(0,0,0,0)'
   if (crossMode) return DIM
   if (chain.size) {
     if (!chain.has(n.id)) return DIM
@@ -74,16 +123,16 @@ function nodeColor(n) {
   return initColor[primInit(n)] || '#888'
 }
 function nodeVal(n) {
-  if (n.isHub) return crossMode ? 5 + Math.sqrt(n.count) * 1.4 : 0
+  if (n.isHub) return crossMode ? 5 + Math.sqrt(n.count) * 1.4 : ((!chain.size && !focusInit) ? 3 + Math.sqrt(n.count) * 0.7 : 0)
   if (crossMode) return 0.5
   let s = LAYER_SIZE[n.layer] ?? 2
   if (glow && (n.layer === 'core' || n.layer === 'hot')) s *= 1.4
   if (chain.has(n.id)) s = Math.max(s, 6)
   return s
 }
-const visN = (n) => (n.isHub ? crossMode : (n.created_secs ?? 0) <= timeFilter)
+const visN = (n) => (n.isHub ? (crossMode || (!chain.size && !focusInit)) : (n.created_secs ?? 0) <= timeFilter)
 function visL(l) {
-  if (l.isProj) return crossMode
+  if (l.isProj) return crossMode || (!chain.size && !focusInit && l.w >= 0.12)
   if (crossMode) return false
   const s = typeof l.source === 'object' ? l.source : byId.get(l.source)
   const t = typeof l.target === 'object' ? l.target : byId.get(l.target)
@@ -92,8 +141,15 @@ function visL(l) {
   if (focusInit) return primInit(s) === focusInit && primInit(t) === focusInit
   return true
 }
-const linkColor = (l) => (l.isProj ? `rgba(130,200,255,${(0.25 + l.w * 0.6).toFixed(2)})` : (chain.size ? '#ffd34d' : (EDGE_COLORS[l.type] || '#566')))
-const linkWidth = (l) => (l.isProj ? 0.6 + l.w * 6 : (chain.size ? 2.5 : 0.4 + (l.weight || 0.5) * 1.6))
+const linkColor = (l) => {
+  if (!l.isProj) return chain.size ? '#ffd34d' : (EDGE_COLORS[l.type] || '#566')
+  const a = crossMode ? 0.55 + l.w * 0.4 : 0.42 + l.w * 0.5    // bright amber bridges that pop
+  return `rgba(255,190,90,${a.toFixed(2)})`
+}
+const linkWidth = (l) => {
+  if (!l.isProj) return chain.size ? 2.5 : 0.4 + (l.weight || 0.5) * 1.6
+  return crossMode ? 1 + l.w * 7 : 1.2 + l.w * 5              // thick, weight-scaled bridges
+}
 
 // ── graph ───────────────────────────────────────────────────────────────────
 // OrbitControls (not the default TrackballControls) — it's the one with
@@ -108,17 +164,31 @@ const Graph = ForceGraph3D({ controlType: 'orbit' })(document.getElementById('gr
   .nodeColor(nodeColor).nodeVal(nodeVal).nodeOpacity(0.92).nodeResolution(10)
   .nodeVisibility(visN).linkVisibility(visL)
   .linkColor(linkColor).linkWidth(linkWidth).linkOpacity(0.4)
-  .linkDirectionalParticleWidth(2).linkDirectionalParticleSpeed(0.012)
+  .linkCurvature((l) => (l.isProj ? 0.3 : 0))
+  .linkDirectionalParticles((l) => (l.isProj && visL(l) ? Math.max(2, Math.round(l.w * 5)) : 0))
+  .linkDirectionalParticleWidth((l) => (l.isProj ? 2.6 : 2)).linkDirectionalParticleSpeed(0.012)
+  .linkDirectionalParticleColor((l) => (l.isProj ? 'rgba(255,214,140,0.95)' : '#ffd34d'))
   .onNodeClick((n) => showReadout(n))
   .warmupTicks(60).cooldownTicks(220)
 
-// pull nodes toward their initiative cluster center
+// pull nodes toward their initiative cluster center, and on the same pass park
+// each project core (hub) at the LIVE centroid of its cloud so it sits dead
+// center — not at the fixed sphere anchor the cloud may have drifted from.
 const cluster = (alpha) => {
+  const acc = {}
   for (const n of nodes) {
-    if (n.isHub) continue
-    const c = initCenter[primInit(n)]; if (!c) continue
+    if (n.isHub || n.x == null) continue
+    const init = primInit(n)
+    const c = initCenter[init]; if (!c) continue
     const k = 0.05 * alpha
     n.vx += (c.x - n.x) * k; n.vy += (c.y - n.y) * k; n.vz += (c.z - n.z) * k
+    if ((n.created_secs ?? 0) > timeFilter) continue   // only visible nodes count
+    const a = acc[init] || (acc[init] = { x: 0, y: 0, z: 0, n: 0 })
+    a.x += n.x; a.y += n.y; a.z += n.z; a.n++
+  }
+  for (const h of hubNodes) {
+    const a = acc[h.hubInit]
+    if (a && a.n) { h.fx = h.x = a.x / a.n; h.fy = h.y = a.y / a.n; h.fz = h.z = a.z / a.n }
   }
 }
 cluster.initialize = () => {}
@@ -129,7 +199,7 @@ const refresh = () => Graph
   .nodeColor(nodeColor).nodeVal(nodeVal)
   .linkColor(linkColor).linkWidth(linkWidth)
   .nodeVisibility(visN).linkVisibility(visL)
-  .linkDirectionalParticles((l) => (chain.size && visL(l) ? 4 : 0))
+  .linkDirectionalParticles((l) => (l.isProj && visL(l) ? Math.max(2, Math.round(l.w * 5)) : (chain.size && visL(l) ? 4 : 0)))
 
 // ── camera ──────────────────────────────────────────────────────────────────
 function flyTo(p, lookAt, ms = 1400) {
