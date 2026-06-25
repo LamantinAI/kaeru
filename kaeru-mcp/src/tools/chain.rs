@@ -7,7 +7,7 @@ use kaeru_core::Store;
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
+use crate::utils::{resolve_name_or_id, text, to_mcp, ts_suffix, with_initiative};
 
 /// Materializes the shortest weighted path `from → to` as a saved chain.
 pub fn chain(
@@ -78,11 +78,12 @@ pub fn read_chain(
         let mut out = format!("chain `{name_or_id}` ({} nodes):\n", members.len());
         for (i, m) in members.iter().enumerate() {
             out.push_str(&format!(
-                "{}. {} ({}) — {}\n",
+                "{}. {} ({}) — {}{}\n",
                 i + 1,
                 m.name,
                 m.node_type,
-                m.id
+                m.id,
+                ts_suffix(m.ts)
             ));
             if let Some(e) = &m.body_excerpt {
                 out.push_str(&format!("   {e}\n"));

@@ -41,9 +41,9 @@ pub fn nodes_in_initiative(store: &Store, initiative: &str) -> Result<Vec<NodeBr
     params.insert("init".to_string(), DataValue::Str(initiative.into()));
 
     let script = r#"
-        ?[id, type, name, body] := *node_initiative{initiative, node_id: id},
+        ?[id, type, name, body, validity] := *node_initiative{initiative, node_id: id},
                                    initiative = $init,
-                                   *node{id, type, name, body @ 'NOW'},
+                                   *node{id, type, name, body, validity @ 'NOW'},
                                    type != 'audit_event'
     "#;
     let rows = store

@@ -698,6 +698,8 @@ impl ServerHandler for KaeruServer {
               `topic:<word>` tokens from body. Slice by tag via `tagged \"topic:...\"` etc. \
               \
               FRESHNESS: search/recall results sort newest-first within equal scores; recent captures beat stale ones. \
+              Every brief and snapshot shows its assertion time (absolute + relative, e.g. `2026-06-23 11:21 · 2d ago`); \
+              `read_chain` stamps each step, so you can follow the chronology of work and thought without calling `history`. \
               \
               Inquire with `drill <name>`, `trace <name>`, `search <query>`, `tagged <tag>`. Bi-temporal handle: \
               `at`, `history`."

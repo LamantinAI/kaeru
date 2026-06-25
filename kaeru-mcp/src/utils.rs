@@ -11,6 +11,7 @@
 //! Call sites live in `tools/<group>.rs`.
 
 use std::str::FromStr;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use kaeru_core::{Error, Layer, NodeBrief, NodeId, Store, SummaryView, Tier};
@@ -40,10 +41,52 @@ pub fn brief_suffix(store: &Store, id: &str) -> String {
     }
 }
 
+/// Formats a Unix-seconds timestamp as `2026-06-23 11:21 · 2d ago` — an
+/// absolute UTC stamp for unambiguous ordering plus a relative "ago" for
+/// quick freshness. Gives every brief / snapshot a chronological anchor so
+/// the agent can follow the order of work and thought.
+pub fn fmt_ts(secs: f64) -> String {
+    let abs = DateTime::<Utc>::from_timestamp(secs as i64, 0)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M").to_string())
+        .unwrap_or_else(|| "?".to_string());
+    format!("{abs} · {}", humanize_ago(secs))
+}
+
+/// How long ago `secs` (Unix seconds) was, relative to now: `just now`,
+/// `5m ago`, `3h ago`, `2d ago`, `4w ago`. Future stamps (clock skew) read
+/// as `just now`.
+fn humanize_ago(secs: f64) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(secs);
+    let delta = now - secs;
+    if delta < 60.0 {
+        "just now".to_string()
+    } else if delta < 3_600.0 {
+        format!("{}m ago", (delta / 60.0) as i64)
+    } else if delta < 86_400.0 {
+        format!("{}h ago", (delta / 3_600.0) as i64)
+    } else if delta < 604_800.0 {
+        format!("{}d ago", (delta / 86_400.0) as i64)
+    } else {
+        format!("{}w ago", (delta / 604_800.0) as i64)
+    }
+}
+
+/// ` · <abs · rel>` suffix for a brief's timestamp, or `""` when the node
+/// carried no parseable validity.
+pub fn ts_suffix(ts: Option<f64>) -> String {
+    ts.map(|s| format!(" · {}", fmt_ts(s))).unwrap_or_default()
+}
+
 pub fn render_summary(view: &SummaryView) -> String {
     let mut out = format!(
-        "{} ({}) — {}\n",
-        view.root.name, view.root.node_type, view.root.id
+        "{} ({}) — {}{}\n",
+        view.root.name,
+        view.root.node_type,
+        view.root.id,
+        ts_suffix(view.root.ts)
     );
     if let Some(e) = &view.root.body_excerpt {
         out.push_str(&format!("  {e}\n"));
@@ -53,7 +96,13 @@ pub fn render_summary(view: &SummaryView) -> String {
     } else {
         out.push_str(&format!("children ({}):\n", view.children.len()));
         for c in &view.children {
-            out.push_str(&format!("  - {} ({}) — {}\n", c.name, c.node_type, c.id));
+            out.push_str(&format!(
+                "  - {} ({}) — {}{}\n",
+                c.name,
+                c.node_type,
+                c.id,
+                ts_suffix(c.ts)
+            ));
             if let Some(e) = &c.body_excerpt {
                 out.push_str(&format!("    {e}\n"));
             }
@@ -68,7 +117,13 @@ pub fn render_briefs(label: &str, briefs: &[NodeBrief]) -> String {
     }
     let mut out = format!("{label} ({}):\n", briefs.len());
     for b in briefs {
-        out.push_str(&format!("  - {} ({}) — {}\n", b.name, b.node_type, b.id));
+        out.push_str(&format!(
+            "  - {} ({}) — {}{}\n",
+            b.name,
+            b.node_type,
+            b.id,
+            ts_suffix(b.ts)
+        ));
         if let Some(e) = &b.body_excerpt {
             out.push_str(&format!("    {e}\n"));
         }

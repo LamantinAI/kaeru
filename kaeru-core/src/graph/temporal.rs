@@ -27,6 +27,10 @@ pub struct NodeSnapshot {
     pub tags: Vec<String>,
     pub layer: String,
     pub visibility: String,
+    /// Unix seconds of the validity that was in effect at the read time —
+    /// i.e. when this version of the node was asserted. `None` if the
+    /// substrate returned no parseable validity.
+    pub ts: Option<f64>,
 }
 
 /// One row in a node's bi-temporal history, ordered by validity.
@@ -49,8 +53,8 @@ pub fn at(store: &Store, id: &NodeId, at_seconds: f64) -> Result<Option<NodeSnap
 
     let script = format!(
         r#"
-        ?[type, tier, name, body, tags, layer, visibility] :=
-            *node{{id, type, tier, name, body, tags, layer, visibility @ {at_seconds}}}, id = $id
+        ?[type, tier, name, body, tags, layer, visibility, validity] :=
+            *node{{id, type, tier, name, body, tags, layer, visibility, validity @ {at_seconds}}}, id = $id
         "#
     );
     let rows = store
@@ -80,6 +84,7 @@ pub fn at(store: &Store, id: &NodeId, at_seconds: f64) -> Result<Option<NodeSnap
                 .and_then(|v| v.get_str())
                 .map(String::from)
                 .unwrap_or_else(|| "local".to_string()),
+            ts: validity_seconds(row.get(7)),
         }
     });
     Ok(result)
@@ -140,6 +145,20 @@ pub fn history(store: &Store, id: &NodeId) -> Result<Vec<Revision>> {
 /// seconds-since-epoch on the kaeru side. Cozo's own `current_validity()`
 /// (used by `@ 'NOW'`) writes microseconds; we don't read that path back
 /// out, so this parser only handles the seconds-scale values we wrote.
+/// Best-effort read of a validity column into Unix seconds. Returns `Some`
+/// only for an **asserted** `Validity`; `None` for a retraction, a missing
+/// column, or any non-Validity value — so a caller can pass a result row's
+/// last column without first knowing whether it carries validity.
+pub(crate) fn validity_seconds(dv: Option<&DataValue>) -> Option<f64> {
+    match dv {
+        Some(DataValue::Validity(Validity {
+            timestamp,
+            is_assert,
+        })) if is_assert.0 => Some(timestamp.0.0 as f64),
+        _ => None,
+    }
+}
+
 pub(crate) fn parse_validity(dv: Option<&DataValue>) -> Result<(f64, bool)> {
     let dv = dv.ok_or_else(|| Error::Substrate("missing validity column".to_string()))?;
     let DataValue::Validity(Validity {
@@ -153,4 +172,33 @@ pub(crate) fn parse_validity(dv: Option<&DataValue>) -> Result<(f64, bool)> {
     };
     let seconds = timestamp.0.0 as f64;
     Ok((seconds, is_assert.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::at;
+    use crate::store::Store;
+    use crate::{EpisodeKind, Significance, node_brief_by_id, write_episode};
+
+    /// A freshly written node exposes its assertion time both through `at`
+    /// (the full snapshot) and through a `NodeBrief` — in Unix **seconds**,
+    /// not Cozo's microsecond `@ 'NOW'` scale — and the two agree.
+    #[test]
+    fn at_and_brief_expose_assertion_ts_in_seconds() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let id =
+            write_episode(&store, EpisodeKind::Observation, Significance::Low, "n", "body").unwrap();
+
+        // Read as-of the far future so the still-valid asserted row is seen.
+        let snap = at(&store, &id, 9_999_999_999.0).unwrap().expect("snapshot");
+        let ts = snap.ts.expect("snapshot carries a validity ts");
+        assert!(
+            (1_700_000_000.0..5_000_000_000.0).contains(&ts),
+            "ts is Unix seconds, not micros; got {ts}"
+        );
+
+        let brief = node_brief_by_id(&store, &id).unwrap().expect("brief");
+        assert_eq!(brief.ts, Some(ts), "brief ts matches snapshot ts");
+    }
 }
