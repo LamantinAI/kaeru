@@ -685,7 +685,15 @@ impl ServerHandler for KaeruServer {
               immediately `search` for related existing nodes and `link` them. Isolated nodes are islands \
               that only exact-name lookups will find. One `link` call per related node. Edge types: \
               `causal` (A causes B), `derived-from` (B is a refinement of A), `refers-to` (A mentions B, \
-              default), `part-of`, `blocks`, `targets`, `contradicts`. \
+              default), `part-of`, `blocks`, `targets`, `contradicts`. Mark the key reasoning links \
+              `strong=true` (weight 1.0) so chains prefer them. \
+              \
+              THEN MATERIALISE THE REASONING TRAIL — linking is not the end. Once a line of work runs from \
+              a starting observation to a decision or outcome, call `chain(from, to)` to save that ordered \
+              path as a named, replayable trail, and revisit it with `chains` / `read_chain`. A graph of \
+              links is navigable; a chain is the explicit \"state → reasoning → decision\" story a fresh \
+              agent reads to understand WHY, not just WHAT. Don't stop at isolated captures — link every \
+              node, and chain every reasoning run. \
               \
               LANGUAGE: store and search in the user's NATIVE language. Don't translate Russian to English on \
               capture; don't translate Russian queries to English on lookup. Each node carries a `lang:*` tag \

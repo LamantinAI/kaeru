@@ -14,8 +14,8 @@ use rmcp::model::CallToolResult;
 use crate::cloud_client::CloudClient;
 use crate::tools::cloud::push_to_cloud;
 use crate::utils::{
-    parse_layer, parse_wants_shared, resolve_name, resolve_name_or_id, text, to_mcp,
-    with_initiative,
+    parse_layer, parse_wants_shared, resolve_name, resolve_name_or_id, text, text_with_nudge,
+    to_mcp, with_initiative,
 };
 
 /// When `want_share`, attempts to push the just-created node `id` to the
@@ -75,7 +75,7 @@ pub async fn episode(
     })?;
     let mut msg = format!("wrote episode: {name} — {id}");
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
-    Ok(text(&msg))
+    Ok(text_with_nudge(&msg))
 }
 
 pub async fn jot(
@@ -98,7 +98,7 @@ pub async fn jot(
         .unwrap_or_default();
     let mut msg = format!("jotted: {name} — {id}");
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
-    Ok(text(&msg))
+    Ok(text_with_nudge(&msg))
 }
 
 pub fn link(
@@ -193,5 +193,5 @@ pub async fn cite(
         None => format!("cited: {name} — {id}"),
     };
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
-    Ok(text(&msg))
+    Ok(text_with_nudge(&msg))
 }

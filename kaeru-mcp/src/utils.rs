@@ -25,6 +25,20 @@ pub fn text(s: &str) -> CallToolResult {
     CallToolResult::success(vec![Content::text(s)])
 }
 
+/// One-line nudge appended to every capture result. A fresh node is an
+/// island until it's connected — this reminds the agent, at the moment of
+/// capture, to `link` it and (when a line of work runs start→decision) save
+/// the reasoning trail with `chain`. A hint in the result, not a gate: the
+/// substrate is a facilitator, not an enforcer.
+pub const CAPTURE_NUDGE: &str = "\n↳ now connect it: `search` related → `link` \
+     (strong=true for key edges); when a line of work runs start→decision/outcome, \
+     `chain(from, to)` to save the reasoning trail. Don't leave it an island.";
+
+/// Appends [`CAPTURE_NUDGE`] to a capture message and renders it.
+pub fn text_with_nudge(s: &str) -> CallToolResult {
+    text(&format!("{s}{CAPTURE_NUDGE}"))
+}
+
 pub fn to_mcp(e: Error) -> McpError {
     McpError::internal_error(e.to_string(), None)
 }

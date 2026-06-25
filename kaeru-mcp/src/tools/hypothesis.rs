@@ -4,7 +4,9 @@ use kaeru_core::{EdgeType, HypothesisStatus, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use crate::utils::{derive_auto_name, parse_layer, resolve_name, text, to_mcp, with_initiative};
+use crate::utils::{
+    derive_auto_name, parse_layer, resolve_name, text, text_with_nudge, to_mcp, with_initiative,
+};
 
 pub fn claim(
     store: &Store,
@@ -22,7 +24,7 @@ pub fn claim(
             let target = resolve_name(store, a)?;
             kaeru_core::link(store, &id, &target, EdgeType::RefersTo).map_err(to_mcp)?;
         }
-        Ok(text(&format!("claimed: {auto_name} — {id}")))
+        Ok(text_with_nudge(&format!("claimed: {auto_name} — {id}")))
     })
 }
 
