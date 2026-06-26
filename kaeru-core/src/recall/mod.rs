@@ -7,6 +7,7 @@
 use cozo::DataValue;
 
 use crate::graph::NodeId;
+use crate::graph::temporal::validity_seconds;
 
 pub mod between;
 pub mod by_name;
@@ -49,6 +50,10 @@ pub struct NodeBrief {
     pub node_type: String,
     pub name: String,
     pub body_excerpt: Option<String>,
+    /// Unix seconds of the node's latest assertion (created / last revised),
+    /// for chronological display. `Some` when the producing query selects
+    /// `validity` as its **last** column; `None` otherwise.
+    pub ts: Option<f64>,
 }
 
 /// Full node record at NOW — every field a sharing / ingest path needs,
@@ -69,9 +74,11 @@ pub struct NodeFull {
     pub layer: String,
 }
 
-/// Parses a Cozo result row of `[id, type, name, body, ...]` into a
-/// `NodeBrief`, truncating `body` to `excerpt_chars` characters. Extra
-/// trailing columns (e.g. `validity` used for ordering) are ignored.
+/// Parses a Cozo result row of `[id, type, name, body, …, validity]` into a
+/// `NodeBrief`, truncating `body` to `excerpt_chars` characters. The node's
+/// `ts` is read from the row's **last** column when it carries a `validity`
+/// (every brief query binds it there for ordering); rows without one yield
+/// `ts: None`. Any other trailing columns are ignored.
 pub(crate) fn parse_brief(row: &[DataValue], excerpt_chars: usize) -> NodeBrief {
     let id = row
         .first()
@@ -92,11 +99,17 @@ pub(crate) fn parse_brief(row: &[DataValue], excerpt_chars: usize) -> NodeBrief 
         .get(3)
         .and_then(|v| v.get_str())
         .map(|s| truncate_excerpt(s, excerpt_chars));
+    // Brief queries bind `validity` as the last column (for `:order`); the
+    // body lives at index 3, so a 4-column row has no validity and yields
+    // `None` here. Reading `last()` keeps this agnostic to the column count
+    // (fts adds a `score` column before validity, others don't).
+    let ts = validity_seconds(row.last());
     NodeBrief {
         id,
         node_type,
         name,
         body_excerpt,
+        ts,
     }
 }
 

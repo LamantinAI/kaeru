@@ -44,7 +44,7 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
         Some(init) => {
             p_root.insert("init".to_string(), DataValue::Str(init.clone().into()));
             r#"
-                ?[id, type, name, body] := *node{id, type, name, body @ 'NOW'},
+                ?[id, type, name, body, validity] := *node{id, type, name, body, validity @ 'NOW'},
                                             id = $seed,
                                             *node_initiative{initiative, node_id: id},
                                             initiative = $init
@@ -52,7 +52,7 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
         }
         None => {
             r#"
-                ?[id, type, name, body] := *node{id, type, name, body @ 'NOW'}, id = $seed
+                ?[id, type, name, body, validity] := *node{id, type, name, body, validity @ 'NOW'}, id = $seed
             "#
         }
     };
@@ -83,8 +83,8 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
                 candidates[child] := *edge{src: child, dst, edge_type @ 'NOW'},
                                      dst = $seed,
                                      edge_type = 'part_of'
-                ?[id, type, name, body] := candidates[id],
-                                            *node{id, type, name, body @ 'NOW'},
+                ?[id, type, name, body, validity] := candidates[id],
+                                            *node{id, type, name, body, validity @ 'NOW'},
                                             *node_initiative{initiative, node_id: id},
                                             initiative = $init
             "#
@@ -97,7 +97,7 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
                 candidates[child] := *edge{src: child, dst, edge_type @ 'NOW'},
                                      dst = $seed,
                                      edge_type = 'part_of'
-                ?[id, type, name, body] := candidates[id], *node{id, type, name, body @ 'NOW'}
+                ?[id, type, name, body, validity] := candidates[id], *node{id, type, name, body, validity @ 'NOW'}
             "#
         }
     };

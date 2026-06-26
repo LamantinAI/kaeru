@@ -6,7 +6,7 @@ use kaeru_core::{NodeSnapshot, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use crate::utils::{parse_when, resolve_name, text, to_mcp, with_initiative};
+use crate::utils::{fmt_ts, parse_when, resolve_name, text, to_mcp, with_initiative};
 
 /// Reads a node **in full** — every field plus the complete, untruncated
 /// body. `when` is optional: omit it to read the node as it is now, or pass
@@ -67,6 +67,9 @@ fn render(s: &NodeSnapshot, when: Option<&str>) -> String {
         "layer: {}   visibility: {}\n",
         s.layer, s.visibility
     ));
+    if let Some(ts) = s.ts {
+        out.push_str(&format!("recorded: {}\n", fmt_ts(ts)));
+    }
     if !s.tags.is_empty() {
         out.push_str(&format!("tags: {}\n", s.tags.join(", ")));
     }

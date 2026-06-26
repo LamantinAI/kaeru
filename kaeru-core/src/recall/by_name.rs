@@ -67,7 +67,7 @@ pub fn node_brief_by_id(store: &Store, id: &NodeId) -> Result<Option<NodeBrief>>
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
 
     let script = r#"
-        ?[id, type, name, body] := *node{id, type, name, body @ 'NOW'}, id = $id
+        ?[id, type, name, body, validity] := *node{id, type, name, body, validity @ 'NOW'}, id = $id
     "#;
     let rows = store
         .db_ref()

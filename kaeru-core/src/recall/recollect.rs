@@ -97,10 +97,10 @@ fn recollect_briefs_by_archival_type(store: &Store, node_type: &str) -> Result<V
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("nt".to_string(), DataValue::Str(node_type.into()));
 
-    // `validity` is bound for ordering only; `parse_brief` reads columns
-    // 0..=3 and ignores the trailing validity column. When an initiative
-    // is active, the read joins `node_initiative` so only nodes
-    // attached to that initiative surface.
+    // `validity` is bound last for `:order` and is also read by
+    // `parse_brief` (from the trailing column) into the brief's `ts`. When
+    // an initiative is active, the read joins `node_initiative` so only
+    // nodes attached to that initiative surface.
     let script = match store.current_initiative() {
         Some(init) => {
             params.insert("init".to_string(), DataValue::Str(init.into()));
