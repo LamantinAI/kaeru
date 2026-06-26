@@ -240,6 +240,25 @@ pub struct ChainParams {
     /// Optional name for the saved chain (auto-derived from endpoints if omitted).
     #[serde(default)]
     pub name: Option<String>,
+    /// Optional one-line summary of why this trail matters — having traced the
+    /// path, say what it captures. Becomes the chain's body so `chains` can be
+    /// triaged by name + summary without reading every trail. Auto-derived if
+    /// omitted.
+    #[serde(default)]
+    pub summary: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct RechainParams {
+    /// Chain name or UUIDv7 id to refresh.
+    pub chain: String,
+    /// Omit to regenerate (recompute the shortest path between the chain's
+    /// current endpoints). Provide a node name/id to instead extend the trail
+    /// out to it.
+    #[serde(default)]
+    pub to: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }

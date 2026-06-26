@@ -1,7 +1,9 @@
 //! Knowledge chains: materialize and read the strongest weighted reasoning
 //! trail between two memories.
 
-use kaeru_core::{chains_of, create_chain, read_chain, shortest_path};
+use kaeru_core::{
+    chains_of, create_chain, extend_chain, read_chain, regenerate_chain, shortest_path,
+};
 use serde::Deserialize;
 use serde_json::json;
 
@@ -13,6 +15,8 @@ pub struct ChainArgs {
     pub to: String,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub summary: Option<String>,
 }
 
 mem_tool!(
@@ -21,18 +25,20 @@ mem_tool!(
     "kaeru_chain",
     "Save the strongest weighted path between two memories as a reusable knowledge chain — an \
      ordered, recallable reasoning trail. Stronger links (see `kaeru_link` weight) make shorter \
-     paths. Reports if the two are unconnected.",
+     paths. Pass `summary` to note why the trail matters (labels it for later triage). Idempotent \
+     — an identical chain is reused, not duplicated. Reports if the two are unconnected.",
     ChainArgs,
     { "type": "object", "properties": {
         "from": { "type": "string", "description": "start node name or id" },
         "to": { "type": "string", "description": "end node name or id" },
-        "name": { "type": "string", "description": "optional name for the chain" }
+        "name": { "type": "string", "description": "optional name for the chain" },
+        "summary": { "type": "string", "description": "optional one-line note on why this trail matters" }
     }, "required": ["from", "to"] },
     |store, args| {
         let from = resolve(store, &args.from);
         let to = resolve(store, &args.to);
-        match create_chain(store, &from, &to, args.name.as_deref()) {
-            Ok(Some(id)) => json!({ "chained": true, "chain_id": id }),
+        match create_chain(store, &from, &to, args.name.as_deref(), args.summary.as_deref()) {
+            Ok(Some(o)) => json!({ "chained": true, "chain_id": o.id, "reused": o.reused }),
             Ok(None) => json!({ "chained": false, "reason": "no path between the two" }),
             Err(e) => json!({ "chained": false, "error": e.to_string() }),
         }
@@ -83,6 +89,42 @@ mem_tool!(
         match read_chain(store, &id) {
             Ok(v) => json!({ "trail": briefs(&v) }),
             Err(e) => json!({ "error": e.to_string() }),
+        }
+    }
+);
+
+#[derive(Debug, Deserialize)]
+pub struct RechainArgs {
+    pub chain: String,
+    #[serde(default)]
+    pub to: Option<String>,
+}
+
+mem_tool!(
+    /// `kaeru_rechain` — regenerate or extend a chain after graph changes.
+    Rechain,
+    "kaeru_rechain",
+    "Refresh a chain the graph has outgrown. With no `to`, regenerate it (recompute the shortest \
+     path between its current endpoints). With `to`, extend the trail out to that node. Keeps the \
+     chain's id, name, and summary.",
+    RechainArgs,
+    { "type": "object", "properties": {
+        "chain": { "type": "string", "description": "chain name or id" },
+        "to": { "type": "string", "description": "omit to regenerate; node name/id to extend to" }
+    }, "required": ["chain"] },
+    |store, args| {
+        let cid = resolve(store, &args.chain);
+        let result = match &args.to {
+            Some(t) => {
+                let to = resolve(store, t);
+                extend_chain(store, &cid, &to)
+            }
+            None => regenerate_chain(store, &cid),
+        };
+        match result {
+            Ok(Some(s)) => json!({ "ok": true, "members": s.members, "changed": s.changed }),
+            Ok(None) => json!({ "ok": false, "reason": "endpoint unreachable — chain unchanged" }),
+            Err(e) => json!({ "ok": false, "error": e.to_string() }),
         }
     }
 );

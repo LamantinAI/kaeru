@@ -200,7 +200,7 @@ impl KaeruServer {
 
     // ----- Knowledge chains ---------------------------------------------
     #[tool(
-        description = "Save the shortest weighted path between two nodes as a knowledge chain — an ordered, recallable reasoning trail. Stronger links (see `link` weight/strong) make shorter paths. Reports if the two are unconnected."
+        description = "Save the shortest weighted path between two nodes as a knowledge chain — an ordered, recallable reasoning trail. Stronger links (see `link` weight/strong) make shorter paths. Pass `summary` to note why the trail matters (it labels the chain for later triage). Idempotent — an identical chain is reused, not duplicated. Reports if the two are unconnected."
     )]
     fn chain(&self, Parameters(p): Parameters<ChainParams>) -> Result<CallToolResult, McpError> {
         tools::chain::chain(
@@ -208,6 +208,7 @@ impl KaeruServer {
             &p.from,
             &p.to,
             p.name.as_deref(),
+            p.summary.as_deref(),
             p.initiative.as_deref(),
         )
     }
@@ -227,6 +228,21 @@ impl KaeruServer {
         Parameters(p): Parameters<ReadChainParams>,
     ) -> Result<CallToolResult, McpError> {
         tools::chain::read_chain(&self.store, &p.name, p.initiative.as_deref())
+    }
+
+    #[tool(
+        description = "Refresh a chain the graph has outgrown. With no `to`, regenerate it — recompute the shortest path between its current endpoints (picks up new edges / re-weights). With `to`, extend the trail out to that node. Keeps the chain's id, name, and summary."
+    )]
+    fn rechain(
+        &self,
+        Parameters(p): Parameters<RechainParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::chain::rechain(
+            &self.store,
+            &p.chain,
+            p.to.as_deref(),
+            p.initiative.as_deref(),
+        )
     }
 
     #[tool(

@@ -170,6 +170,9 @@ impl KaeruMemory {
     pub fn read_chain(&self) -> ReadChain {
         ReadChain(self.clone())
     }
+    pub fn rechain(&self) -> Rechain {
+        Rechain(self.clone())
+    }
     pub fn path(&self) -> Path {
         Path(self.clone())
     }

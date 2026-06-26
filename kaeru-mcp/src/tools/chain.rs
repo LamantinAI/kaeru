@@ -15,22 +15,29 @@ pub fn chain(
     from: &str,
     to: &str,
     name: Option<&str>,
+    summary: Option<&str>,
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let from_id = resolve_name_or_id(store, from)?;
         let to_id = resolve_name_or_id(store, to)?;
-        match kaeru_core::create_chain(store, &from_id, &to_id, name).map_err(to_mcp)? {
-            Some(cid) => {
-                let members = kaeru_core::read_chain(store, &cid).map_err(to_mcp)?;
+        match kaeru_core::create_chain(store, &from_id, &to_id, name, summary).map_err(to_mcp)? {
+            Some(outcome) => {
+                let members = kaeru_core::read_chain(store, &outcome.id).map_err(to_mcp)?;
                 let trail = members
                     .iter()
                     .map(|m| m.name.as_str())
                     .collect::<Vec<_>>()
                     .join(" → ");
+                let verb = if outcome.reused {
+                    "reused existing chain"
+                } else {
+                    "chain saved"
+                };
                 Ok(text(&format!(
-                    "chain saved ({} nodes): {trail}\nid: {cid}",
-                    members.len()
+                    "{verb} ({} nodes): {trail}\nid: {}",
+                    members.len(),
+                    outcome.id
                 )))
             }
             None => Ok(text(&format!(
@@ -55,8 +62,11 @@ pub fn chains(
         let mut out = format!("chains containing `{name}` ({}):\n", chains.len());
         for ch in &chains {
             out.push_str(&format!("  - {} — {}\n", ch.name, ch.id));
+            if let Some(s) = &ch.body_excerpt {
+                out.push_str(&format!("    {s}\n"));
+            }
         }
-        out.push_str("\nUse `read_chain <name|id>` to read a trail in full.");
+        out.push_str("\nTriage by name + summary, then `read_chain <name|id>` for the full trail.");
         Ok(text(&out))
     })
 }
@@ -90,6 +100,52 @@ pub fn read_chain(
             }
         }
         Ok(text(&out))
+    })
+}
+
+/// Mutates an existing chain so it survives graph changes: with no `to`, it
+/// regenerates (recomputes the shortest path between its current endpoints);
+/// with `to`, it extends the trail out to that node. The chain keeps its id,
+/// name, and summary.
+pub fn rechain(
+    store: &Store,
+    chain: &str,
+    to: Option<&str>,
+    initiative: Option<&str>,
+) -> Result<CallToolResult, McpError> {
+    with_initiative(store, initiative, || {
+        let chain_id = resolve_name_or_id(store, chain)?;
+        let (action, stats) = match to {
+            Some(target) => {
+                let to_id = resolve_name_or_id(store, target)?;
+                let s = kaeru_core::extend_chain(store, &chain_id, &to_id).map_err(to_mcp)?;
+                ("extended", s)
+            }
+            None => {
+                let s = kaeru_core::regenerate_chain(store, &chain_id).map_err(to_mcp)?;
+                ("regenerated", s)
+            }
+        };
+        let Some(stats) = stats else {
+            return Ok(text(&format!(
+                "`{chain}` left unchanged — endpoint unreachable now (no path)"
+            )));
+        };
+        let members = kaeru_core::read_chain(store, &chain_id).map_err(to_mcp)?;
+        let trail = members
+            .iter()
+            .map(|m| m.name.as_str())
+            .collect::<Vec<_>>()
+            .join(" → ");
+        let note = if stats.changed {
+            action
+        } else {
+            "already current"
+        };
+        Ok(text(&format!(
+            "{note} ({} nodes): {trail}\nid: {chain_id}",
+            stats.members
+        )))
     })
 }
 

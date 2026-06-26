@@ -542,9 +542,10 @@ mod tests {
         )
         .unwrap();
         link_with_weight(&store, &a, &b, EdgeType::RefersTo, 1.0).unwrap();
-        let chain = create_chain(&store, &a, &b, Some("a-to-b"))
+        let chain = create_chain(&store, &a, &b, Some("a-to-b"), None)
             .unwrap()
-            .expect("chain created");
+            .expect("chain created")
+            .id;
 
         // alpha: a node that trips the guard → must be redacted.
         let secret = write_episode(

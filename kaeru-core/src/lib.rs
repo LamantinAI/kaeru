@@ -33,14 +33,14 @@ pub use graph::{
 };
 pub use guard::GuardHit;
 pub use mutate::{
-    AttachStats, DeleteStats, RenameStats, attach_node, cite, cite_with_layer, complete_task,
-    consolidate_in, consolidate_out, create_chain, delete_initiative, forget, formulate_hypothesis,
-    formulate_hypothesis_with_layer, get_layer, get_share_policy, get_visibility, improve, jot,
-    jot_with_layer, link, link_remote, link_remote_to, link_with_weight, mark_resolved,
-    mark_under_review, rename_initiative, run_experiment, set_edge_weight, set_layer,
-    set_share_policy, set_visibility, supersedes, synthesise, unlink, update_hypothesis_status,
-    upsert_edge, upsert_node, write_episode, write_episode_with_layer, write_task,
-    write_task_with_layer,
+    AttachStats, ChainOutcome, DeleteStats, RechainStats, RenameStats, attach_node, cite,
+    cite_with_layer, complete_task, consolidate_in, consolidate_out, create_chain,
+    delete_initiative, extend_chain, forget, formulate_hypothesis, formulate_hypothesis_with_layer,
+    get_layer, get_share_policy, get_visibility, improve, jot, jot_with_layer, link, link_remote,
+    link_remote_to, link_with_weight, mark_resolved, mark_under_review, regenerate_chain,
+    rename_initiative, run_experiment, set_edge_weight, set_layer, set_share_policy,
+    set_visibility, supersedes, synthesise, unlink, update_hypothesis_status, upsert_edge,
+    upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
 pub use recall::{
     EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull, SummaryView,

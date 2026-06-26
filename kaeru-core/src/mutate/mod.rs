@@ -31,7 +31,7 @@ pub mod supersedes;
 pub mod synthesise;
 pub mod task;
 
-pub use chain::create_chain;
+pub use chain::{ChainOutcome, RechainStats, create_chain, extend_chain, regenerate_chain};
 pub use cite::{cite, cite_with_layer};
 pub use consolidate::{consolidate_in, consolidate_out};
 pub use edge::{link, link_remote, link_remote_to, link_with_weight, set_edge_weight, unlink};
