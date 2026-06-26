@@ -5,7 +5,8 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
 use crate::utils::{
-    parse_due_to_iso, parse_layer, resolve_name_or_id, text, to_mcp, with_initiative,
+    parse_due_to_iso, parse_layer, resolve_name_or_id, text, text_with_nudge, to_mcp,
+    with_initiative,
 };
 
 pub fn task(
@@ -32,7 +33,7 @@ pub fn task(
             Some(d) => format!("task: {name} (due {d}) — {id}"),
             None => format!("task: {name} — {id}"),
         };
-        Ok(text(&label))
+        Ok(text_with_nudge(&label))
     })
 }
 
