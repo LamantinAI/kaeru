@@ -106,6 +106,16 @@ pub struct DeleteInitiativeParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct AttachParams {
+    /// Node name or UUIDv7 id to attach. Resolved across all initiatives, so
+    /// the node may currently live under a different one.
+    pub node: String,
+    /// Target initiative to add the node to. Additive — the node keeps every
+    /// initiative it already belongs to.
+    pub to: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ScopeOnly {
     /// Optional initiative to scope the operation to. When omitted,
     /// reads are cross-initiative; mutations end up un-tagged.

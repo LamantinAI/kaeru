@@ -187,8 +187,14 @@ mod tests {
     fn at_and_brief_expose_assertion_ts_in_seconds() {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("t");
-        let id =
-            write_episode(&store, EpisodeKind::Observation, Significance::Low, "n", "body").unwrap();
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "n",
+            "body",
+        )
+        .unwrap();
 
         // Read as-of the far future so the still-valid asserted row is seen.
         let snap = at(&store, &id, 9_999_999_999.0).unwrap().expect("snapshot");

@@ -11,7 +11,29 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
 use crate::cloud_client::CloudClient;
-use crate::utils::{text, to_mcp};
+use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
+
+/// Gives a node a second initiative membership (additive multi-membership) —
+/// the repair primitive for fragmentation. The node is resolved **globally**
+/// (scope cleared): it lives under some *other* initiative, so a lookup scoped
+/// to `to` would never find it. Local-only; cloud merge is out of scope.
+pub fn attach(store: &Store, node: &str, to: &str) -> Result<CallToolResult, McpError> {
+    with_initiative(store, None, || {
+        let node_id = resolve_name_or_id(store, node)?;
+        let label = kaeru_core::node_brief_by_id(store, &node_id)
+            .ok()
+            .flatten()
+            .map(|b| b.name)
+            .unwrap_or_else(|| node.to_string());
+        let stats = kaeru_core::attach_node(store, &node_id, to).map_err(to_mcp)?;
+        let msg = if stats.already_member {
+            format!("`{label}` is already in `{to}` — no change")
+        } else {
+            format!("attached `{label}` to `{to}` (additive — it keeps its other initiatives)")
+        };
+        Ok(text(&msg))
+    })
+}
 
 pub async fn rename_initiative(
     store: &Store,

@@ -33,8 +33,8 @@ pub use graph::{
 };
 pub use guard::GuardHit;
 pub use mutate::{
-    DeleteStats, RenameStats, cite, cite_with_layer, complete_task, consolidate_in,
-    consolidate_out, create_chain, delete_initiative, forget, formulate_hypothesis,
+    AttachStats, DeleteStats, RenameStats, attach_node, cite, cite_with_layer, complete_task,
+    consolidate_in, consolidate_out, create_chain, delete_initiative, forget, formulate_hypothesis,
     formulate_hypothesis_with_layer, get_layer, get_share_policy, get_visibility, improve, jot,
     jot_with_layer, link, link_remote, link_remote_to, link_with_weight, mark_resolved,
     mark_under_review, rename_initiative, run_experiment, set_edge_weight, set_layer,

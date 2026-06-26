@@ -12,7 +12,9 @@ use cozo::{DataValue, NamedRows, ScriptMutability};
 
 use super::forget;
 use crate::errors::{Error, Result};
+use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
+use crate::recall::node_brief_by_id;
 use crate::store::Store;
 
 /// Counts moved by [`rename_initiative`].
@@ -29,6 +31,14 @@ pub struct DeleteStats {
     pub unscoped: usize,
     /// Nodes that were exclusive to this initiative and got forgotten.
     pub forgotten: usize,
+}
+
+/// Result of [`attach_node`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AttachStats {
+    /// True if the node already belonged to the initiative, so the attach
+    /// was a no-op.
+    pub already_member: bool,
 }
 
 fn one(k: &str, v: &str) -> BTreeMap<String, DataValue> {
@@ -233,9 +243,60 @@ pub fn delete_initiative(store: &Store, name: &str) -> Result<DeleteStats> {
     })
 }
 
+/// Adds `node_id` to `initiative` as an **additive** membership: the node
+/// gains a second home without losing any it already has, and without
+/// copying — same id, edges, and history. This is the repair primitive for
+/// initiative fragmentation: a node captured under the wrong (or a stale)
+/// initiative can be re-homed under the right one after the fact.
+///
+/// Idempotent — the junction PK `(initiative, node_id)` dedups, so attaching
+/// an existing member is a no-op (reported via [`AttachStats::already_member`]).
+/// Errors if the node does not exist at NOW, so no dangling membership row is
+/// created for a bogus id.
+pub fn attach_node(store: &Store, node_id: &NodeId, initiative: &str) -> Result<AttachStats> {
+    let init = initiative.trim();
+    if init.is_empty() {
+        return Err(Error::Invalid(
+            "initiative name must not be empty".to_string(),
+        ));
+    }
+    if node_brief_by_id(store, node_id)?.is_none() {
+        return Err(Error::NotFound(format!("no node {node_id:?} at NOW")));
+    }
+
+    let mut params = one("init", init);
+    params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
+
+    let already_member = !run_read(
+        store,
+        "?[initiative] := *node_initiative{initiative, node_id}, \
+         initiative = $init, node_id = $nid",
+        params.clone(),
+    )?
+    .rows
+    .is_empty();
+
+    run_mut(
+        store,
+        r#"
+        ?[initiative, node_id] <- [[$init, $nid]]
+        :put node_initiative {initiative, node_id}
+        "#,
+        params,
+    )?;
+
+    write_audit(
+        store.db_ref(),
+        "attach_node",
+        "system",
+        &[init.to_string(), node_id.clone()],
+    )?;
+    Ok(AttachStats { already_member })
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{delete_initiative, rename_initiative};
+    use super::{attach_node, delete_initiative, rename_initiative};
     use crate::graph::EdgeType;
     use crate::store::Store;
     use crate::{
@@ -370,5 +431,57 @@ mod tests {
             "x forgotten at NOW"
         );
         let _ = x;
+    }
+
+    #[test]
+    fn attach_node_adds_membership_without_moving() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("proj-a");
+        let n = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "shared-fact",
+            "body",
+        )
+        .unwrap();
+
+        // Additive attach to a second initiative — the node lives in both now.
+        let stats = attach_node(&store, &n, "proj-b").unwrap();
+        assert!(!stats.already_member);
+
+        store.use_initiative("proj-a");
+        assert_eq!(
+            recall_id_by_name(&store, "shared-fact").unwrap(),
+            Some(n.clone()),
+            "still resolves under the original initiative"
+        );
+        store.use_initiative("proj-b");
+        assert_eq!(
+            recall_id_by_name(&store, "shared-fact").unwrap(),
+            Some(n.clone()),
+            "now also resolves under the new initiative"
+        );
+
+        let inits = list_initiatives(&store).unwrap();
+        assert!(inits.iter().any(|i| i == "proj-a"));
+        assert!(inits.iter().any(|i| i == "proj-b"));
+
+        // Idempotent: re-attaching is a reported no-op.
+        assert!(
+            attach_node(&store, &n, "proj-b").unwrap().already_member,
+            "second attach is a no-op"
+        );
+
+        // A bogus id is refused, so no dangling membership row is created.
+        assert!(
+            attach_node(
+                &store,
+                &"01900000-0000-7000-0000-000000000000".to_string(),
+                "proj-b"
+            )
+            .is_err(),
+            "attaching a non-existent node errors"
+        );
     }
 }

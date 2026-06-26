@@ -239,6 +239,9 @@ impl KaeruMemory {
     pub fn delete_initiative(&self) -> DeleteInitiative {
         DeleteInitiative(self.clone())
     }
+    pub fn attach(&self) -> Attach {
+        Attach(self.clone())
+    }
     pub fn lint(&self) -> Lint {
         Lint(self.clone())
     }

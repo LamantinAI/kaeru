@@ -1,8 +1,8 @@
 //! Session re-entry, initiative management, diagnostics, and snapshot export.
 
 use kaeru_core::{
-    awake, delete_initiative, export_vault, lint, list_initiatives, overview, pin, recent_episodes,
-    rename_initiative, unpin,
+    attach_node, awake, delete_initiative, export_vault, lint, list_initiatives, overview, pin,
+    recent_episodes, rename_initiative, unpin,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -175,6 +175,33 @@ mem_tool!(
     |store, args| match delete_initiative(store, &args.name) {
         Ok(stats) => json!({ "deleted": true, "unscoped": stats.unscoped, "forgotten": stats.forgotten }),
         Err(e) => json!({ "deleted": false, "error": e.to_string() }),
+    }
+);
+
+#[derive(Debug, Deserialize)]
+pub struct AttachArgs {
+    pub node: String,
+    pub to: String,
+}
+
+mem_tool!(
+    /// `kaeru_attach` — give a node a second initiative (additive multi-membership).
+    Attach,
+    "kaeru_attach",
+    "Add a node to another initiative (additive multi-membership) — repair fragmentation by giving \
+     a node captured under the wrong or a stale initiative a second home, without moving or \
+     copying it (same id, edges, history). Idempotent. Local only.",
+    AttachArgs,
+    { "type": "object", "properties": {
+        "node": { "type": "string", "description": "node name or id (resolved across all initiatives)" },
+        "to": { "type": "string", "description": "target initiative to add the node to" }
+    }, "required": ["node", "to"] },
+    |store, args| {
+        let id = resolve(store, &args.node);
+        match attach_node(store, &id, &args.to) {
+            Ok(stats) => json!({ "attached": true, "already_member": stats.already_member, "id": id, "to": args.to }),
+            Err(e) => json!({ "attached": false, "error": e.to_string() }),
+        }
     }
 );
 

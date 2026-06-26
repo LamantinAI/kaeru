@@ -373,6 +373,13 @@ impl KaeruServer {
             .await
     }
 
+    #[tool(
+        description = "Add a node to another initiative (additive multi-membership) — repair initiative fragmentation by giving a node captured under the wrong or a stale initiative a second home, without moving or copying it (same id, edges, history). The node is resolved across all initiatives. Idempotent. Local only."
+    )]
+    fn attach(&self, Parameters(p): Parameters<AttachParams>) -> Result<CallToolResult, McpError> {
+        tools::initiative::attach(&self.store, &p.node, &p.to)
+    }
+
     // ----- Lookup --------------------------------------------------------
     #[tool(description = "Look up a node id by exact name. Returns the id or `(not found)`.")]
     fn recall(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {

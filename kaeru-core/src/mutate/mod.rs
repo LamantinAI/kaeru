@@ -40,7 +40,9 @@ pub use hypothesis::{
     formulate_hypothesis, formulate_hypothesis_with_layer, run_experiment, update_hypothesis_status,
 };
 pub use ingest::{upsert_edge, upsert_node};
-pub use initiative::{DeleteStats, RenameStats, delete_initiative, rename_initiative};
+pub use initiative::{
+    AttachStats, DeleteStats, RenameStats, attach_node, delete_initiative, rename_initiative,
+};
 pub use layer::{get_layer, set_layer};
 pub use metabolism::{forget, improve};
 pub use review::{mark_resolved, mark_under_review};
