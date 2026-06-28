@@ -660,6 +660,13 @@ impl KaeruServer {
     }
 
     #[tool(
+        description = "Reflect on the store: a computed maintenance work-list with how to act on each part — orphans to link, open reviews to resolve, chains gone stale (rechain), settled operational nodes to promote into cortex, and shared/cloud items that need YOUR sign-off (never auto-rebalanced). Good for a periodic tidy pass (e.g. a cron)."
+    )]
+    fn reflect(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
+        tools::lint::reflect(&self.store, p.initiative.as_deref())
+    }
+
+    #[tool(
         description = "Snapshot the substrate as an Obsidian-friendly markdown vault (README + INDEX + LOG + pages). Output dir is created if missing."
     )]
     fn export(&self, Parameters(p): Parameters<ExportParams>) -> Result<CallToolResult, McpError> {
@@ -690,6 +697,13 @@ impl ServerHandler for KaeruServer {
              vs archival (settled knowledge: outcomes, references, ideas, summaries). Operational decays and gets \
              revisited; archival is what survives and what a fresh agent reads first. Move things to archival when \
              they stop changing. \
+             \
+             CORTEX ON RE-ENTRY — `awake` surfaces the archival tier as a dedicated `cortex` section, separate \
+             from the operational working set, so settled knowledge loads every session instead of waiting for \
+             explicit recall. Put durable, generally-true facts there (`cite` / `settle`). For the few that must \
+             be available in EVERY session — house style, a keystone decision, a glossary — set `layer=core`: \
+             Core is injected uncapped. Be sparing; `core` is expensive context, so reserve it for the truly \
+             always-needed and leave the rest at the default layer. \
              \
               CAPTURE DISPATCH — match the verb to the *epistemic status* of the content, not its length: \
               • `jot` — fleeting note, no name needed (auto-named). Operational. \

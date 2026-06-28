@@ -43,6 +43,17 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
         }
         out.push('\n');
 
+        // Cortex — the archival tier: settled knowledge that re-enters every
+        // session, separate from the operational working set above.
+        out.push_str(&format!(
+            "cortex — settled knowledge ({}):\n",
+            ctx.cortex.len()
+        ));
+        for b in &ctx.cortex {
+            out.push_str(&format!("  - {} ({}) — {}\n", b.name, b.node_type, b.id));
+        }
+        out.push('\n');
+
         out.push_str(&format!("pinned ({}):\n", ctx.pinned.len()));
         for id in &ctx.pinned {
             out.push_str(&format!("  - {id}{}\n", brief_suffix(store, id)));

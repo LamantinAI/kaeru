@@ -13,9 +13,10 @@ use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
-use crate::graph::{Layer, NodeId};
+use crate::graph::{Layer, NodeId, Tier};
 use crate::recall::{
-    LayerBucket, list_initiatives, recall_by_layer, recent_episodes, under_review_pinned,
+    LayerBucket, NodeBrief, list_initiatives, recall_by_layer_in_tier, recent_episodes,
+    under_review_pinned,
 };
 use crate::store::Store;
 
@@ -76,12 +77,18 @@ pub struct AwakenedContext {
     /// Every initiative the substrate knows (cross-initiative), so the
     /// agent always sees which projects exist — not just the active one.
     pub all_initiatives: Vec<String>,
-    /// Layer-prioritised view of the active initiative: `Core` (uncapped),
-    /// then `Hot`, then `Warm`, in that order. The whole `Core` loads
-    /// first, then the lower-priority layers — the re-entry context the
-    /// memory-layer system is built around. `Cold` / `Frozen` are not
-    /// surfaced here by design (explicit recall / not surfaced).
+    /// Layer-prioritised view of the active initiative's **operational**
+    /// (hippocampus) tier: `Core` (uncapped), then `Hot`, then `Warm`. The
+    /// in-flight working set — what's being actively worked. `Cold` / `Frozen`
+    /// are not surfaced here by design (explicit recall). Settled knowledge
+    /// lives in `cortex`, not here.
     pub layered: Vec<LayerBucket>,
+    /// The **archival** (cortex) tier: settled knowledge — ideas, outcomes,
+    /// citations the project has durably learned. Ordered by layer priority
+    /// (`Core` uncapped, so standing facts always re-enter; `Hot`/`Warm`
+    /// bounded), flattened newest-first within each. This is what makes cortex
+    /// load on every re-entry instead of waiting for explicit recall.
+    pub cortex: Vec<NodeBrief>,
     /// Persisted session pins, newest-first. See [`active_window`].
     pub pinned: Vec<NodeId>,
     /// Episodes whose latest assertion is within
@@ -105,7 +112,19 @@ pub fn awake(store: &Store) -> Result<AwakenedContext> {
     Ok(AwakenedContext {
         initiative: store.current_initiative(),
         all_initiatives: list_initiatives(store)?,
-        layered: recall_by_layer(store, &[Layer::Core, Layer::Hot, Layer::Warm])?,
+        layered: recall_by_layer_in_tier(
+            store,
+            &[Layer::Core, Layer::Hot, Layer::Warm],
+            Some(Tier::Operational),
+        )?,
+        cortex: recall_by_layer_in_tier(
+            store,
+            &[Layer::Core, Layer::Hot, Layer::Warm],
+            Some(Tier::Archival),
+        )?
+        .into_iter()
+        .flat_map(|b| b.nodes)
+        .collect(),
         pinned: active_window(store)?,
         recent: recent_episodes(store, window)?,
         under_review: under_review_pinned(store)?,

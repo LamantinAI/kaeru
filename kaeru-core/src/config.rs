@@ -63,6 +63,10 @@ pub struct KaeruConfig {
     /// Minimum edge weight to count toward a knowledge chain. Edges below it
     /// are ignored by chain shortest-paths. Default `0.0` = no filter.
     pub chain_min_weight: f64,
+    /// Age (seconds) past which a still-operational, linked node is flagged by
+    /// [`crate::reflect`] as a cortex candidate — settled work to consolidate
+    /// into the archival tier. Default 14 days.
+    pub reflect_settle_age_secs: u64,
 }
 
 impl KaeruConfig {
@@ -81,6 +85,7 @@ impl KaeruConfig {
             max_hops_cap: 3,
             chain_max_hops: 12,
             chain_min_weight: 0.0,
+            reflect_settle_age_secs: 14 * 24 * 60 * 60,
         }
     }
 

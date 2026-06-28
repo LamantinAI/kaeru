@@ -2,13 +2,13 @@
 
 use kaeru_core::{
     attach_node, awake, delete_initiative, export_vault, lint, list_initiatives, overview, pin,
-    recent_episodes, rename_initiative, unpin,
+    recent_episodes, reflect, rename_initiative, unpin,
 };
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::lookup::NoArgs;
-use crate::{briefs_by_ids, mem_tool, resolve};
+use crate::{briefs, briefs_by_ids, mem_tool, resolve};
 
 mem_tool!(
     /// `kaeru_awake` — load the re-entry context for the active initiative.
@@ -22,6 +22,7 @@ mem_tool!(
         Ok(ctx) => json!({
             "initiative": ctx.initiative,
             "all_initiatives": ctx.all_initiatives,
+            "cortex": briefs(&ctx.cortex),
             "pinned": briefs_by_ids(store, &ctx.pinned),
             "recent": briefs_by_ids(store, &ctx.recent),
             "under_review": briefs_by_ids(store, &ctx.under_review),
@@ -217,6 +218,28 @@ mem_tool!(
         Ok(report) => json!({
             "orphans": report.orphans,
             "unresolved_reviews": report.unresolved_reviews,
+        }),
+        Err(e) => json!({ "error": e.to_string() }),
+    }
+);
+
+mem_tool!(
+    /// `kaeru_reflect` — computed maintenance work-list for a reflection pass.
+    Reflect,
+    "kaeru_reflect",
+    "Reflect on the store: a computed maintenance work-list — orphans to link, open reviews to \
+     resolve, stale chains to rechain, settled operational nodes to promote into cortex, and \
+     shared/cloud items that need the user's sign-off (never auto-rebalanced). Good for a periodic \
+     tidy pass.",
+    NoArgs,
+    { "type": "object", "properties": {} },
+    |store, _args| match reflect(store) {
+        Ok(r) => json!({
+            "orphans": r.orphans,
+            "open_reviews": r.open_reviews,
+            "stale_chains": r.stale_chains,
+            "cortex_candidates": r.cortex_candidates,
+            "shared_needs_user": r.shared,
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }

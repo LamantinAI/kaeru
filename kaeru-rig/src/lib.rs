@@ -248,6 +248,9 @@ impl KaeruMemory {
     pub fn lint(&self) -> Lint {
         Lint(self.clone())
     }
+    pub fn reflect(&self) -> Reflect {
+        Reflect(self.clone())
+    }
     pub fn export(&self) -> Export {
         Export(self.clone())
     }

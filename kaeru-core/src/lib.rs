@@ -43,12 +43,12 @@ pub use mutate::{
     upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
 pub use recall::{
-    EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull, SummaryView,
-    between, chains_of, cloud_links, count_by_type, edges_in_initiative, edges_of, fuzzy_recall,
-    lint, list_initiatives, local_nodes_for_review, node_brief_by_id, nodes_in_initiative,
-    overview, read_chain, read_node_full, recall_by_layer, recall_id_by_name, recent_episodes,
-    recollect_idea, recollect_outcome, recollect_provenance, shortest_path, summary_view, tagged,
-    under_review_pinned, walk,
+    EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull,
+    ReflectionReport, SummaryView, between, chains_of, cloud_links, count_by_type,
+    edges_in_initiative, edges_of, fuzzy_recall, lint, list_initiatives, local_nodes_for_review,
+    node_brief_by_id, nodes_in_initiative, overview, read_chain, read_node_full, recall_by_layer,
+    recall_by_layer_in_tier, recall_id_by_name, recent_episodes, recollect_idea, recollect_outcome,
+    recollect_provenance, reflect, shortest_path, summary_view, tagged, under_review_pinned, walk,
 };
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};
 pub use store::Store;
