@@ -10,7 +10,7 @@ Name: 蛙 (*kaeru*, "frog"; homophonic with 帰る "to return" and 変える "to
 
 ![A kaeru vault rendered as a live knowledge galaxy by kaeru-viz](kaeru-viz/galaxy.gif)
 
-<sub>A kaeru vault rendered by [`kaeru-viz`](kaeru-viz/) — one cluster per initiative, nodes sized by memory layer, with reasoning-chain replay and a time-lapse of how the knowledge grew.</sub>
+<sub>A kaeru vault rendered by [`kaeru-viz`](kaeru-viz/) — each project a constellation of stars around its core, sized by memory layer, with ochre cross-project bridges, reasoning-chain replay, and a time-lapse of how the knowledge grew. Hover a node to trace its neighbours; click to pin them.</sub>
 
 ## Overview
 

@@ -19,6 +19,8 @@ export default defineConfig({
       },
     },
   },
+  // keep a single three instance so our bloom pass shares the renderer's THREE
+  resolve: { dedupe: ['three'] },
   build: { outDir: 'dist', chunkSizeWarningLimit: 4000, target: 'esnext' },
   esbuild: { target: 'esnext' },
 })
