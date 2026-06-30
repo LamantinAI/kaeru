@@ -124,9 +124,9 @@ for (const p of _pl) {
   const ha = '__hub__' + p.a, hb = '__hub__' + p.b
   if (idx.has(ha) && idx.has(hb)) bridges.push({ a: idx.get(ha), b: idx.get(hb), w: p.weight })
 }
-// adjacency (real + spoke) for hover neighbourhoods
+// adjacency (real + spoke — the only kinds in `edges`) for hover neighbourhoods
 const adj = nodes.map(() => new Set())
-edges.forEach((e, i) => { if (e.kind !== 'bridge') { adj[e.a].add(i); adj[e.b].add(i) } })
+edges.forEach((e, i) => { adj[e.a].add(i); adj[e.b].add(i) })
 
 // ── scene ─────────────────────────────────────────────────────────────────
 const host = $('graph')
@@ -259,8 +259,8 @@ function applyVisuals() {
   applyEdges()
 }
 function edgeBaseColor(e) {
+  // only real + spoke edges live in this layer; bridges are a separate LineSegments
   if (e.kind === 'spoke') return [0.15, 0.16, 0.21]
-  if (e.kind === 'bridge') return [0.72, 0.54, 0.28]
   return EDGE_COLOR[e.type] || EDGE_DEFAULT
 }
 function applyEdges() {
@@ -278,8 +278,7 @@ function applyEdges() {
     } else if (anyFocus) {
       const inF = (na.init === focusInit || na.hubInit === focusInit) && (nb.init === focusInit || nb.hubInit === focusInit)
       k = inF ? 1 : 0.05
-    } else if (e.kind === 'bridge') k = 0.9
-    else if (e.kind === 'spoke') { const ml = nodes[e.a].layer; k = (ml === 'cold' || ml === 'frozen') ? 0 : 0.85 }
+    } else if (e.kind === 'spoke') { const ml = nodes[e.a].layer; k = (ml === 'cold' || ml === 'frozen') ? 0 : 0.85 }
     for (let q = 0; q < 6; q += 3) { ecol[i * 6 + q] = c[0] * k; ecol[i * 6 + q + 1] = c[1] * k; ecol[i * 6 + q + 2] = c[2] * k }
   }
   eg.attributes.color.needsUpdate = true
@@ -441,7 +440,7 @@ const focusEl = $('focus')
 data.initiatives.forEach((i) => { const o = document.createElement('option'); o.value = i.name; o.textContent = `${i.name} (${i.node_count})`; focusEl.appendChild(o) })
 focusEl.addEventListener('change', (e) => setFocus(e.target.value))
 const chainPick = $('chainPick')
-data.chains.forEach((c, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `${c.name} (${c.members.length})`; chainPick.appendChild(o) })
+data.chains.forEach((c, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `${c.name} (${(c.members || []).length})`; chainPick.appendChild(o) })
 $('chainPlay').addEventListener('click', () => { const c = data.chains[+chainPick.value || 0]; if (c) startReplay(c) })
 $('chainReset').addEventListener('click', resetChain)
 
@@ -538,7 +537,7 @@ const SCENES = [
     apply() { resetChain(); resetTime(); setFocus(null); setGlow(true); setColorMode('initiative'); frame(1500) } },
   { tag: 'reasoning chains', title: 'How — not just what.',
     narr: 'A knowledge chain is the load-bearing path between insights. Watch how one conclusion was reached — node by node, in order.',
-    apply() { resetTime(); setFocus(null); const c = data.chains.reduce((b, x) => (x.members.length > (b ? b.members.length : 0) ? x : b), null); if (c) { chainPick.value = data.chains.indexOf(c); chainPick._sync && chainPick._sync(); startReplay(c) } } },
+    apply() { resetTime(); setFocus(null); const c = data.chains.reduce((b, x) => ((x.members || []).length > (b ? (b.members || []).length : 0) ? x : b), null); if (c) { chainPick.value = data.chains.indexOf(c); chainPick._sync && chainPick._sync(); startReplay(c) } } },
   { tag: 'one project, up close', title: 'Each cluster is a real project.',
     narr: 'Zoom into a single project and the structure appears: keystone facts in Core, standing rules in Hot, working notes in Warm — scoped and prioritized.',
     apply() { resetChain(); resetTime(); setGlow(true); setColorMode('layer'); setFocus((data.initiatives[0] || {}).name || null) } },
