@@ -37,10 +37,28 @@ const BG = 0x2a2a2f   // greyish backdrop, not pure black
 
 // ── data ──────────────────────────────────────────────────────────────────
 async function loadGraph() {
-  try { const r = await fetch('/graph.json'); if (r.ok) return await r.json() } catch (_) {}
-  const r = await fetch('./graph.json'); return await r.json()
+  for (const url of ['/graph.json', './graph.json']) {
+    try { const r = await fetch(url); if (r.ok) return await r.json() } catch (_) {}
+  }
+  return null
+}
+function fail(msg) {
+  const g = document.getElementById('graph')
+  if (g) g.insertAdjacentHTML('beforeend',
+    `<div style="position:absolute;inset:0;display:grid;place-items:center;color:#8b887e;font-family:'IBM Plex Mono',monospace;font-size:13px;letter-spacing:.04em;text-align:center;padding:24px;">${msg}</div>`)
+  const s = document.getElementById('stats'); if (s) s.textContent = 'unavailable'
+  throw new Error('kaeru-viz: ' + msg)  // halt module init — the message above already shows
 }
 const data = await loadGraph()
+if (!data || !Array.isArray(data.nodes) || data.nodes.length === 0) {
+  fail('graph data unavailable — is the kaeru daemon running, or a snapshot baked?')
+}
+// tolerate a partial/malformed snapshot: default the optional collections
+data.initiatives ??= []
+data.edges ??= []
+data.chains ??= []
+data.project_links ??= []
+data.meta ??= {}
 const rawNodes = data.nodes.filter((n) => n.type !== 'chain')
 const primInit = (n) => (n.isHub ? n.hubInit : (n.initiatives && n.initiatives[0]) || '∅')
 
@@ -465,10 +483,10 @@ function makeDropdown(sel) {
 // ── HUD + legend ─────────────────────────────────────────────────────────────
 const m = data.meta
 $('stats').innerHTML =
-  `<div class="cell"><div class="n">${m.node_count}</div><div class="l">insights</div></div>` +
-  `<div class="cell"><div class="n">${m.edge_count}</div><div class="l">links</div></div>` +
-  `<div class="cell"><div class="n">${m.initiative_count}</div><div class="l">projects</div></div>` +
-  `<div class="cell"><div class="n">${m.chain_count}</div><div class="l">chains</div></div>` +
+  `<div class="cell"><div class="n">${m.node_count ?? data.nodes.length}</div><div class="l">insights</div></div>` +
+  `<div class="cell"><div class="n">${m.edge_count ?? data.edges.length}</div><div class="l">links</div></div>` +
+  `<div class="cell"><div class="n">${m.initiative_count ?? data.initiatives.length}</div><div class="l">projects</div></div>` +
+  `<div class="cell"><div class="n">${m.chain_count ?? data.chains.length}</div><div class="l">chains</div></div>` +
   `<div class="cell span">${fmtDate(T0)} — ${fmtDate(T1)}<span class="sub">one agent · ${Math.round((T1 - T0) / 86400)} days</span></div>`
 function hex(c) { return '#' + c.getHexString() }
 function buildLegend() {

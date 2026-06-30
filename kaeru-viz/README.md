@@ -30,6 +30,10 @@ credential bodies dropped) so it is safe for a public talk. See the daemon's
 `public/graph.json`, `node_modules/`, and `dist/` are git-ignored (the snapshot
 holds real content — never commit it).
 
+Fonts (IBM Plex Sans/Mono, Zen Old Mincho) are **self-hosted** under
+`public/fonts/` — Latin + Cyrillic for the UI, and a single CJK chunk for the 蛙
+seal — so the bundle pulls nothing from the network, including offline.
+
 ## Run
 
 ```bash
