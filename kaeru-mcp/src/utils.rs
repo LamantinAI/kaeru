@@ -14,7 +14,9 @@ use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, NaiveDate, Utc};
-use kaeru_core::{Error, Layer, NodeBrief, NodeId, Store, SummaryView, Tier};
+use kaeru_core::{
+    Error, Layer, NodeBrief, NodeId, Store, SummaryView, Tier, count_nodes_in_initiative, edges_of,
+};
 use rmcp::ErrorData as McpError;
 use rmcp::model::{CallToolResult, Content};
 
@@ -26,18 +28,49 @@ pub fn text(s: &str) -> CallToolResult {
     CallToolResult::success(vec![Content::text(s)])
 }
 
-/// One-line nudge appended to every capture result. A fresh node is an
-/// island until it's connected — this reminds the agent, at the moment of
-/// capture, to `link` it and (when a line of work runs start→decision) save
-/// the reasoning trail with `chain`. A hint in the result, not a gate: the
-/// substrate is a facilitator, not an enforcer.
+/// One-line nudge appended to a capture result *when the node lands as an
+/// island* (see [`capture_result`]). It reminds the agent, at the moment of
+/// capture, to `link` the node and (when a line of work runs start→decision)
+/// save the reasoning trail with `chain`. A hint in the result, not a gate:
+/// the substrate is a facilitator, not an enforcer.
 pub const CAPTURE_NUDGE: &str = "\n↳ now connect it: `search` related → `link` \
      (strong=true for key edges); when a line of work runs start→decision/outcome, \
      `chain(from, to)` to save the reasoning trail. Don't leave it an island.";
 
-/// Appends [`CAPTURE_NUDGE`] to a capture message and renders it.
-pub fn text_with_nudge(s: &str) -> CallToolResult {
-    text(&format!("{s}{CAPTURE_NUDGE}"))
+/// Capture result for the knowledge-forming verbs (`episode`, `cite`,
+/// `claim`). Appends [`CAPTURE_NUDGE`] only when the new node is actually an
+/// island worth connecting: it has no edges yet **and** its initiative already
+/// holds other nodes, so there is something to link to. A node that already
+/// gained an edge at capture (e.g. `claim` with a target), or the first node
+/// in a fresh initiative, gets no nudge — the hint lands only where it teaches.
+/// `jot` / `task` never call this: they're operational notes, not graph
+/// anchors. Best-effort — any read error simply suppresses the nudge.
+pub fn capture_result(
+    store: &Store,
+    id: &NodeId,
+    initiative: Option<&str>,
+    msg: &str,
+) -> CallToolResult {
+    if should_nudge(store, id, initiative) {
+        text(&format!("{msg}{CAPTURE_NUDGE}"))
+    } else {
+        text(msg)
+    }
+}
+
+/// True when `id` is isolated at NOW and its initiative already holds at
+/// least one other node. Needs an explicit `initiative`: the capture's scope
+/// is atomic and already gone by the time the result is built, so a capture
+/// with no initiative is never nudged.
+fn should_nudge(store: &Store, id: &NodeId, initiative: Option<&str>) -> bool {
+    let Some(init) = initiative else {
+        return false;
+    };
+    let isolated = edges_of(store, id).map(|e| e.is_empty()).unwrap_or(false);
+    isolated
+        && count_nodes_in_initiative(store, init)
+            .map(|n| n > 1)
+            .unwrap_or(false)
 }
 
 pub fn to_mcp(e: Error) -> McpError {

@@ -58,6 +58,33 @@ pub fn nodes_in_initiative(store: &Store, initiative: &str) -> Result<Vec<NodeBr
     Ok(briefs)
 }
 
+/// Counts non-audit nodes attached to `initiative` at NOW. A cheap `COUNT`
+/// (no body loads, unlike `nodes_in_initiative`) — used by the capture nudge
+/// to tell whether the initiative already holds anything worth linking a
+/// fresh node to.
+pub fn count_nodes_in_initiative(store: &Store, initiative: &str) -> Result<usize> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("init".to_string(), DataValue::Str(initiative.into()));
+
+    let script = r#"
+        ?[count(id)] := *node_initiative{initiative, node_id: id},
+                        initiative = $init,
+                        *node{id, type @ 'NOW'},
+                        type != 'audit_event'
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+
+    let count = rows
+        .rows
+        .first()
+        .and_then(|row| row.first())
+        .and_then(|v| v.get_int())
+        .unwrap_or(0);
+    Ok(count as usize)
+}
+
 /// Returns every `local` edge whose **both** endpoints are attached to
 /// `initiative` at NOW, as `(src, dst, edge_type)`. Explicit initiative
 /// argument (not `Store::current_initiative`) for concurrency safety. The
