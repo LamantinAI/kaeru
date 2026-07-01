@@ -14,8 +14,8 @@ use rmcp::model::CallToolResult;
 use crate::cloud_client::CloudClient;
 use crate::tools::cloud::push_to_cloud;
 use crate::utils::{
-    capture_result, parse_layer, parse_wants_shared, resolve_name, resolve_name_or_id, text, to_mcp,
-    with_initiative,
+    capture_result, parse_layer, parse_wants_shared, resolve_name, resolve_name_or_id, text,
+    to_mcp, with_initiative,
 };
 
 /// When `want_share`, attempts to push the just-created node `id` to the

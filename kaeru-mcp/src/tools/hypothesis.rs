@@ -24,7 +24,12 @@ pub fn claim(
             let target = resolve_name(store, a)?;
             kaeru_core::link(store, &id, &target, EdgeType::RefersTo).map_err(to_mcp)?;
         }
-        Ok(capture_result(store, &id, initiative, &format!("claimed: {auto_name} — {id}")))
+        Ok(capture_result(
+            store,
+            &id,
+            initiative,
+            &format!("claimed: {auto_name} — {id}"),
+        ))
     })
 }
 
