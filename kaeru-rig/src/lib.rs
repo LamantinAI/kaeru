@@ -42,7 +42,9 @@
 
 use std::sync::Arc;
 
-use kaeru_core::{NodeBrief, NodeId, Store, node_brief_by_id, recall_id_by_name};
+use kaeru_core::{
+    NodeBrief, NodeId, Store, node_brief_by_id, recall_id_by_name, recall_id_by_name_global,
+};
 use serde_json::{Value, json};
 
 mod capture;
@@ -262,6 +264,18 @@ impl KaeruMemory {
 /// treating the input as an id when no name matches.
 pub(crate) fn resolve(store: &Store, name_or_id: &str) -> String {
     recall_id_by_name(store, name_or_id)
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| name_or_id.to_string())
+}
+
+/// Like [`resolve`], but resolves across **all** initiatives. Tool bodies run
+/// inside `KaeruMemory::run` → `Store::scoped(<memory initiative>)`, so a plain
+/// `resolve` only sees the memory's own initiative — no good for `attach`,
+/// which targets a node living under a different one. `recall_id_by_name_global`
+/// ignores the active scope without re-locking the scope guard.
+pub(crate) fn resolve_global(store: &Store, name_or_id: &str) -> String {
+    recall_id_by_name_global(store, name_or_id)
         .ok()
         .flatten()
         .unwrap_or_else(|| name_or_id.to_string())

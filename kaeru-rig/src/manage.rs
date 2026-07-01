@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::lookup::NoArgs;
-use crate::{briefs, briefs_by_ids, mem_tool, resolve};
+use crate::{briefs, briefs_by_ids, mem_tool, resolve, resolve_global};
 
 mem_tool!(
     /// `kaeru_awake` — load the re-entry context for the active initiative.
@@ -198,7 +198,7 @@ mem_tool!(
         "to": { "type": "string", "description": "target initiative to add the node to" }
     }, "required": ["node", "to"] },
     |store, args| {
-        let id = resolve(store, &args.node);
+        let id = resolve_global(store, &args.node);
         match attach_node(store, &id, &args.to) {
             Ok(stats) => json!({ "attached": true, "already_member": stats.already_member, "id": id, "to": args.to }),
             Err(e) => json!({ "attached": false, "error": e.to_string() }),

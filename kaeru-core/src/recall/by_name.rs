@@ -58,6 +58,32 @@ pub fn recall_id_by_name(store: &Store, name: &str) -> Result<Option<NodeId>> {
     Ok(id)
 }
 
+/// Like [`recall_id_by_name`] but **always cross-initiative** — it ignores the
+/// store's active initiative. Needed where a lookup must stay global even under
+/// a scoped store: a scoped adapter (e.g. `kaeru-rig`, whose calls run inside
+/// `Store::scoped`) can't clear the scope without re-locking that guard, so it
+/// resolves through here instead. Used by `attach`, which targets a node living
+/// under a *different* initiative than the active one.
+pub fn recall_id_by_name_global(store: &Store, name: &str) -> Result<Option<NodeId>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("name".to_string(), DataValue::Str(name.into()));
+    let rows = store.db_ref().run_script(
+        r#"
+            ?[id, validity] := *node{id, validity, name @ 'NOW'}, name = $name
+            :order validity
+            :limit 1
+        "#,
+        params,
+        ScriptMutability::Immutable,
+    )?;
+    Ok(rows
+        .rows
+        .first()
+        .and_then(|row| row.first())
+        .and_then(|v| v.get_str())
+        .map(String::from))
+}
+
 /// Returns a [`NodeBrief`] for `id` at NOW, or `None` if the node is
 /// not currently asserted. Useful for CLI / display code that holds an
 /// id and needs the human-readable name + excerpt.
@@ -241,4 +267,39 @@ pub fn count_by_type(store: &Store, node_type: &str) -> Result<usize> {
         .and_then(|v| v.get_int())
         .unwrap_or(0);
     Ok(count as usize)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{recall_id_by_name, recall_id_by_name_global};
+    use crate::store::Store;
+    use crate::{EpisodeKind, Significance, write_episode};
+
+    /// The global resolver finds a node by name regardless of the active
+    /// initiative — the mechanism behind `attach` working across scopes even
+    /// under a scoped store (e.g. kaeru-rig, whose calls run inside
+    /// `Store::scoped`).
+    #[test]
+    fn global_resolve_ignores_active_initiative() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("alpha");
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "alpha-fact",
+            "x",
+        )
+        .unwrap();
+
+        // A different initiative is now active.
+        store.use_initiative("beta");
+        // Scoped resolution can't see the alpha node...
+        assert!(recall_id_by_name(&store, "alpha-fact").unwrap().is_none());
+        // ...but the global resolver does, ignoring the active scope.
+        assert_eq!(
+            recall_id_by_name_global(&store, "alpha-fact").unwrap(),
+            Some(id)
+        );
+    }
 }

@@ -384,7 +384,7 @@ let tween = null
 function camTween(to, target, ms) {
   const from = camera.position.clone(), tgt0 = controls.target.clone(), t0 = performance.now()
   tween = () => {
-    const k = Math.min(1, (performance.now() - t0) / ms), e = 1 - Math.pow(1 - k, 3)
+    const k = Math.min(1, (performance.now() - t0) / ms), e = ms ? 1 - Math.pow(1 - k, 3) : 1
     camera.position.set(from.x + (to.x - from.x) * e, from.y + (to.y - from.y) * e, from.z + (to.z - from.z) * e)
     controls.target.set(tgt0.x + (target.x - tgt0.x) * e, tgt0.y + (target.y - tgt0.y) * e, tgt0.z + (target.z - tgt0.z) * e)
     if (k >= 1) tween = null

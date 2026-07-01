@@ -4,6 +4,7 @@
 //! (`chains_of`) and read the whole reasoning trail (`read_chain`).
 
 use std::collections::BTreeMap;
+use std::str::FromStr;
 
 use cozo::{DataValue, ScriptMutability};
 
@@ -11,7 +12,7 @@ use super::upsert_node;
 use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId, NodeType, Tier, Visibility, new_node_id};
-use crate::recall::{chains_of, node_brief_by_id, shortest_path};
+use crate::recall::{chains_of, node_brief_by_id, read_node_full, shortest_path};
 use crate::store::Store;
 
 /// Result of [`create_chain`].
@@ -132,7 +133,35 @@ pub fn create_chain(
 
     // The path is deterministic, so a repeated call would otherwise freeze an
     // identical trail again — reuse the existing chain instead of duplicating.
+    // A repeat with a fresh name/summary is the agent relabelling the trail,
+    // so refresh that metadata rather than silently dropping it.
     if let Some(existing) = find_duplicate_chain(store, &path)? {
+        if name.is_some() || summary.is_some() {
+            let cur = read_node_full(store, &existing)?;
+            let new_name = name
+                .map(String::from)
+                .or_else(|| cur.as_ref().map(|c| c.name.clone()))
+                .unwrap_or_default();
+            let new_body = summary
+                .map(String::from)
+                .or_else(|| cur.as_ref().and_then(|c| c.body.clone()));
+            let layer = cur
+                .as_ref()
+                .and_then(|c| Layer::from_str(&c.layer).ok())
+                .unwrap_or(Layer::Warm);
+            upsert_node(
+                store,
+                &existing,
+                NodeType::Chain,
+                Tier::Operational,
+                &new_name,
+                new_body.as_deref(),
+                &[],
+                store.current_initiative().as_deref(),
+                Visibility::Local,
+                layer,
+            )?;
+        }
         return Ok(Some(ChainOutcome {
             id: existing,
             reused: true,
@@ -415,6 +444,33 @@ mod tests {
         assert_eq!(first.id, second.id);
         // b is on exactly one chain, not two.
         assert_eq!(chains_of(&store, &b).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn dedup_refreshes_metadata_on_reuse() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("p");
+        let (a, _b, c) = line_abc(&store);
+        let id = create_chain(&store, &a, &c, Some("trail"), Some("first why"))
+            .unwrap()
+            .unwrap()
+            .id;
+
+        // Repeat the identical path with a new summary → reused, but the
+        // agent's fresh summary is applied, and the name (not re-supplied) kept.
+        let again = create_chain(&store, &a, &c, None, Some("second why"))
+            .unwrap()
+            .unwrap();
+        assert!(again.reused);
+        assert_eq!(again.id, id, "same chain reused, not duplicated");
+
+        let brief = node_brief_by_id(&store, &id).unwrap().unwrap();
+        assert_eq!(
+            brief.body_excerpt.as_deref(),
+            Some("second why"),
+            "summary refreshed on reuse"
+        );
+        assert_eq!(brief.name, "trail", "name preserved when not re-supplied");
     }
 
     #[test]
