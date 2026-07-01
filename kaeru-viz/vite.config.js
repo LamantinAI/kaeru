@@ -19,6 +19,9 @@ export default defineConfig({
       },
     },
   },
+  // keep a single three instance shared by the app and three/addons
+  // (OrbitControls etc.) — avoids the "multiple instances of three" warning
+  resolve: { dedupe: ['three'] },
   build: { outDir: 'dist', chunkSizeWarningLimit: 4000, target: 'esnext' },
   esbuild: { target: 'esnext' },
 })

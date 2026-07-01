@@ -4,40 +4,58 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>kaeru — a knowledge galaxy</title>
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="./src/fonts.css" />
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
     <div id="graph"></div>
 
     <header id="hud">
-      <h1>kaeru<span class="sub">a memory of record across agents</span></h1>
+      <div class="seal" title="蛙 — kaeru, &quot;frog&quot;">蛙</div>
+      <div class="wordmark">
+        <h1>kaeru</h1>
+        <span class="sub">memory of record · across agents</span>
+      </div>
       <div id="stats" class="stats">loading…</div>
     </header>
 
     <section id="panel">
-      <div class="row">
-        <label>Reasoning chain</label>
-        <select id="chainPick"></select>
-        <button id="chainPlay" class="primary">▶ replay</button>
-        <button id="chainReset" class="ghost">reset</button>
+      <div class="seg">
+        <div class="field">
+          <label for="chainPick">reasoning chain</label>
+          <select id="chainPick" class="ctl"></select>
+        </div>
+        <button id="chainPlay" class="btn go">replay</button>
+        <button id="chainReset" class="btn">reset</button>
       </div>
-      <div class="row">
-        <label>Color by</label>
-        <select id="colorMode">
-          <option value="initiative">initiative (galaxy)</option>
-          <option value="tier">tier (hippocampus / cortex)</option>
-          <option value="layer">layer (importance)</option>
-        </select>
-        <label class="chk"><input type="checkbox" id="glow" checked /> layer glow</label>
-        <label>Focus</label>
-        <select id="focus"><option value="">all projects</option></select>
-        <button id="talkBtn" class="primary">🎬 Demo</button>
+      <div class="seg">
+        <div class="field">
+          <label for="colorMode">colour by</label>
+          <select id="colorMode" class="ctl">
+            <option value="initiative">initiative</option>
+            <option value="tier">tier · hippocampus / cortex</option>
+            <option value="layer">layer · importance</option>
+          </select>
+        </div>
+        <label class="toggle"><input type="checkbox" id="glow" checked /><span class="box"></span>layer glow</label>
       </div>
-      <div class="row">
-        <label>Time-lapse</label>
-        <input type="range" id="time" min="0" max="100" value="100" />
-        <button id="timePlay" class="ghost">▶</button>
-        <span id="timeLabel" class="time">— full graph —</span>
+      <div class="seg">
+        <div class="field">
+          <label for="focus">focus</label>
+          <select id="focus" class="ctl"><option value="">all projects</option></select>
+        </div>
+        <button id="talkBtn" class="btn">guided tour</button>
+      </div>
+      <div class="seg scrub">
+        <div class="field" style="flex: 1">
+          <label for="time">time-lapse</label>
+          <div class="trackrow">
+            <input type="range" id="time" min="0" max="100" value="100" />
+            <button id="timePlay" class="btn mini" aria-label="play time-lapse"></button>
+            <span id="timeLabel" class="val">— full graph —</span>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -53,10 +71,10 @@
         <h2 id="scriptTitle"></h2>
         <p id="scriptNarr"></p>
         <div class="scriptnav">
-          <button id="scriptPrev" class="ghost">← back</button>
+          <button id="scriptPrev" class="btn">← back</button>
           <span id="scriptDots" class="dots"></span>
-          <button id="scriptNext" class="primary">next →</button>
-          <button id="scriptExit" class="ghost">exit</button>
+          <button id="scriptNext" class="btn go">next →</button>
+          <button id="scriptExit" class="btn">exit</button>
         </div>
       </div>
     </section>
