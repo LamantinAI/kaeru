@@ -12,6 +12,12 @@ permissions:
 
 jobs:
   build:
+    strategy:
+      matrix:
+        include:
+          - name: cloud
+            file: ./docker/Dockerfile.cloud
+            suffix: -cloud
     uses: docker/github-builder/.github/workflows/build.yml@v1
     permissions:
       contents: read
@@ -21,8 +27,8 @@ jobs:
       output: image
       push: ${{ github.event_name != 'pull_request' }}
       context: .
-      file: ./docker/Dockerfile.cloud
-      meta-images: ghcr.io/${{ github.repository }}/cloud
+      file: ${{ matrix.file }}
+      meta-images: ghcr.io/${{ github.repository }}${{ matrix.suffix }}
       meta-tags: |
         type=ref,event=branch
         type=ref,event=pr
