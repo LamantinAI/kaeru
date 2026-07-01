@@ -44,8 +44,11 @@ Supported prebuilt targets:
 | --- | --- | --- |
 | Linux | x86_64 | static musl binary |
 | macOS | aarch64 | Apple Silicon; unsigned, installer clears quarantine |
+| Windows | x86_64 | MSVC build, static CRT — no VC++ redistributable needed |
 
-For Intel Mac or Linux ARM, build from source.
+The `curl … | bash` installer covers Linux and macOS. On Windows, download the
+`…-x86_64-pc-windows-msvc.zip` from the [Releases](https://github.com/LamantinAI/kaeru/releases)
+page and run `kaeru-mcp.exe` yourself. For Intel Mac or Linux ARM, build from source.
 
 ### From source
 
@@ -195,6 +198,14 @@ Common moves:
   node IN FULL (whole body + every field — `drill` / `search` only show excerpts);
   `surface` to pull archived `cold` / `frozen` layers that `awake` doesn't load;
 - `synthesise`, `settle`, `reopen`, `supersede` when knowledge changes shape;
+- `chain` / `chains` / `read_chain` to save and recall a reasoning trail — the
+  ordered path from observation to decision; `rechain` refreshes one after the
+  graph changes (endpoints re-linked, weights shifted);
+- `attach` to give a node a second home in another initiative when it was
+  captured under the wrong one — repair, not a move (same id, edges, history);
+- `reflect` for a periodic tidy pass: it reports what to link, which chains went
+  stale, what's ready to settle into long-term memory, and what touches the
+  shared cloud (that last part is your call, not the agent's);
 - `policy`, `share`, `cloud_recall`, `pull`, `sync_review` for team sharing (see §6);
 - `rename_initiative` / `delete_initiative` to reorganise or drop a project — local
   by default, `cloud=true` to apply it team-wide.
@@ -211,7 +222,11 @@ Current kaeru memory has two orthogonal axes:
   `episode`/`jot`/`cite`/`task`/`claim` all take an optional `layer` (default
   `warm`) — so a node is born with its priority. Keep truly central material
   (`core`) small and explicit, and let stale material cool down. `awake` loads
-  `core → hot → warm`; reach `cold` / `frozen` on demand with `surface`.
+  the operational working set `core → hot → warm`, and separately surfaces the
+  **cortex** — the archival, settled knowledge of the project — so durable facts
+  re-enter every session instead of waiting for an explicit recall. Put standing,
+  generally-true facts there; keep `layer: core` for the few that must always
+  load. Reach `cold` / `frozen` on demand with `surface`.
 
 When capturing, choose the verb by epistemic status, not by length. If the fact
 is already settled, use `cite`; if it is still unfolding, use `episode` or

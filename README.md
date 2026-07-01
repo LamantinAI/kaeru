@@ -31,10 +31,12 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 
 - **Two-tier graph** — operational (cognitive / hippocampus) for active thinking; archival (recollection / cortex) for settled knowledge. `consolidate_out` promotes across the boundary, preserving provenance.
 - **Bi-temporal** — native assertion / retraction history. `at` reads a node in full as it is now or as-of any past moment; conflicts are non-destructive (the old version is invalidated, not deleted).
-- **Per-initiative scoping + layered re-entry** — one substrate, many projects. `awake` restores a project's working context by memory layer (Core → Hot → Warm); `surface` reaches the archived Cold / Frozen on demand.
+- **Per-initiative scoping + layered re-entry** — one substrate, many projects. `awake` restores a project's working set by memory layer (Core → Hot → Warm) and surfaces the archival **cortex** (settled knowledge) alongside it, so durable facts re-enter every session; `surface` reaches the archived Cold / Frozen on demand.
+- **Reasoning chains** — `chain` saves the load-bearing weighted path between two nodes as a recallable trail with an agent-authored summary; `chains` triages by name + summary, duplicates are folded at creation, and `rechain` refreshes a trail after the graph changes (re-links, re-weights).
+- **Self-maintenance** — `reflect` computes a tidy-up work-list: orphan nodes to link, chains gone stale, settled work to promote into cortex, and shared/cloud items whose rebalancing is escalated to the user. Built for a periodic (cron) pass.
 - **Cross-agent sharing** — local-first by default; an optional `kaeru-cloud` tier lets a trusted team share settled knowledge through two safety gates (initiative policy + a deterministic secret guard). See [Local & cloud](#local--cloud--sharing-memory-across-a-team).
-- **Structural recall** — exact name lookup, typed `walk` / `drill` / `trace`, `between`, FTS fuzzy fallback. Vectors are not the primary mode.
-- **Initiative management** — `rename` / `delete` an initiative, locally or team-wide.
+- **Structural recall** — exact name lookup, typed `walk` / `drill` / `trace`, `between`, FTS fuzzy fallback. Every read also carries when each node was asserted. Vectors are not the primary mode.
+- **Initiative management** — `rename` / `delete` an initiative (locally or team-wide), or `attach` a node to another initiative to repair fragmentation after the fact.
 - **Markdown export** — Obsidian-friendly snapshot of any initiative.
 
 ## Architecture Notes
@@ -148,7 +150,7 @@ Per-user / per-org isolation (multi-tenant) is a future addition; today each clo
 
 ## Status
 
-Pre-1.0. Implemented and covered by a green test suite: the substrate and curator API, memory layers with layered re-entry (`awake` / `surface`), bi-temporal time-travel (`at` / `history`), per-initiative scoping with `rename` / `delete`, knowledge chains (weighted edges + shortest-path), forward-only schema migrations, the MCP server, the shared `kaeru-cloud` tier (sharing, recall, soft links, sync-review) including multi-cloud, the `kaeru-rig` framework adapter (full curator toolset as rig Tools), and markdown export. What still needs hardening:
+Pre-1.0. Implemented and covered by a green test suite: the substrate and curator API, memory layers with layered re-entry — an operational working set plus an archival **cortex** that re-enters every session (`awake` / `surface`), bi-temporal time-travel with assertion time surfaced in every read (`at` / `history`), per-initiative scoping with `rename` / `delete` / `attach` (additive multi-membership), knowledge chains (weighted shortest-path, agent-authored summaries, creation-time dedup, `rechain`), a `reflect` maintenance pass, forward-only schema migrations, the MCP server, the shared `kaeru-cloud` tier (sharing, recall, soft links, sync-review) including multi-cloud, the `kaeru-rig` framework adapter (full curator toolset as rig Tools), and markdown export. What still needs hardening:
 
 - **Multi-tenant.** The cloud is one shared space scoped by initiative; per-user / per-org isolation isn't built yet.
 - **MCP concurrency.** Concurrent sessions share one `Store`; the per-call initiative scope is serialized through `Store::scoped`, so two sessions can't corrupt each other's scope. What remains is ordering — when an agent batch-fires async calls, a read can still land before a not-yet-applied write.
