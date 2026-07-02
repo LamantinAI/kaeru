@@ -210,14 +210,15 @@ mem_tool!(
     /// `kaeru_lint` — surface orphans and unresolved reviews.
     Lint,
     "kaeru_lint",
-    "Check the memory for hygiene issues: orphan nodes (no edges) and unresolved review flags. \
-     Use it to find loose ends worth tidying.",
+    "Check the memory for hygiene issues: orphan nodes (no edges), unresolved review flags, and \
+     dangling edges (an endpoint was retracted). Use it to find loose ends worth tidying.",
     NoArgs,
     { "type": "object", "properties": {} },
     |store, _args| match lint(store) {
         Ok(report) => json!({
             "orphans": report.orphans,
             "unresolved_reviews": report.unresolved_reviews,
+            "dangling_edges": report.dangling_edges,
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
