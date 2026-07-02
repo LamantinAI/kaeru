@@ -198,6 +198,17 @@ pub fn create_chain(
         Visibility::Local,
         Layer::Warm,
     )?;
+    // With no active scope the upsert left the chain node without any
+    // membership — but its members all belong somewhere, and a chain
+    // invisible to every scoped read is never intended. Inherit the union
+    // of the members' initiatives (idempotent junction writes).
+    if initiative.is_none() {
+        for member in &path {
+            for init in super::initiatives_of_node(store, member)? {
+                super::attach_node_to_initiative_named(store, &chain_id, &init)?;
+            }
+        }
+    }
     replace_members(store, &chain_id, &path)?;
 
     write_audit(
@@ -306,6 +317,24 @@ mod tests {
         link_with_weight(store, &a, &b, EdgeType::RefersTo, 0.9).unwrap();
         link_with_weight(store, &b, &c, EdgeType::RefersTo, 0.9).unwrap();
         (a, b, c)
+    }
+
+    /// A chain materialised with no active scope inherits the union of its
+    /// members' initiatives instead of landing membership-less (issue #25
+    /// family — same guarantee as consolidate/synthesise).
+    #[test]
+    fn create_chain_without_scope_inherits_member_initiatives() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("p");
+        let (a, _b, c) = line_abc(&store);
+
+        store.clear_initiative();
+        let outcome = create_chain(&store, &a, &c, None, None)
+            .expect("create")
+            .expect("path exists");
+
+        let inits = crate::mutate::initiatives_of_node(&store, &outcome.id).expect("junction read");
+        assert_eq!(inits, vec!["p".to_string()]);
     }
 
     #[test]
