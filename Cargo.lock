@@ -1780,11 +1780,13 @@ version = "0.4.0"
 dependencies = [
  "axum",
  "config",
+ "http-body-util",
  "kaeru-core",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tower",
  "tracing",
  "tracing-subscriber",
 ]
