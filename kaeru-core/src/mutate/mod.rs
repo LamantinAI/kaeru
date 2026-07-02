@@ -260,6 +260,18 @@ pub(crate) fn attach_node_to_initiative(store: &Store, node_id: &NodeId) -> Resu
     let Some(initiative) = store.current_initiative() else {
         return Ok(());
     };
+    attach_node_to_initiative_named(store, node_id, &initiative)
+}
+
+/// Attaches `node_id` to an **explicitly named** initiative — the junction
+/// write behind [`attach_node_to_initiative`], usable when the membership
+/// comes from somewhere other than the store's current scope (e.g.
+/// consolidation inheriting the source node's initiatives). Idempotent.
+pub(crate) fn attach_node_to_initiative_named(
+    store: &Store,
+    node_id: &NodeId,
+    initiative: &str,
+) -> Result<()> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("init".to_string(), DataValue::Str(initiative.into()));
     params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
@@ -271,6 +283,28 @@ pub(crate) fn attach_node_to_initiative(store: &Store, node_id: &NodeId) -> Resu
         .db_ref()
         .run_script(script, params, ScriptMutability::Mutable)?;
     Ok(())
+}
+
+/// Returns every initiative `node_id` is attached to through the
+/// `node_initiative` junction. The junction is append-only, so this also
+/// answers for retracted nodes — which is exactly what consolidation needs
+/// when it inherits memberships from a node it just retracted.
+pub(crate) fn initiatives_of_node(store: &Store, node_id: &NodeId) -> Result<Vec<String>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
+    let script = r#"
+        ?[initiative] := *node_initiative{initiative, node_id}, node_id = $nid
+        :order initiative
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+    let names = rows
+        .rows
+        .iter()
+        .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
+        .collect();
+    Ok(names)
 }
 
 /// Attaches an edge to the store's current initiative through the
