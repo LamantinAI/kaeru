@@ -33,6 +33,14 @@ pub fn lint(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, M
         for id in &report.unresolved_reviews {
             out.push_str(&format!("  - {id}{}\n", brief_suffix(store, id)));
         }
+        out.push('\n');
+        out.push_str(&format!(
+            "dangling edges ({}) — an endpoint was retracted; re-point at its successor or unlink:\n",
+            report.dangling_edges.len()
+        ));
+        for (src, dst, edge_type) in &report.dangling_edges {
+            out.push_str(&format!("  - {src} -[{edge_type}]-> {dst}\n"));
+        }
         Ok(text(&out))
     })
 }
