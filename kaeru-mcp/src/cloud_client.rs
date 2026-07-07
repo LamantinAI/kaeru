@@ -8,8 +8,18 @@
 //! empty *expected* token as auth-disabled).
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use serde_json::Value;
+
+/// Hard ceiling on any single cloud request. Without it a dead or
+/// black-holed connection blocks the calling MCP tool indefinitely —
+/// reqwest sets no total-request timeout by default.
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Ceiling on TCP connect alone, so an unreachable host fails fast
+/// instead of waiting out the OS connect timeout.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Holds the cloud base URL, the bearer token, and a reusable reqwest
 /// client (cheap to clone — it shares a connection pool internally).
@@ -22,10 +32,18 @@ pub struct CloudClient {
 
 impl CloudClient {
     pub fn new(base_url: String, token: String) -> Self {
+        // `Client::builder()` only fails when TLS/system config is broken;
+        // fall back to the default client rather than panicking the daemon —
+        // a cloud client without timeouts still beats no daemon at all.
+        let client = reqwest::Client::builder()
+            .timeout(REQUEST_TIMEOUT)
+            .connect_timeout(CONNECT_TIMEOUT)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             token,
-            client: reqwest::Client::new(),
+            client,
         }
     }
 
