@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 
 use super::{
-    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
-    tags_literal,
+    attach_edge_to_initiative, attach_node_to_initiative, attach_node_to_initiative_named,
+    build_body_tags, initiatives_of_node, now_validity_seconds, tags_literal,
 };
 use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
@@ -66,6 +66,17 @@ pub fn synthesise(
         .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     attach_node_to_initiative(store, &new_id)?;
+    // With no active scope the junction write above was a no-op — but the
+    // seeds belong somewhere, and a synthesis invisible to every scoped
+    // read is never intended. Inherit the union of the seeds' memberships
+    // (the junction `:put` is idempotent, so overlaps are free).
+    if store.current_initiative().is_none() {
+        for seed in seeds {
+            for init in initiatives_of_node(store, seed)? {
+                attach_node_to_initiative_named(store, &new_id, &init)?;
+            }
+        }
+    }
 
     // Step 2 — derived_from edges from the new node to each seed. One
     // substrate write per seed to keep error attribution clean (a malformed

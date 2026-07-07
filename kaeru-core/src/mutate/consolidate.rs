@@ -8,8 +8,9 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 
 use super::{
-    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
-    read_derived_from_targets, tags_literal,
+    attach_edge_to_initiative, attach_node_to_initiative, attach_node_to_initiative_named,
+    build_body_tags, initiatives_of_node, now_validity_seconds, read_derived_from_targets,
+    tags_literal,
 };
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
@@ -131,6 +132,16 @@ fn consolidate(
         .db_ref()
         .run_script(&s2, p2, ScriptMutability::Mutable)?;
     attach_node_to_initiative(store, &new_id)?;
+    // With no active scope the junction write above was a no-op — but the
+    // old node belonged somewhere, and it was just retracted. Losing its
+    // replacement from those initiatives is never intended (the node
+    // becomes invisible to every scoped read), so inherit the source's
+    // memberships instead.
+    if store.current_initiative().is_none() {
+        for init in initiatives_of_node(store, old_id)? {
+            attach_node_to_initiative_named(store, &new_id, &init)?;
+        }
+    }
 
     // Step 3 — replicate derived_from edges so provenance survives the
     // tier boundary.
@@ -176,4 +187,68 @@ fn consolidate(
         &[old_id.clone(), new_id.clone()],
     )?;
     Ok(new_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::graph::{NodeType, Tier};
+    use crate::store::Store;
+
+    /// A consolidation performed with no active initiative scope used to
+    /// leave the replacement node without any membership — invisible to
+    /// every scoped read — while the source (which had memberships) got
+    /// retracted. The replacement must inherit the source's initiatives.
+    #[test]
+    fn consolidate_without_scope_inherits_source_initiatives() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("demo");
+        let draft = crate::jot(&store, "scoped draft").expect("jot");
+
+        store.clear_initiative();
+        let settled =
+            crate::consolidate_out(&store, &draft, NodeType::Outcome, "settled-x", "body")
+                .expect("consolidate");
+
+        let inits = super::super::initiatives_of_node(&store, &settled).expect("junction read");
+        assert_eq!(inits, vec!["demo".to_string()]);
+    }
+
+    /// Same guarantee for `synthesise`: with no scope active the new node
+    /// inherits the union of the seeds' initiatives.
+    #[test]
+    fn synthesise_without_scope_inherits_union_of_seed_initiatives() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("alpha");
+        let a = crate::jot(&store, "seed a").expect("jot a");
+        store.use_initiative("beta");
+        let b = crate::jot(&store, "seed b").expect("jot b");
+
+        store.clear_initiative();
+        let s = crate::synthesise(
+            &store,
+            &[a, b],
+            NodeType::Summary,
+            Tier::Archival,
+            "union-synth",
+            "body",
+        )
+        .expect("synthesise");
+
+        let inits = super::super::initiatives_of_node(&store, &s).expect("junction read");
+        assert_eq!(inits, vec!["alpha".to_string(), "beta".to_string()]);
+    }
+
+    /// Explicit scope still wins — consolidation under an active initiative
+    /// attaches there and only there (existing behaviour, pinned by a test).
+    #[test]
+    fn consolidate_with_scope_attaches_to_that_scope() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("demo");
+        let draft = crate::jot(&store, "scoped draft").expect("jot");
+        let settled =
+            crate::consolidate_out(&store, &draft, NodeType::Outcome, "settled-y", "body")
+                .expect("consolidate");
+        let inits = super::super::initiatives_of_node(&store, &settled).expect("junction read");
+        assert_eq!(inits, vec!["demo".to_string()]);
+    }
 }
