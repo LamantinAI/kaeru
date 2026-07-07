@@ -20,3 +20,9 @@ serde.workspace = true
 serde_json.workspace = true
 config.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+# Router-level tests: `tower::util::ServiceExt::oneshot` drives the axum
+# app without binding a socket; `http-body-util` collects response bodies.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
