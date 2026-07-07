@@ -38,9 +38,10 @@ pub use mutate::{
     delete_initiative, extend_chain, forget, formulate_hypothesis, formulate_hypothesis_with_layer,
     get_layer, get_share_policy, get_visibility, improve, jot, jot_with_layer, link, link_remote,
     link_remote_to, link_with_weight, mark_resolved, mark_under_review, regenerate_chain,
-    rename_initiative, run_experiment, set_edge_weight, set_layer, set_share_policy,
-    set_visibility, supersedes, synthesise, unlink, update_hypothesis_status, upsert_edge,
-    upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
+    rename_initiative, resolve_review, run_experiment, set_edge_weight, set_layer,
+    set_share_policy, set_visibility, supersedes, synthesise, unlink, update_hypothesis_status,
+    upsert_edge, upsert_node, write_episode, write_episode_with_layer, write_task,
+    write_task_with_layer,
 };
 pub use recall::{
     EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull,
@@ -68,9 +69,9 @@ mod tests {
         count_by_type, export_vault, forget, formulate_hypothesis, fuzzy_recall, history, improve,
         jot, link, link_remote, lint, list_initiatives, local_nodes_for_review, mark_resolved,
         mark_under_review, overview, pin, recall_id_by_name, recent_episodes, recollect_idea,
-        recollect_outcome, recollect_provenance, run_experiment, set_visibility, summary_view,
-        supersedes, synthesise, under_review_pinned, unlink, unpin, update_hypothesis_status,
-        version, walk, write_episode,
+        recollect_outcome, recollect_provenance, resolve_review, run_experiment, set_visibility,
+        summary_view, supersedes, synthesise, under_review_pinned, unlink, unpin,
+        update_hypothesis_status, version, walk, write_episode,
     };
 
     #[test]
@@ -1641,6 +1642,96 @@ mod tests {
         // Audits: 1 write_episode + 1 mark_under_review.
         let audits = count_by_type(&store, "audit_event").expect("count audits");
         assert_eq!(audits, 2);
+    }
+
+    /// `resolve_review` retracts the target's inbound `contradicts` edge — so it
+    /// leaves the open-review queue — and, given a note, records a resolution
+    /// episode that `supersedes` the closed review. The doubt stays in history.
+    #[test]
+    fn resolve_review_closes_the_queue_and_records_provenance() {
+        let store = Store::open_in_memory().expect("open");
+        let target = write_episode(
+            &store,
+            EpisodeKind::Decision,
+            Significance::Medium,
+            "claim-x",
+            "X is true under condition C.",
+        )
+        .unwrap();
+        let review =
+            mark_under_review(&store, &target, "Counter-example when C is false.").expect("flag");
+        assert!(
+            under_review_pinned(&store).unwrap().contains(&target),
+            "flagged target is on the queue"
+        );
+
+        // Whole-second validity: the retraction must land in a strictly later
+        // second than the assertion, or the substrate can't distinguish them.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let closed = resolve_review(&store, &target, Some("Settled: C always holds here."))
+            .expect("resolve_review");
+        assert_eq!(closed, vec![review.clone()], "returns the closed review id");
+
+        // Off the queue, but still reachable in history (contradicts at a past NOW).
+        assert!(
+            !under_review_pinned(&store).unwrap().contains(&target),
+            "target left the open-review queue"
+        );
+
+        // Provenance: a resolution episode supersedes the closed review.
+        let short = target.chars().take(8).collect::<String>();
+        let resolution = recall_id_by_name(&store, &format!("resolution:{short}"))
+            .unwrap()
+            .expect("resolution episode exists");
+        let reached = walk(&store, &resolution, &[EdgeType::Supersedes], 1).unwrap();
+        assert!(
+            reached.contains(&review),
+            "resolution → supersedes → review"
+        );
+
+        // target + review + resolution.
+        assert_eq!(count_by_type(&store, "episode").unwrap(), 3);
+    }
+
+    /// Without a note, `resolve_review` is a bare close: the target leaves the
+    /// queue and no resolution episode is minted.
+    #[test]
+    fn resolve_review_without_note_is_a_bare_close() {
+        let store = Store::open_in_memory().expect("open");
+        let target = write_episode(
+            &store,
+            EpisodeKind::Decision,
+            Significance::Medium,
+            "claim-y",
+            "Y holds.",
+        )
+        .unwrap();
+        mark_under_review(&store, &target, "doubtful").expect("flag");
+
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        resolve_review(&store, &target, None).expect("resolve_review");
+
+        assert!(!under_review_pinned(&store).unwrap().contains(&target));
+        // No resolution episode: only target + review.
+        assert_eq!(count_by_type(&store, "episode").unwrap(), 2);
+    }
+
+    /// Closing a target that was never flagged is a harmless no-op.
+    #[test]
+    fn resolve_review_on_unflagged_target_is_noop() {
+        let store = Store::open_in_memory().expect("open");
+        let target = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "claim-z",
+            "Z.",
+        )
+        .unwrap();
+        let closed = resolve_review(&store, &target, Some("nothing to close")).unwrap();
+        assert!(closed.is_empty(), "no open review → empty result");
+        // No resolution episode minted on a no-op: target only.
+        assert_eq!(count_by_type(&store, "episode").unwrap(), 1);
     }
 
     /// `supersedes` retracts the old node, asserts a new one with new id,

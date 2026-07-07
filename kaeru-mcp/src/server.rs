@@ -531,6 +531,21 @@ impl KaeruServer {
         tools::review::resolve(&self.store, &p.question, &p.by, p.initiative.as_deref())
     }
 
+    #[tool(
+        description = "Close an open review on a node — retracts its contradicts edge(s) so it leaves the review queue; the doubt stays in history. Optional `resolution` note is recorded as provenance."
+    )]
+    fn close_review(
+        &self,
+        Parameters(p): Parameters<CloseReviewParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::review::close_review(
+            &self.store,
+            &p.target,
+            p.resolution.as_deref(),
+            p.initiative.as_deref(),
+        )
+    }
+
     // ----- Consolidation -------------------------------------------------
     #[tool(
         description = "Promote operational draft → archival counterpart. Provenance via derived_from is replicated across the tier."

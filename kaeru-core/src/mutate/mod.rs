@@ -45,7 +45,7 @@ pub use initiative::{
 };
 pub use layer::{get_layer, set_layer};
 pub use metabolism::{forget, improve};
-pub use review::{mark_resolved, mark_under_review};
+pub use review::{mark_resolved, mark_under_review, resolve_review};
 pub use sharing::{get_share_policy, get_visibility, set_share_policy, set_visibility};
 pub use supersedes::supersedes;
 pub use synthesise::synthesise;

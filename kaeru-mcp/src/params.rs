@@ -398,6 +398,18 @@ pub struct ResolveParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct CloseReviewParams {
+    /// Target node name (or id) whose open review to close.
+    pub target: String,
+    /// Optional note on how it was settled — recorded as a resolution episode
+    /// that supersedes the closed review. Omit for a bare close.
+    #[serde(default)]
+    pub resolution: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct ConsolidateParams {
     /// Source node name.
     pub source: String,
