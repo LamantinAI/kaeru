@@ -35,7 +35,7 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 - **Reasoning chains** — `chain` saves the load-bearing weighted path between two nodes as a recallable trail with an agent-authored summary; `chains` triages by name + summary, duplicates are folded at creation, and `rechain` refreshes a trail after the graph changes (re-links, re-weights).
 - **Self-maintenance** — `reflect` computes a tidy-up work-list: orphan nodes to link, chains gone stale, settled work to promote into cortex, and shared/cloud items whose rebalancing is escalated to the user. Built for a periodic (cron) pass.
 - **Cross-agent sharing** — local-first by default; an optional `kaeru-cloud` tier lets a trusted team share settled knowledge through two safety gates (initiative policy + a deterministic secret guard). See [Local & cloud](#local--cloud--sharing-memory-across-a-team).
-- **Structural recall** — exact name lookup, typed `walk` / `drill` / `trace`, `between`, FTS fuzzy fallback. Every read also carries when each node was asserted. Vectors are not the primary mode.
+- **Structural recall** — exact name lookup, typed `walk` / `drill` / `trace`, `between`, FTS fuzzy fallback. Every read also carries when each node was asserted. Recall is structural + full-text; there is no vector/embedding layer today.
 - **Initiative management** — `rename` / `delete` an initiative (locally or team-wide), or `attach` a node to another initiative to repair fragmentation after the fact.
 - **Markdown export** — Obsidian-friendly snapshot of any initiative.
 
@@ -45,7 +45,7 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 - **Edges carry operational semantics** — each edge type is something the curator API responds to. `derived_from` powers provenance and explainability; `contradicts` triggers a non-destructive `under_review` flow; `supersedes` retracts the previous version through the bi-temporal substrate. Edges are not just associations.
 - **`audit_event` is a first-class node type** — every mutation writes an audit node, so changes to memory themselves become reasoning surface for the agent. Substrate-level history (`Validity`) and operational audit (audit-event nodes) stay separate: the substrate tracks *what was*, the audit nodes track *who did it and why*.
 - **Per-initiative scope through junction relations** rather than column filtering — RocksDB prefix-scan gives O(log n + k) on the active initiative.
-- **Retrieval is structural-first** — explicit name lookup, typed graph traversal, summary views. Cozo FTS for fuzzy fallback when an exact name is forgotten. Vector embeddings are not the primary mode.
+- **Retrieval is structural-first** — explicit name lookup, typed graph traversal, summary views. Cozo FTS for fuzzy fallback when an exact name is forgotten. No vector/embedding layer today: Cozo supports HNSW, but kaeru wires none of it — a vector fallback is possible future work, not a current feature.
 - **Two-tier with explicit `consolidate_out`** — operational drafts get promoted to archival as a deliberate, logged operation. Provenance (`derived_from`) survives the tier boundary.
 - **Single binary, embedded substrate** — `kaeru` runs in-process with the agent. No server, no network. Vault on disk under a platform-specific default (Linux `$XDG_DATA_HOME/kaeru`, macOS `~/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`); override with `KAERU_VAULT_PATH`.
 

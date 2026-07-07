@@ -169,8 +169,10 @@ bi-temporal, so a delete is recoverable via `at(<past>)`.
 4. **Saved reasoning chains** — `chain` / `read_chain` (§7).
 5. **Full-text fuzzy fallback** — Cozo FTS (`search`) when the exact name is
    forgotten.
-6. **Vectors** — Cozo HNSW is available but kept as a *cold* fallback, not the
-   primary mode.
+**No vector layer today.** Retrieval is structural + full-text only. Cozo
+*supports* HNSW, but kaeru wires none of it — there are no embeddings, vector
+columns, or an HNSW index in the tree. A vector fallback for cold queries is
+plausible future work, not a current feature.
 
 The bet: an agent that curates a typed graph and re-enters it structurally beats
 one that embeds everything and hopes cosine similarity surfaces the right passage.

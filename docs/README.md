@@ -31,7 +31,8 @@ five **layers** (`core`/`hot`/`warm`/`cold`/`frozen`) that govern how eagerly a
 node re-enters context. One substrate holds many **initiatives** (projects) via a
 junction relation, so a node can belong to several at once. Retrieval is
 **structural first** — exact lookup, typed traversal, saved reasoning chains,
-layered re-entry — with full-text and vector search kept as fallbacks. Agents
+layered re-entry — with full-text search as a fuzzy fallback (there is no
+vector/embedding layer today). Agents
 reach the graph through a **curator API** of ~40 verbs, exposed over MCP (a
 one-daemon-per-machine HTTP service) and as native `rig` tools. The design stance
 is **facilitator, not enforcer**: the verbs are available tools the agent chooses

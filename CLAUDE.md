@@ -169,6 +169,6 @@ the set-scope-then-operate sequence (`kaeru-core/src/store.rs`).
 
 ## Out Of Scope
 
-- Vector embeddings as the primary recall mode — Cozo HNSW is available but kept as fallback for cold queries; structural retrieval is the main mode.
+- Vector embeddings — **not implemented**. Recall is structural + Cozo FTS; Cozo supports HNSW but kaeru wires none of it (no embeddings / vector index in the tree). A vector fallback for cold queries is possible future work, not a current feature.
 - Server / network mode — `kaeru` runs in-process. gRPC server-mode is a future concern, not part of the current architecture.
 - Replacing PKM tools — `kaeru` is for **agent** memory; humans interact through CLI + derived markdown export, not a competing UI layer.
