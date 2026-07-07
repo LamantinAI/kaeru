@@ -146,7 +146,7 @@ Per-user / per-org isolation (multi-tenant) is a future addition; today each clo
 - **Initiative onboarding** — a generated "what is this initiative, and what's in it" briefing the first time an agent enters a project, in the spirit of the `import` guide — an instruction over the collected context, not graph machinery.
 - **PostgreSQL backend** — a server-mode substrate alongside the embedded RocksDB default.
 - **Multi-tenant + isolation** — per-user / per-org separation in the shared cloud.
-- **Cross-initiative links** — edges and recall that span initiatives (everything is initiative-scoped today).
+- **Cross-initiative links** — opt-in edges and recall that *traverse* between initiatives. Per-initiative scoping is deliberate, not a gap — and `attach` already gives a node membership in several initiatives at once; this adds boundary-crossing edges/recall on top of it.
 
 ## Status
 
