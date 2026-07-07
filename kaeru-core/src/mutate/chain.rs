@@ -98,6 +98,24 @@ fn find_duplicate_chain(store: &Store, path: &[NodeId]) -> Result<Option<NodeId>
     Ok(None)
 }
 
+/// Attaches `chain_id` to the union of `from`'s and `to`'s initiatives. Used
+/// when a chain is created or reused with **no active scope**, so it isn't left
+/// invisible to every scoped read. Endpoints only — the nodes the caller
+/// selected — not the pass-through path members. Idempotent junction writes.
+fn inherit_endpoint_initiatives(
+    store: &Store,
+    chain_id: &NodeId,
+    from: &NodeId,
+    to: &NodeId,
+) -> Result<()> {
+    for endpoint in [from, to] {
+        for init in super::initiatives_of_node(store, endpoint)? {
+            super::attach_node_to_initiative_named(store, chain_id, &init)?;
+        }
+    }
+    Ok(())
+}
+
 /// Enforces the per-chain hop cap (`KAERU_CHAIN_MAX_HOPS`) for a member count.
 fn check_hop_cap(store: &Store, member_count: usize) -> Result<()> {
     let hops = member_count.saturating_sub(1);
@@ -162,6 +180,12 @@ pub fn create_chain(
                 layer,
             )?;
         }
+        // Uniform with the fresh-create path: an unscoped reuse also backfills
+        // the endpoints' initiatives (idempotent), so a chain reached this way
+        // is never left invisible to scoped reads either.
+        if store.current_initiative().is_none() {
+            inherit_endpoint_initiatives(store, &existing, from, to)?;
+        }
         return Ok(Some(ChainOutcome {
             id: existing,
             reused: true,
@@ -199,15 +223,11 @@ pub fn create_chain(
         Layer::Warm,
     )?;
     // With no active scope the upsert left the chain node without any
-    // membership — but its members all belong somewhere, and a chain
-    // invisible to every scoped read is never intended. Inherit the union
-    // of the members' initiatives (idempotent junction writes).
+    // membership, and a chain invisible to every scoped read is never
+    // intended. Inherit the initiatives of its **endpoints** — the nodes the
+    // caller chose — not the pass-through path members it merely traverses.
     if initiative.is_none() {
-        for member in &path {
-            for init in super::initiatives_of_node(store, member)? {
-                super::attach_node_to_initiative_named(store, &chain_id, &init)?;
-            }
-        }
+        inherit_endpoint_initiatives(store, &chain_id, from, to)?;
     }
     replace_members(store, &chain_id, &path)?;
 
@@ -335,6 +355,69 @@ mod tests {
 
         let inits = crate::mutate::initiatives_of_node(&store, &outcome.id).expect("junction read");
         assert_eq!(inits, vec!["p".to_string()]);
+    }
+
+    /// Endpoint inheritance is *endpoints only* — a pass-through node the
+    /// shortest path merely traverses does not drag its own initiative onto the
+    /// chain (issue #36 follow-up: over-attach of intermediate nodes).
+    #[test]
+    fn create_chain_inherits_endpoints_not_passthrough() {
+        let store = Store::open_in_memory().expect("open");
+        let mk = |init: &str, n: &str| {
+            store.use_initiative(init);
+            write_episode(&store, EpisodeKind::Observation, Significance::Low, n, n).unwrap()
+        };
+        // Endpoints under `p`; the pass-through `b` under a different scope `q`.
+        let a = mk("p", "a");
+        let c = mk("p", "c");
+        let b = mk("q", "b");
+        link_with_weight(&store, &a, &b, EdgeType::RefersTo, 0.9).unwrap();
+        link_with_weight(&store, &b, &c, EdgeType::RefersTo, 0.9).unwrap();
+
+        store.clear_initiative();
+        let outcome = create_chain(&store, &a, &c, None, None)
+            .expect("create")
+            .expect("path exists");
+
+        let inits = crate::mutate::initiatives_of_node(&store, &outcome.id).expect("junction read");
+        // `p` from both endpoints; `q` (the pass-through) is deliberately absent.
+        assert_eq!(inits, vec!["p".to_string()]);
+    }
+
+    /// The dedup/reuse path carries the same guarantee: re-running an unscoped
+    /// `create_chain` on an existing trail backfills its endpoints' initiatives,
+    /// so a once-membership-less chain doesn't stay invisible to scoped reads
+    /// (issue #36 follow-up: inheritance was fresh-create-only).
+    #[test]
+    fn unscoped_reuse_backfills_endpoint_initiatives() {
+        let store = Store::open_in_memory().expect("open");
+        // Endpoints created with no active scope → chain starts membership-less.
+        let (a, _b, c) = line_abc(&store);
+        let first = create_chain(&store, &a, &c, None, None)
+            .expect("create")
+            .expect("path exists");
+        let before = crate::mutate::initiatives_of_node(&store, &first.id).expect("junction read");
+        assert!(before.is_empty(), "no scope, no endpoint memberships yet");
+
+        // The endpoints later join `p`; a second unscoped create dedups to the
+        // same trail and backfills.
+        crate::mutate::attach_node_to_initiative_named(&store, &a, "p").unwrap();
+        crate::mutate::attach_node_to_initiative_named(&store, &c, "p").unwrap();
+        let reuse = create_chain(&store, &a, &c, None, None)
+            .expect("reuse")
+            .expect("path exists");
+        assert_eq!(
+            reuse.id, first.id,
+            "same trail dedups to the existing chain"
+        );
+        assert!(reuse.reused);
+
+        let after = crate::mutate::initiatives_of_node(&store, &reuse.id).expect("junction read");
+        assert_eq!(
+            after,
+            vec!["p".to_string()],
+            "reuse backfilled the endpoints"
+        );
     }
 
     #[test]
