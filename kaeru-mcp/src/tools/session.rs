@@ -29,6 +29,22 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
             }
         ));
 
+        // Did-you-mean: the active scope matched no known initiative — a typo,
+        // or a brand-new project. Surface a suggestion instead of a silently
+        // empty context (a hint, not an error).
+        if let Some(active) = ctx.initiative.as_deref() {
+            if !ctx.all_initiatives.iter().any(|n| n == active) {
+                match kaeru_core::suggest_initiative(store, active).ok().flatten() {
+                    Some(s) => out.push_str(&format!(
+                        "↳ no nodes under `{active}` yet — did you mean `{s}`? (or it's a fresh project)\n\n"
+                    )),
+                    None => out.push_str(&format!(
+                        "↳ `{active}` has no nodes yet — a fresh project, or pick one from the list above.\n\n"
+                    )),
+                }
+            }
+        }
+
         // Layer-prioritised re-entry context: whole Core first, then Hot,
         // then Warm — load these into working context in this order.
         for bucket in &ctx.layered {

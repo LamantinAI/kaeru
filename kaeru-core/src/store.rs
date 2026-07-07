@@ -106,8 +106,11 @@ impl Store {
     /// session primitives default-filter to this initiative through the
     /// junction relations.
     pub fn use_initiative(&self, name: &str) {
+        // Trim on entry so a fat-fingered `"auth "` scopes to the same
+        // initiative as `"auth"`. Identity stays exact otherwise (no
+        // case-folding — that would risk merging distinct projects).
         if let Ok(mut guard) = self.current_initiative.lock() {
-            *guard = Some(name.to_string());
+            *guard = Some(name.trim().to_string());
         }
     }
 

@@ -78,6 +78,7 @@ fn node_ids_in(store: &Store, initiative: &str) -> Result<Vec<String>> {
 /// the policy table. Fails if `new` already exists (has members or a
 /// policy row) — pick a fresh name rather than silently merging.
 pub fn rename_initiative(store: &Store, old: &str, new: &str) -> Result<RenameStats> {
+    let old = old.trim();
     let new_t = new.trim();
     if new_t.is_empty() {
         return Err(Error::Invalid(
@@ -190,6 +191,7 @@ pub fn rename_initiative(store: &Store, old: &str, new: &str) -> Result<RenameSt
 /// membership. Forgetting is bi-temporal — the assertions survive in
 /// history, so a delete is recoverable via `at(<past>)`.
 pub fn delete_initiative(store: &Store, name: &str) -> Result<DeleteStats> {
+    let name = name.trim();
     let nodes = node_ids_in(store, name)?;
 
     run_mut(

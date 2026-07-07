@@ -33,6 +33,7 @@ pub use by_name::{
 pub use fts::{FUZZY_RECALL_LIMIT_CAP, fuzzy_recall};
 pub use initiatives::{
     count_nodes_in_initiative, edges_in_initiative, list_initiatives, nodes_in_initiative,
+    suggest_initiative,
 };
 pub use layered::{LayerBucket, recall_by_layer, recall_by_layer_in_tier};
 pub use lint::{LintReport, lint};

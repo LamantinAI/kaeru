@@ -31,6 +31,57 @@ pub fn list_initiatives(store: &Store) -> Result<Vec<String>> {
     Ok(names)
 }
 
+/// The closest **existing** initiative to `requested`, or `None` when it
+/// already exists exactly or nothing is close. A *suggestion* only — matching
+/// and storage stay exact/case-sensitive; this is for a "did you mean …?" hint
+/// on a miss, so it's deliberately forgiving (case-insensitive, substring, and
+/// small edit-distance) where resolution is not.
+pub fn suggest_initiative(store: &Store, requested: &str) -> Result<Option<String>> {
+    let known = list_initiatives(store)?;
+    let req = requested.trim();
+    // Already a real initiative → nothing to suggest.
+    if req.is_empty() || known.iter().any(|k| k == req) {
+        return Ok(None);
+    }
+    let req_l = req.to_lowercase();
+
+    // 1) case-insensitive exact — same name, different casing.
+    if let Some(hit) = known.iter().find(|k| k.to_lowercase() == req_l) {
+        return Ok(Some(hit.clone()));
+    }
+    // 2) one contains the other — a truncation or a fat-fingered suffix.
+    if let Some(hit) = known.iter().find(|k| {
+        let kl = k.to_lowercase();
+        kl.contains(&req_l) || req_l.contains(&kl)
+    }) {
+        return Ok(Some(hit.clone()));
+    }
+    // 3) closest by edit distance, within a length-scaled tolerance.
+    Ok(known
+        .iter()
+        .map(|k| (levenshtein(&req_l, &k.to_lowercase()), k))
+        .filter(|(d, k)| *d <= (k.chars().count() / 3).max(2))
+        .min_by_key(|(d, _)| *d)
+        .map(|(_, k)| k.clone()))
+}
+
+/// Levenshtein edit distance (two-row DP). Small inputs (initiative names),
+/// so the allocation is negligible.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
+    let mut curr = vec![0usize; b_chars.len() + 1];
+    for (i, ca) in a.chars().enumerate() {
+        curr[0] = i + 1;
+        for (j, &cb) in b_chars.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b_chars.len()]
+}
+
 /// Returns briefs for every node attached to `initiative` at NOW, with an
 /// **explicit** initiative argument (not `Store::current_initiative`), so
 /// it is safe to call concurrently from a multi-request server. Audit-event
@@ -122,4 +173,59 @@ pub fn edges_in_initiative(
         })
         .collect();
     Ok(edges)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{list_initiatives, suggest_initiative};
+    use crate::jot;
+    use crate::store::Store;
+
+    fn seed(store: &Store, init: &str) {
+        store.use_initiative(init);
+        jot(store, "seed").unwrap();
+    }
+
+    #[test]
+    fn use_initiative_trims_on_entry() {
+        let store = Store::open_in_memory().expect("open");
+        seed(&store, "auth-rewrite "); // trailing space
+        assert!(
+            list_initiatives(&store)
+                .unwrap()
+                .iter()
+                .any(|n| n == "auth-rewrite"),
+            "stored under the trimmed name"
+        );
+    }
+
+    #[test]
+    fn suggest_offers_the_closest_known_initiative() {
+        let store = Store::open_in_memory().expect("open");
+        seed(&store, "auth-rewrite");
+        store.clear_initiative();
+
+        // Exact match → nothing to suggest.
+        assert_eq!(suggest_initiative(&store, "auth-rewrite").unwrap(), None);
+        // Different casing.
+        assert_eq!(
+            suggest_initiative(&store, "Auth-Rewrite").unwrap(),
+            Some("auth-rewrite".to_string())
+        );
+        // Truncation / substring.
+        assert_eq!(
+            suggest_initiative(&store, "auth").unwrap(),
+            Some("auth-rewrite".to_string())
+        );
+        // A one-character typo.
+        assert_eq!(
+            suggest_initiative(&store, "auth-rewrit").unwrap(),
+            Some("auth-rewrite".to_string())
+        );
+        // Nothing close → no suggestion.
+        assert_eq!(
+            suggest_initiative(&store, "totally-unrelated-xyz").unwrap(),
+            None
+        );
+    }
 }
