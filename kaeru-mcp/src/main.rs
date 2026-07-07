@@ -109,6 +109,29 @@ async fn main() -> Result<(), Box<dyn Error>> {
         });
     }
 
+    // Best-effort mcp <-> cloud version-skew warning. Spawned so a slow or
+    // unreachable cloud never delays startup; a version mismatch only warns
+    // (the schema is forward-additive), and an unreachable cloud stays quiet
+    // here — the first real cloud op surfaces a hard error with more context.
+    for (name, client) in &clients {
+        let (name, client) = (name.clone(), client.clone());
+        tokio::spawn(async move {
+            match client.fetch_core_version().await {
+                Ok(Some(remote)) if remote != kaeru_core::version() => tracing::warn!(
+                    cloud = %name,
+                    mcp_version = kaeru_core::version(),
+                    cloud_version = %remote,
+                    "kaeru-mcp and kaeru-cloud run different kaeru-core versions — usually fine \
+                     (schema is forward-additive), but watch for skew"
+                ),
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::debug!(cloud = %name, error = %e, "couldn't check cloud version at startup")
+                }
+            }
+        });
+    }
+
     let default_name =
         (!mcp_config.default_cloud.trim().is_empty()).then(|| mcp_config.default_cloud.clone());
     let clouds = CloudRegistry::new(clients, default_name);

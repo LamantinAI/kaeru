@@ -69,6 +69,24 @@ impl CloudClient {
         self.get(&url).await
     }
 
+    /// `GET /health` — the cloud's reported `kaeru_core` version, or `None`
+    /// when the field is absent. Unauthenticated; used at startup to warn on a
+    /// mcp <-> cloud version skew.
+    pub async fn fetch_core_version(&self) -> Result<Option<String>, String> {
+        let url = format!("{}/health", self.base_url);
+        let resp = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: Value = resp.json().await.map_err(|e| e.to_string())?;
+        Ok(json
+            .get("core_version")
+            .and_then(|v| v.as_str())
+            .map(String::from))
+    }
+
     /// `POST /api/v1/edges` — push an edge between two shared nodes.
     pub async fn post_edge(&self, body: &Value) -> Result<(u16, String), String> {
         let url = format!("{}/api/v1/edges", self.base_url);
