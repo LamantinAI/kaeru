@@ -28,27 +28,36 @@ pub fn recent_episodes(store: &Store, window_seconds: u64) -> Result<Vec<NodeId>
     // When the store carries a current initiative, the query joins
     // `node_initiative` so only episodes attached to that initiative
     // surface; otherwise the read is cross-initiative.
+    // Cap the scan in the query, not just in Rust: rows are newest-first, and
+    // the loop below keeps at most `cap` within the window — so the `cap`
+    // newest rows are the only candidates. Without `:limit` this sorted the
+    // whole episode set on every `awake`.
+    let cap = store.config().recent_episodes_cap;
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     let script = match store.current_initiative() {
         Some(init) => {
             params.insert("init".to_string(), DataValue::Str(init.into()));
-            r#"
-                ?[id, validity] := *node{id, validity, type @ 'NOW'}, type = 'episode',
-                                    *node_initiative{initiative, node_id: id},
+            format!(
+                r#"
+                ?[id, validity] := *node{{id, validity, type @ 'NOW'}}, type = 'episode',
+                                    *node_initiative{{initiative, node_id: id}},
                                     initiative = $init
                 :order validity
+                :limit {cap}
             "#
+            )
         }
-        None => {
+        None => format!(
             r#"
-                ?[id, validity] := *node{id, validity, type @ 'NOW'}, type = 'episode'
+                ?[id, validity] := *node{{id, validity, type @ 'NOW'}}, type = 'episode'
                 :order validity
+                :limit {cap}
             "#
-        }
+        ),
     };
     let rows = store
         .db_ref()
-        .run_script(script, params, ScriptMutability::Immutable)?;
+        .run_script(&script, params, ScriptMutability::Immutable)?;
 
     let now_secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -56,7 +65,6 @@ pub fn recent_episodes(store: &Store, window_seconds: u64) -> Result<Vec<NodeId>
         .unwrap_or(0);
     let cutoff = now_secs.saturating_sub(window_seconds) as f64;
 
-    let cap = store.config().recent_episodes_cap;
     let mut out: Vec<NodeId> = Vec::new();
     for row in &rows.rows {
         let (secs, asserted) = parse_validity(row.get(1))?;

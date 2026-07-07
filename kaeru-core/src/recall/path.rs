@@ -75,6 +75,82 @@ pub fn shortest_path(store: &Store, from: &NodeId, to: &NodeId) -> Result<Vec<No
     Ok(path)
 }
 
+/// The scoped edge set as `[src, dst, cost]` rows — one scan, reusable across
+/// many [`shortest_path_over`] calls so a batch (e.g. checking every chain in
+/// `reflect`) doesn't re-scan `*edge` per call. Mirrors the edge rule inside
+/// [`shortest_path`]: `cost = 1 - weight + 0.001`, weight-floored, and
+/// initiative-scoped when a scope is active.
+pub(crate) fn scoped_edge_rows(store: &Store) -> Result<Vec<DataValue>> {
+    let minw = store.config().chain_min_weight.clamp(0.0, 1.0);
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    let script = match store.current_initiative() {
+        Some(init) => {
+            params.insert("init".to_string(), DataValue::Str(init.into()));
+            format!(
+                r#"
+                ?[a, b, c] := *edge{{src: a, dst: b, weight @ 'NOW'}},
+                              weight >= {minw:.6},
+                              *node_initiative{{initiative, node_id: a}}, initiative = $init,
+                              *node_initiative{{initiative: i2, node_id: b}}, i2 = $init,
+                              c = 1.0 - weight + 0.001
+                "#
+            )
+        }
+        None => format!(
+            r#"
+            ?[a, b, c] := *edge{{src: a, dst: b, weight @ 'NOW'}},
+                          weight >= {minw:.6},
+                          c = 1.0 - weight + 0.001
+            "#
+        ),
+    };
+    let rows = store
+        .db_ref()
+        .run_script(&script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .iter()
+        .map(|r| DataValue::List(r.to_vec()))
+        .collect())
+}
+
+/// Shortest weighted path `from → to` over a pre-fetched edge set (from
+/// [`scoped_edge_rows`]). Runs the same Cozo `ShortestPathDijkstra` as
+/// [`shortest_path`], so the result is identical — it just skips the per-call
+/// `*edge` scan by feeding the edges in as a constant relation.
+pub(crate) fn shortest_path_over(
+    store: &Store,
+    edges: &[DataValue],
+    from: &NodeId,
+    to: &NodeId,
+) -> Result<Vec<NodeId>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("edges".to_string(), DataValue::List(edges.to_vec()));
+    params.insert("from".to_string(), DataValue::Str(from.clone().into()));
+    params.insert("to".to_string(), DataValue::Str(to.clone().into()));
+    let script = r#"
+        edges[a, b, c] <- $edges
+        starting[a] := a = $from
+        goals[a] := a = $to
+        ?[start, goal, dist, path] <~ ShortestPathDijkstra(edges[], starting[], goals[])
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .first()
+        .and_then(|r| r.get(3))
+        .map(|v| match v {
+            DataValue::List(items) => items
+                .iter()
+                .filter_map(|x| x.get_str().map(String::from))
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
+        .unwrap_or_default())
+}
+
 /// Lists the chains a node belongs to — one `NodeBrief` per `Chain` node the
 /// given node is a member of (deduplicated). The recall move when a single
 /// node is context-poor: see which chains it's in, then `read_chain`.

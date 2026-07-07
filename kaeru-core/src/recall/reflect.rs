@@ -10,11 +10,12 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, NamedRows, ScriptMutability};
 
-use super::{lint, shortest_path};
+use super::lint;
 use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::graph::temporal::validity_seconds;
 use crate::mutate::now_validity_seconds;
+use crate::recall::path::{scoped_edge_rows, shortest_path_over};
 use crate::store::Store;
 
 /// The computed reflection work-list. Each field is a set of node ids to act
@@ -73,14 +74,22 @@ fn stale_chains(store: &Store) -> Result<Vec<NodeId>> {
     let rows = store
         .db_ref()
         .run_script(script, params, ScriptMutability::Immutable)?;
+    let chain_ids = first_col_ids(&rows);
+    if chain_ids.is_empty() {
+        return Ok(Vec::new());
+    }
 
+    // Scan the edge set once and reuse it for every chain, instead of
+    // re-scanning `*edge` inside a per-chain `shortest_path` (O(chains × edges)).
+    let edges = scoped_edge_rows(store)?;
     let mut stale = Vec::new();
-    for cid in first_col_ids(&rows) {
+    for cid in chain_ids {
         let members = chain_members(store, &cid)?;
         if members.len() < 2 {
             continue;
         }
-        let recomputed = shortest_path(store, &members[0], &members[members.len() - 1])?;
+        let recomputed =
+            shortest_path_over(store, &edges, &members[0], &members[members.len() - 1])?;
         if recomputed != members {
             stale.push(cid);
         }
