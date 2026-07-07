@@ -209,7 +209,7 @@ fn truncate(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_clean, scan};
+    use super::{is_clean, scan, scan_public};
 
     #[test]
     fn clean_content_has_no_hits() {
@@ -259,5 +259,23 @@ mod tests {
                 .iter()
                 .any(|h| h.rule == "env_secret")
         );
+    }
+
+    /// The share gate now uses `scan_public`, which is strictly stronger than
+    /// the base `scan`: a YAML-style secret (no `=`) is missed by `scan` but
+    /// caught by the phrase markers in `scan_public` (issue #29, the closed
+    /// asymmetry). A bare prefix-less token still slips both — a tracked gap.
+    #[test]
+    fn scan_public_is_strictly_stronger_than_base() {
+        let yaml = "password: hunter2secretvalue";
+        assert!(scan(yaml).is_empty(), "base scan misses the YAML secret");
+        assert!(
+            !scan_public(yaml).is_empty(),
+            "strict scan catches the YAML secret"
+        );
+
+        // Known remaining gap (separate follow-up): a bare, prefix-less token
+        // with no `=` and no known prefix slips both scanners.
+        assert!(scan_public("db_pass_x7Fq2mK9").is_empty());
     }
 }

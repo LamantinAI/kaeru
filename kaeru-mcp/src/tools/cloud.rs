@@ -84,9 +84,11 @@ pub async fn push_to_cloud(
         .map_err(to_mcp)?
         .ok_or_else(|| to_mcp(Error::NotFound(format!("node {id} not found at NOW"))))?;
 
-    // Gate 2 — pre-share secret guard over name + body.
+    // Gate 2 — pre-share secret guard over name + body. Use the strict
+    // scanner: sharing leaves the machine, so the gate must be at least as
+    // strict as the local markdown export (which uses `scan_public`).
     let scan_target = format!("{}\n{}", full.name, full.body.clone().unwrap_or_default());
-    let hits = kaeru_core::guard::scan(&scan_target);
+    let hits = kaeru_core::guard::scan_public(&scan_target);
     if !hits.is_empty() && !force {
         let rules: Vec<&str> = hits.iter().map(|h| h.rule).collect();
         return Ok(format!(
@@ -451,7 +453,8 @@ pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, Mc
     let mut keep: Vec<(&kaeru_core::NodeFull, Vec<&str>)> = Vec::new();
     for n in &locals {
         let target = format!("{}\n{}", n.name, n.body.clone().unwrap_or_default());
-        let hits = kaeru_core::guard::scan(&target);
+        // Strict scanner — the share gate must be ≥ the export gate (see `share`).
+        let hits = kaeru_core::guard::scan_public(&target);
         if hits.is_empty() {
             propose.push(n);
         } else {
