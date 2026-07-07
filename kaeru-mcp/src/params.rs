@@ -329,7 +329,9 @@ fn default_search_limit() -> usize {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct AtParams {
-    /// Node name or UUIDv7 id.
+    /// Node name or UUIDv7 id. With `when` set, it resolves as of that moment,
+    /// so a node retracted since then is still reachable — by id, or by the
+    /// name it carried at that time.
     pub name: String,
     /// Optional moment to time-travel to — Unix seconds, RFC-3339
     /// (`2026-05-06T12:00:00Z`), or duration suffix (`5m`, `2h`, `3d` =

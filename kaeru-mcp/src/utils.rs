@@ -217,6 +217,27 @@ pub fn resolve_name_or_id(store: &Store, input: &str) -> Result<NodeId, McpError
     resolve_name(store, input)
 }
 
+/// Like [`resolve_name_or_id`] but resolves a **name** as of `at_seconds`
+/// rather than NOW, so a time-travel read (`at`) can target a node that has
+/// since been retracted. A raw id passes through untouched (the historical read
+/// happens in `kaeru_core::at`).
+pub fn resolve_name_or_id_at(
+    store: &Store,
+    input: &str,
+    at_seconds: f64,
+) -> Result<NodeId, McpError> {
+    if input.len() == 36 && input.chars().nth(8) == Some('-') {
+        return Ok(input.to_string());
+    }
+    kaeru_core::recall_id_by_name_at(store, input, at_seconds)
+        .map_err(to_mcp)?
+        .ok_or_else(|| {
+            to_mcp(Error::NotFound(format!(
+                "no node named {input:?} at that time"
+            )))
+        })
+}
+
 // =========================================================================
 // Parsing
 // =========================================================================

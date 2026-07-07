@@ -6,7 +6,9 @@ use kaeru_core::{NodeSnapshot, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use crate::utils::{fmt_ts, parse_when, resolve_name, text, to_mcp, with_initiative};
+use crate::utils::{
+    fmt_ts, parse_when, resolve_name, resolve_name_or_id_at, text, to_mcp, with_initiative,
+};
 
 /// Reads a node **in full** — every field plus the complete, untruncated
 /// body. `when` is optional: omit it to read the node as it is now, or pass
@@ -19,11 +21,14 @@ pub fn at(
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
-        let id = resolve_name(store, name)?;
+        // Resolve the target AT the requested moment, not NOW — otherwise a
+        // node retracted since `when` fails resolution before the historical
+        // read is ever attempted. A raw id passes straight through.
         let secs = match when {
             Some(w) if !w.trim().is_empty() => parse_when(w).map_err(to_mcp)?,
             _ => now_seconds(),
         };
+        let id = resolve_name_or_id_at(store, name, secs)?;
         match kaeru_core::at(store, &id, secs).map_err(to_mcp)? {
             Some(snap) => Ok(text(&render(&snap, when))),
             None => Ok(text("(no version valid at that moment)")),

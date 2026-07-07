@@ -84,6 +84,51 @@ pub fn recall_id_by_name_global(store: &Store, name: &str) -> Result<Option<Node
         .map(String::from))
 }
 
+/// Like [`recall_id_by_name`] but resolves the name **as of `at_seconds`**
+/// instead of NOW, so a node that existed then but was retracted since still
+/// resolves. This is what makes time-travel reads (`at(name, when)`) work for a
+/// since-forgotten node: resolve at the target instant, then read at it. When
+/// several nodes shared the name at that instant, the newest wins (`:order
+/// validity`). Initiative-scoped like [`recall_id_by_name`]; the
+/// `node_initiative` junction is append-only, so a retracted node's membership
+/// still scopes it.
+pub fn recall_id_by_name_at(store: &Store, name: &str, at_seconds: f64) -> Result<Option<NodeId>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("name".to_string(), DataValue::Str(name.into()));
+
+    let script = match store.current_initiative() {
+        Some(init) => {
+            params.insert("init".to_string(), DataValue::Str(init.into()));
+            format!(
+                r#"
+                ?[id, validity] := *node{{id, validity, name @ {at_seconds}}},
+                                    name = $name,
+                                    *node_initiative{{initiative, node_id: id}},
+                                    initiative = $init
+                :order validity
+                :limit 1
+                "#
+            )
+        }
+        None => format!(
+            r#"
+            ?[id, validity] := *node{{id, validity, name @ {at_seconds}}}, name = $name
+            :order validity
+            :limit 1
+            "#
+        ),
+    };
+    let rows = store
+        .db_ref()
+        .run_script(&script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .first()
+        .and_then(|row| row.first())
+        .and_then(|v| v.get_str())
+        .map(String::from))
+}
+
 /// Returns a [`NodeBrief`] for `id` at NOW, or `None` if the node is
 /// not currently asserted. Useful for CLI / display code that holds an
 /// id and needs the human-readable name + excerpt.
@@ -271,9 +316,11 @@ pub fn count_by_type(store: &Store, node_type: &str) -> Result<usize> {
 
 #[cfg(test)]
 mod tests {
-    use super::{recall_id_by_name, recall_id_by_name_global};
+    use super::{
+        node_brief_by_id, recall_id_by_name, recall_id_by_name_at, recall_id_by_name_global,
+    };
     use crate::store::Store;
-    use crate::{EpisodeKind, Significance, write_episode};
+    use crate::{EpisodeKind, Significance, forget, write_episode};
 
     /// The global resolver finds a node by name regardless of the active
     /// initiative — the mechanism behind `attach` working across scopes even
@@ -299,6 +346,37 @@ mod tests {
         // ...but the global resolver does, ignoring the active scope.
         assert_eq!(
             recall_id_by_name_global(&store, "alpha-fact").unwrap(),
+            Some(id)
+        );
+    }
+
+    /// Resolving a name **as of a past moment** finds a node that has since
+    /// been retracted — the mechanism behind `at(name, when)` reading the
+    /// historical snapshot of a forgotten node (issue #27).
+    #[test]
+    fn at_resolver_finds_a_since_forgotten_node() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("p");
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "gone-node",
+            "body",
+        )
+        .unwrap();
+        // The moment it existed (its assertion second).
+        let when = node_brief_by_id(&store, &id).unwrap().unwrap().ts.unwrap();
+
+        // Cross the whole-second boundary so the retraction lands strictly after.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        forget(&store, &id).unwrap();
+
+        // At NOW the node is gone...
+        assert!(recall_id_by_name(&store, "gone-node").unwrap().is_none());
+        // ...but resolving as of when it existed still finds it.
+        assert_eq!(
+            recall_id_by_name_at(&store, "gone-node", when).unwrap(),
             Some(id)
         );
     }
