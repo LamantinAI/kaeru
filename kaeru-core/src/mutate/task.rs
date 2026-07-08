@@ -16,8 +16,8 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 
 use super::{
-    attach_node_to_initiative, build_body_tags, now_validity_seconds, read_name_body_now,
-    tags_literal,
+    ReassertRow, attach_node_to_initiative, build_body_tags, merge_tags, now_validity_seconds,
+    read_node_now, reassert_node_now, retract_node_at, tags_literal,
 };
 use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
@@ -79,53 +79,46 @@ pub fn write_task_with_layer(
     Ok(id)
 }
 
-/// Marks an existing task as done. RMW: retract the open row, reassert
-/// with `status:done` (and any other tags re-derived from the body).
-/// The id and name are preserved.
+/// Marks an existing task as done. RMW: re-assert the row with
+/// `status:done`, then retract the open one. The id, name, body, `layer`,
+/// `visibility`, `properties`, and manual tags are preserved.
+///
+/// We don't preserve the original `due:` tag; once the task is done, the
+/// deadline is no longer actionable. (If a future need surfaces — e.g.
+/// analytics on "missed deadlines" — we'd add explicit `done_at:` and copy
+/// `due:` over.)
 ///
 /// Errors with `NotFound` if the task isn't currently asserted at NOW.
 pub fn complete_task(store: &Store, task_id: &NodeId) -> Result<()> {
-    let (name, body) = read_name_body_now(store, task_id)?
+    let current = read_node_now(store, task_id)?
         .ok_or_else(|| Error::NotFound(format!("task {task_id} not found at NOW")))?;
-    let body_text = body.unwrap_or_default();
+    let body_text = current.body.clone().unwrap_or_default();
 
-    // Step 1 — retract current row.
-    let retract_secs = now_validity_seconds();
-    let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
-    p1.insert("id".to_string(), DataValue::Str(task_id.clone().into()));
-    let s1 = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{retract_secs}.0, false], 'task', 'operational', 'placeholder', null, null, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
-        "#
+    let fresh = build_body_tags(&["kind:task", "status:done"], &body_text);
+    let tags = merge_tags(
+        &current.tags,
+        &["status:", "due:", "lang:", "topic:"],
+        fresh,
     );
-    store
-        .db_ref()
-        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
-    // Step 2 — reassert with status:done. We don't preserve the
-    // original `due:` tag; once the task is done, the deadline is no
-    // longer actionable. (If a future need surfaces — e.g. analytics
-    // on "missed deadlines" — we'd add explicit `done_at:` and copy
-    // `due:` over.)
-    let assert_secs = now_validity_seconds();
-    let all_tags = build_body_tags(&["kind:task", "status:done"], &body_text);
-    let tags = tags_literal(&all_tags);
-    let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
-    p2.insert("id".to_string(), DataValue::Str(task_id.clone().into()));
-    p2.insert("name".to_string(), DataValue::Str(name.into()));
-    p2.insert("body".to_string(), DataValue::Str(body_text.into()));
-    let s2 = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{assert_secs}.0, true], 'task', 'operational', $name, $body, {tags}, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&s2, p2, ScriptMutability::Mutable)?;
+    // Re-assert first, retract second, same timestamp — see
+    // `reassert_node_now` for the ordering invariant.
+    let secs = now_validity_seconds();
+    reassert_node_now(
+        store,
+        task_id,
+        ReassertRow {
+            secs,
+            type_: &current.type_,
+            tier: &current.tier,
+            name: &current.name,
+            body: Some(&body_text),
+            tags,
+            visibility: &current.visibility,
+            layer: &current.layer,
+        },
+    )?;
+    retract_node_at(store, task_id, secs)?;
 
     write_audit(
         store.db_ref(),
@@ -134,6 +127,46 @@ pub fn complete_task(store: &Store, task_id: &NodeId) -> Result<()> {
         &[task_id.clone()],
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::graph::{Layer, Visibility};
+    use crate::store::Store;
+    use crate::{at, complete_task, set_visibility, write_task_with_layer};
+
+    /// `complete_task` used to re-assert with an incomplete column list,
+    /// resetting `layer` / `visibility` to schema defaults on every `done`.
+    #[test]
+    fn complete_task_preserves_layer_and_visibility() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let id = write_task_with_layer(&store, "ship the fix", Some("2026-07-10"), Layer::Hot)
+            .expect("task");
+        set_visibility(&store, &id, Visibility::Shared).expect("set vis");
+
+        std::thread::sleep(Duration::from_millis(1100));
+        complete_task(&store, &id).expect("done");
+
+        let snap = at(&store, &id, 9_999_999_999.0)
+            .expect("at")
+            .expect("still resolves");
+        assert_eq!(snap.layer, "hot", "layer survives done");
+        assert_eq!(snap.visibility, "shared", "visibility survives done");
+        assert!(snap.tags.iter().any(|t| t == "status:done"));
+        assert!(
+            !snap.tags.iter().any(|t| t.starts_with("status:open")),
+            "open status dropped: {:?}",
+            snap.tags
+        );
+        assert!(
+            !snap.tags.iter().any(|t| t.starts_with("due:")),
+            "due: deliberately dropped on done: {:?}",
+            snap.tags
+        );
+    }
 }
 
 /// Same shape as `derive_jot_name` in `episode.rs` but with a `task-`

@@ -2,7 +2,7 @@
 
 use std::str::FromStr;
 
-use kaeru_core::{Error, Layer, Store, set_layer as core_set_layer};
+use kaeru_core::{Error, Layer, Store, Visibility, get_visibility, set_layer as core_set_layer};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
@@ -58,6 +58,12 @@ pub fn revise(
         };
         let new_body = body.unwrap_or(&preserved_body);
         kaeru_core::improve(store, &id, new_name, new_body).map_err(to_mcp)?;
-        Ok(text(&format!("revised: {name} → {new_name}")))
+        let mut msg = format!("revised: {name} → {new_name}");
+        if get_visibility(store, &id).map_err(to_mcp)? == Visibility::Shared {
+            msg.push_str(
+                "\n⚠ cloud copy is stale — run `share` on this node to push the new version.",
+            );
+        }
+        Ok(text(&msg))
     })
 }

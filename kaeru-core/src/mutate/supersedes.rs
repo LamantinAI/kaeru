@@ -7,7 +7,7 @@ use cozo::{DataValue, ScriptMutability};
 
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
-    tags_literal,
+    read_node_now, tags_literal,
 };
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
@@ -41,6 +41,16 @@ pub fn supersedes(
 ) -> Result<NodeId> {
     let new_id = new_node_id();
 
+    // Step 0 — the successor inherits the predecessor's memory layer (a
+    // core node's replacement must not silently drop out of the awake
+    // injection band). Read before the retract below hides the row.
+    // Visibility is deliberately NOT inherited: `shared` means "is in the
+    // cloud", and the successor — a brand-new id — is not there yet; the
+    // MCP layer surfaces a re-share hint instead.
+    let inherited_layer = read_node_now(store, old_id)?
+        .map(|n| n.layer)
+        .unwrap_or_else(|| "warm".to_string());
+
     // Step 1 — retract old. Required non-key fields get placeholder values;
     // they are never observable because the row is a retraction.
     let retract_secs = now_validity_seconds();
@@ -68,9 +78,9 @@ pub fn supersedes(
     let tags = tags_literal(&all_tags);
     let s2 = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{assert_secs}, true], '{}', '{}', $name, $body, {tags}, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, [{assert_secs}, true], '{}', '{}', $name, $body, {tags}, null, null, '{inherited_layer}']]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#,
         new_type.as_str(),
         new_tier.as_str(),
@@ -105,4 +115,43 @@ pub fn supersedes(
         &[old_id.clone(), new_id.clone()],
     )?;
     Ok(new_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use crate::graph::{Layer, NodeType, Tier};
+    use crate::store::Store;
+    use crate::{at, jot_with_layer, supersedes};
+
+    /// The successor node used to be written without a `layer` column,
+    /// falling back to `warm` — replacing a core node silently dropped its
+    /// replacement out of the awake injection band.
+    #[test]
+    fn supersede_successor_inherits_layer() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let old = jot_with_layer(&store, "the old truth", Layer::Core).expect("jot");
+
+        std::thread::sleep(Duration::from_millis(1100));
+        let new = supersedes(
+            &store,
+            &old,
+            NodeType::Concept,
+            Tier::Archival,
+            "new-truth",
+            "the new truth",
+        )
+        .expect("supersede");
+
+        let snap = at(&store, &new, 9_999_999_999.0)
+            .expect("at")
+            .expect("successor resolves");
+        assert_eq!(snap.layer, "core", "successor inherits the layer");
+        assert_eq!(
+            snap.visibility, "local",
+            "visibility deliberately not inherited — `shared` means \"is in the cloud\", and the successor isn't there yet"
+        );
+    }
 }
