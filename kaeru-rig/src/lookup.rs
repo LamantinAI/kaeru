@@ -8,26 +8,30 @@ use kaeru_core::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{brief, briefs, mem_tool, resolve};
+use crate::{brief, briefs, mem_tool, mem_tool_in, resolve};
 
 #[derive(Debug, Deserialize)]
 pub struct RecallArgs {
     pub query: String,
     #[serde(default)]
     pub limit: Option<usize>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_recall` — fuzzy full-text search across memory.
     Recall,
     "kaeru_recall",
     "Search long-term memory for what you've stored before (matches name + body; `word*` matches \
      by prefix). Returns name + short excerpt + id. Recall before answering so you build on past \
-     work; use `kaeru_read` for a result's full body.",
+     work; use `kaeru_read` for a result's full body. Pass `initiative` to search a specific \
+     project; omit for your default.",
     RecallArgs,
     { "type": "object", "properties": {
         "query": { "type": "string", "description": "search terms; `word*` matches by prefix" },
-        "limit": { "type": "integer", "description": "max results (default 5)" }
+        "limit": { "type": "integer", "description": "max results (default 5)" },
+        "initiative": { "type": "string", "description": "optional initiative (project) to search; omit for your default" }
     }, "required": ["query"] },
     |store, args| match fuzzy_recall(store, &args.query, args.limit.unwrap_or(5)) {
         Ok(hits) => json!({ "results": briefs(&hits) }),
@@ -38,17 +42,21 @@ mem_tool!(
 #[derive(Debug, Deserialize)]
 pub struct ReadArgs {
     pub name_or_id: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_read` — read one node in full (untruncated body + all fields).
     Read,
     "kaeru_read",
     "Read a single memory in full — the whole untruncated body and every field — by its name or \
-     id. Use after `kaeru_recall` when an excerpt isn't enough.",
+     id. Use after `kaeru_recall` when an excerpt isn't enough. Pass `initiative` to resolve the \
+     name within a specific project; omit for your default.",
     ReadArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "node name or id" }
+        "name_or_id": { "type": "string", "description": "node name or id" },
+        "initiative": { "type": "string", "description": "optional initiative (project) to resolve within; omit for your default" }
     }, "required": ["name_or_id"] },
     |store, args| {
         let id = resolve(store, &args.name_or_id);

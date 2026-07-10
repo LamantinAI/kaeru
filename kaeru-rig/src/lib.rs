@@ -630,6 +630,27 @@ mod tests {
             "both initiatives exist; got {inits:?}"
         );
 
+        // read-side per-call initiative: the home-scoped memory can recall from
+        // "finances" by passing the initiative, and by default cannot.
+        let via_arg = mem
+            .recall()
+            .call(args(serde_json::json!({ "query": "mortgage", "initiative": "finances" })))
+            .await
+            .unwrap();
+        assert!(
+            via_arg["results"].as_array().unwrap().iter().any(|r| r["name"] == "mortgage"),
+            "recall with initiative arg reaches finances; got {via_arg}"
+        );
+        let via_default = mem
+            .recall()
+            .call(args(serde_json::json!({ "query": "mortgage" })))
+            .await
+            .unwrap();
+        assert!(
+            !via_default["results"].as_array().unwrap().iter().any(|r| r["name"] == "mortgage"),
+            "default (home) recall does not see finances; got {via_default}"
+        );
+
         // reads scoped to "finances" see the routed note, not the default one
         let fin = KaeruMemory::with_initiative(store, "finances");
         let hit = fin

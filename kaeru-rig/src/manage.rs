@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::json;
 
 use crate::lookup::NoArgs;
-use crate::{briefs, briefs_by_ids, mem_tool, resolve, resolve_global};
+use crate::{briefs, briefs_by_ids, mem_tool, mem_tool_in, resolve, resolve_global};
 
 mem_tool!(
     /// `kaeru_awake` — load the re-entry context for the active initiative.
@@ -63,17 +63,21 @@ pub struct RecentArgs {
     /// Look-back window in seconds. Defaults to the configured awake window.
     #[serde(default)]
     pub window_seconds: Option<u64>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_recent` — episodes from the recent past.
     Recent,
     "kaeru_recent",
     "List recent episodes — what happened lately in this project. `window_seconds` sets the \
-     look-back (default: the configured awake window, ~24h).",
+     look-back (default: the configured awake window, ~24h). Pass `initiative` for a specific \
+     project; omit for your default.",
     RecentArgs,
     { "type": "object", "properties": {
-        "window_seconds": { "type": "integer", "description": "look-back window in seconds" }
+        "window_seconds": { "type": "integer", "description": "look-back window in seconds" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
     } },
     |store, args| {
         let window = args
