@@ -45,6 +45,8 @@ use std::sync::Arc;
 use kaeru_core::{
     NodeBrief, NodeId, Store, node_brief_by_id, recall_id_by_name, recall_id_by_name_global,
 };
+use rig::agent::{AgentBuilder, NoToolConfig, WithBuilderTools};
+use rig::completion::CompletionModel;
 use serde_json::{Value, json};
 
 mod capture;
@@ -104,6 +106,15 @@ impl KaeruMemory {
             .await
             .unwrap_or_else(|e| json!({ "error": format!("memory task failed: {e}") }))
     }
+}
+
+/// Chain `.tool(mem.<name>())` for each listed accessor onto an agent builder.
+/// Each kaeru tool is a distinct type and rig's builder is type-state, so this
+/// can't be a runtime loop — the macro keeps the surface to a single name list.
+macro_rules! chain_tools {
+    ($b:expr, $mem:expr, [ $($tool:ident),* $(,)? ]) => {
+        $b $(.tool($mem.$tool()))*
+    };
 }
 
 /// Tool constructors. Each returns one rig `Tool` bound to this memory; add the
@@ -255,6 +266,34 @@ impl KaeruMemory {
     }
     pub fn export(&self) -> Export {
         Export(self.clone())
+    }
+
+    /// Install the **full** kaeru tool surface (parity with the kaeru MCP) onto a
+    /// fresh agent builder in one call, instead of adding ~45 tools by hand. Each
+    /// tool is a distinct type, so this can't be a runtime loop — but the caller
+    /// gets a one-liner. Pass a builder with no tools yet; chain any non-kaeru
+    /// tools (and `.build()`) afterwards.
+    pub fn install<M>(
+        &self,
+        b: AgentBuilder<M, (), NoToolConfig>,
+    ) -> AgentBuilder<M, (), WithBuilderTools>
+    where
+        M: CompletionModel,
+    {
+        chain_tools!(b, self, [
+            // orient / recall
+            awake, overview, recall, recent, read, drill, trace, tagged, between,
+            surface, at, history, ideas, outcomes, initiatives,
+            // capture
+            remember, cite, task, done,
+            // relate / curate
+            link, unlink, chain, chains, read_chain, rechain, path, synthesise,
+            layer, pin, unpin, flag,
+            // claims lifecycle
+            claim, test, confirm, refute, settle, revise, supersede, resolve, reopen,
+            // maintain
+            reflect, lint, forget, export, attach, rename_initiative, delete_initiative,
+        ])
     }
 }
 
