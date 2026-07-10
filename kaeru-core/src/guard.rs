@@ -66,7 +66,10 @@ const TOKEN_PREFIXES: &[(&str, usize, &str, &str)] = &[
 ];
 
 /// Env-var key fragments that, when assigned a non-trivial value, signal a
-/// secret (`API_KEY=…`, `DB_PASSWORD=…`).
+/// secret (`API_KEY=…`, `DB_PASSWORD=…`). A marker matches the assignment
+/// key only as its **final word** — the whole key or a `_`-separated suffix
+/// (see [`find_secret_assignment`]): compound identifiers are head-final,
+/// so `GITHUB_TOKEN` *is* a token while `TOKEN_COUNTER` is a counter.
 const SECRET_KEY_MARKERS: &[&str] = &[
     "SECRET",
     "TOKEN",
@@ -175,16 +178,33 @@ fn find_prefixed_token(content: &str, prefix: &str, min_suffix: usize) -> Option
     None
 }
 
-/// Scans line by line for `KEY = value` where the key name contains a
+/// Scans line by line for `KEY = value` where the key's **final word** is a
 /// secret marker and the value is non-trivial (≥ 8 chars after trimming
 /// quotes / whitespace).
+///
+/// The key is the last identifier-like token of the LHS (`cfg.api_token` →
+/// `api_token`, `export GITHUB_TOKEN` → `GITHUB_TOKEN`), and a marker
+/// matches only as the whole key or a `_`-separated suffix of it. Substring
+/// matching flagged ordinary engineering notes — `token_counter =
+/// TokenCounterService()`, `max tokens = 100000` — and every such false
+/// positive silently keeps a node out of the shared cloud, so the rule errs
+/// on the side of "the marker must name what the value *is*".
 fn find_secret_assignment(content: &str) -> Option<String> {
     for line in content.lines() {
         let Some((lhs, rhs)) = line.split_once('=') else {
             continue;
         };
-        let key = lhs.trim().to_uppercase();
-        if key.is_empty() || !SECRET_KEY_MARKERS.iter().any(|m| key.contains(m)) {
+        let key = lhs
+            .trim()
+            .rsplit(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+            .next()
+            .unwrap_or("")
+            .to_uppercase();
+        let is_marker = !key.is_empty()
+            && SECRET_KEY_MARKERS
+                .iter()
+                .any(|m| key == *m || key.ends_with(&format!("_{m}")));
+        if !is_marker {
             continue;
         }
         let value = rhs
@@ -277,5 +297,45 @@ mod tests {
         // Known remaining gap (separate follow-up): a bare, prefix-less token
         // with no `=` and no known prefix slips both scanners.
         assert!(scan_public("db_pass_x7Fq2mK9").is_empty());
+    }
+
+    /// `env_secret` matches the marker as the key's final word, not as a
+    /// substring — ordinary code and prose that merely *mention* tokens must
+    /// stay clean, because every false positive silently keeps a node out of
+    /// the shared cloud (observed live: 23 of 27 local nodes in one
+    /// initiative were blocked by `token_counter`-style identifiers).
+    #[test]
+    fn env_secret_matches_marker_as_final_word_only() {
+        // Marker as a modifier (head is COUNTER / SCANNER / LIMIT) — clean.
+        assert!(is_clean("token_counter = TokenCounterService()"));
+        assert!(is_clean("secret_scanner = SecretScannerImpl::new()"));
+        assert!(is_clean("TOKEN_LIMIT = 12800000"));
+        // Prose around `=` — the last word is TOKENS (plural ≠ marker).
+        assert!(is_clean("max tokens = 100000 for the model"));
+        // Non-ASCII keys never equal the ASCII markers.
+        assert!(is_clean("лимит токенайзера = 8192 согласно доке"));
+
+        // Real assignments still hit: whole key, `_`-suffix, and through a
+        // qualified path.
+        assert!(
+            scan("TOKEN=abcdefgh1234")
+                .iter()
+                .any(|h| h.rule == "env_secret")
+        );
+        assert!(
+            scan("GITHUB_TOKEN=ghx_notaprefix12345")
+                .iter()
+                .any(|h| h.rule == "env_secret")
+        );
+        assert!(
+            scan("cfg.api_token = \"abcdefgh1234\"")
+                .iter()
+                .any(|h| h.rule == "env_secret")
+        );
+        assert!(
+            scan("AWS_SECRET_ACCESS_KEY = wJalrXUtnFEMI")
+                .iter()
+                .any(|h| h.rule == "env_secret")
+        );
     }
 }
