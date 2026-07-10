@@ -106,6 +106,22 @@ impl KaeruMemory {
             .await
             .unwrap_or_else(|e| json!({ "error": format!("memory task failed: {e}") }))
     }
+
+    /// Like [`run`](Self::run), but a per-call `initiative` overrides the
+    /// memory's default scope for this one operation (falling back to the
+    /// memory's own initiative when `None`). Lets a single tool call target a
+    /// chosen initiative — mirroring the MCP's per-call `initiative`.
+    pub(crate) async fn run_in<F>(&self, initiative: Option<String>, f: F) -> Value
+    where
+        F: FnOnce(&Store) -> Value + Send + 'static,
+    {
+        let store = self.store.clone();
+        let init: Option<String> =
+            initiative.or_else(|| self.initiative.as_deref().map(str::to_owned));
+        tokio::task::spawn_blocking(move || store.scoped(init.as_deref(), f))
+            .await
+            .unwrap_or_else(|e| json!({ "error": format!("memory task failed: {e}") }))
+    }
 }
 
 /// Chain `.tool(mem.<name>())` for each listed accessor onto an agent builder.
@@ -384,6 +400,52 @@ macro_rules! mem_tool {
 }
 pub(crate) use mem_tool;
 
+/// Like [`mem_tool!`], but the tool's operation is scoped to a per-call
+/// `initiative` read from its args (`$args_ty` must have a
+/// `pub initiative: Option<String>` field), falling back to the memory's own
+/// initiative when the caller omits it. Use for capture/write tools that may
+/// target a chosen initiative — mirroring the MCP.
+macro_rules! mem_tool_in {
+    (
+        $(#[$meta:meta])*
+        $tool:ident, $name:literal, $desc:expr, $args_ty:ty, $params:tt,
+        |$store:ident, $a:ident| $body:expr
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone)]
+        pub struct $tool(pub(crate) $crate::KaeruMemory);
+
+        impl ::rig::tool::Tool for $tool {
+            const NAME: &'static str = $name;
+            type Error = ::std::convert::Infallible;
+            type Args = $args_ty;
+            type Output = ::serde_json::Value;
+
+            async fn definition(
+                &self,
+                _prompt: ::std::string::String,
+            ) -> ::rig::completion::ToolDefinition {
+                ::rig::completion::ToolDefinition {
+                    name: $name.to_string(),
+                    description: ($desc).to_string(),
+                    parameters: ::serde_json::json!($params),
+                }
+            }
+
+            async fn call(
+                &self,
+                $a: $args_ty,
+            ) -> ::core::result::Result<::serde_json::Value, ::std::convert::Infallible> {
+                let __initiative = $a.initiative.clone();
+                ::core::result::Result::Ok(
+                    self.0.run_in(__initiative, move |$store| $body).await,
+                )
+            }
+        }
+    };
+}
+pub(crate) use mem_tool_in;
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -534,6 +596,59 @@ mod tests {
         assert_eq!(
             settled["settled"], true,
             "settled to archival; got {settled}"
+        );
+    }
+
+    /// A per-call `initiative` on a capture tool routes the write to that
+    /// initiative (creating it if new); omitting it uses the memory's default.
+    #[tokio::test]
+    async fn capture_routes_to_per_call_initiative() {
+        let store = Arc::new(Store::open_in_memory().expect("open"));
+        let mem = KaeruMemory::with_initiative(store.clone(), "home");
+
+        // default scope → "home"
+        mem.remember()
+            .call(args(serde_json::json!({ "name": "grocery", "body": "buy milk today" })))
+            .await
+            .unwrap();
+        // per-call override → a brand-new "finances" initiative
+        let saved = mem
+            .remember()
+            .call(args(serde_json::json!({
+                "name": "mortgage",
+                "body": "closed the mortgage account",
+                "initiative": "finances"
+            })))
+            .await
+            .unwrap();
+        assert_eq!(saved["saved"], true, "routed remember saved; got {saved}");
+
+        // the override created the "finances" initiative alongside "home"
+        let inits = kaeru_core::list_initiatives(&store).expect("list");
+        assert!(
+            inits.iter().any(|i| i == "finances") && inits.iter().any(|i| i == "home"),
+            "both initiatives exist; got {inits:?}"
+        );
+
+        // reads scoped to "finances" see the routed note, not the default one
+        let fin = KaeruMemory::with_initiative(store, "finances");
+        let hit = fin
+            .recall()
+            .call(args(serde_json::json!({ "query": "mortgage" })))
+            .await
+            .unwrap();
+        assert!(
+            hit["results"].as_array().unwrap().iter().any(|r| r["name"] == "mortgage"),
+            "finances recall finds the routed note; got {hit}"
+        );
+        let miss = fin
+            .recall()
+            .call(args(serde_json::json!({ "query": "milk" })))
+            .await
+            .unwrap();
+        assert!(
+            !miss["results"].as_array().unwrap().iter().any(|r| r["name"] == "grocery"),
+            "the default-scope note stayed in home, not finances; got {miss}"
         );
     }
 }

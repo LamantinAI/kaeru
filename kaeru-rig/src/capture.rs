@@ -7,26 +7,30 @@ use kaeru_core::{
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::{mem_tool, resolve};
+use crate::{mem_tool, mem_tool_in, resolve};
 
 #[derive(Debug, Deserialize)]
 pub struct RememberArgs {
     pub body: String,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_remember` — save a thought to long-term memory.
     Remember,
     "kaeru_remember",
     "Save a thought to long-term memory so it survives across sessions. Give a `name` to recall \
      it by exact name later (a decision, a load-bearing fact); omit `name` for a quick auto-named \
-     note.",
+     note. Pass `initiative` to file it under a specific project (e.g. finances, studies); omit \
+     for your default initiative.",
     RememberArgs,
     { "type": "object", "properties": {
         "body": { "type": "string", "description": "the thought/fact to remember" },
-        "name": { "type": "string", "description": "optional deliberate name to recall it by" }
+        "name": { "type": "string", "description": "optional deliberate name to recall it by" },
+        "initiative": { "type": "string", "description": "optional initiative (project) to file this under; omit for your default" }
     }, "required": ["body"] },
     |store, args| {
         let saved = match &args.name {
@@ -48,19 +52,23 @@ pub struct CiteArgs {
     #[serde(default)]
     pub url: Option<String>,
     pub body: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_cite` — record an external source or a persona/entity.
     Cite,
     "kaeru_cite",
     "Record a long-term reference: an external source (pass `url` for a paper / gist / dashboard) \
-     or a persona / entity (skip `url` for a person, place, or book). Lands in the archival tier.",
+     or a persona / entity (skip `url` for a person, place, or book). Lands in the archival tier. \
+     Pass `initiative` to file it under a specific project; omit for your default.",
     CiteArgs,
     { "type": "object", "properties": {
         "name": { "type": "string", "description": "name of the source / entity" },
         "url": { "type": "string", "description": "canonical URL (omit for a persona/entity)" },
-        "body": { "type": "string", "description": "what it is / why it matters" }
+        "body": { "type": "string", "description": "what it is / why it matters" },
+        "initiative": { "type": "string", "description": "optional initiative (project) to file this under; omit for your default" }
     }, "required": ["name", "body"] },
     |store, args| match cite(store, &args.name, args.url.as_deref(), &args.body) {
         Ok(id) => json!({ "saved": true, "id": id }),
@@ -148,18 +156,22 @@ pub struct TaskArgs {
     pub body: String,
     #[serde(default)]
     pub due: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_task` — record a todo with an optional deadline.
     Task,
     "kaeru_task",
     "Record a task / todo that should survive into the next session. `due` is an ISO date-time \
-     (e.g. 2026-07-01T09:00:00Z). Open tasks resurface via `kaeru_awake`.",
+     (e.g. 2026-07-01T09:00:00Z). Open tasks resurface via `kaeru_awake`. Pass `initiative` to \
+     file it under a specific project; omit for your default.",
     TaskArgs,
     { "type": "object", "properties": {
         "body": { "type": "string", "description": "what needs doing" },
-        "due": { "type": "string", "description": "optional ISO deadline" }
+        "due": { "type": "string", "description": "optional ISO deadline" },
+        "initiative": { "type": "string", "description": "optional initiative (project) to file this under; omit for your default" }
     }, "required": ["body"] },
     |store, args| match write_task(store, &args.body, args.due.as_deref()) {
         Ok(id) => json!({ "created": true, "id": id }),
