@@ -192,7 +192,7 @@ mod tests {
         set_layer(&store, &id, Layer::Core).unwrap();
 
         // The node must still resolve at NOW...
-        let visible = crate::mutate::read_name_body_now(&store, &id).unwrap();
+        let visible = crate::mutate::read_node_now(&store, &id).unwrap();
         assert!(
             visible.is_some(),
             "node went invisible at NOW after a later set_layer"

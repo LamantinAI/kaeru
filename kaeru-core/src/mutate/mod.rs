@@ -178,51 +178,189 @@ pub(crate) fn build_body_tags(fixed: &[&str], body: &str) -> Vec<String> {
     tags
 }
 
-/// Reads a node's `(name, body)` at NOW. Returns `None` if no row is valid
-/// at the moment of the call. Used by primitives that need to rewrite a node
-/// while preserving fields the caller did not change.
-pub(crate) fn read_name_body_now(
-    store: &Store,
-    id: &NodeId,
-) -> Result<Option<(String, Option<String>)>> {
+/// Value (non-key) columns of the `node` relation, in schema order — the
+/// single source of truth for RMW rewrites. [`reassert_node_now`] builds its
+/// `:put` from this list, and the schema-lock test compares it against
+/// `::columns node`, so adding a column to the schema fails the suite until
+/// every rewrite path handles the new column explicitly.
+pub(crate) const NODE_VALUE_COLUMNS: [&str; 9] = [
+    "type",
+    "tier",
+    "name",
+    "body",
+    "tags",
+    "initiatives",
+    "properties",
+    "visibility",
+    "layer",
+];
+
+/// A node's value columns as read at NOW — everything an RMW rewrite must
+/// decide about, minus the opaque `initiatives` / `properties`, which
+/// [`reassert_node_now`] copies forward inside the substrate.
+pub(crate) struct NodeNow {
+    pub type_: String,
+    pub tier: String,
+    pub name: String,
+    pub body: Option<String>,
+    pub tags: Vec<String>,
+    pub visibility: String,
+    pub layer: String,
+}
+
+/// Reads a node's value columns at NOW. Returns `None` if no row is valid
+/// at the moment of the call. Used by primitives that rewrite a node while
+/// preserving the fields the caller did not change.
+pub(crate) fn read_node_now(store: &Store, id: &NodeId) -> Result<Option<NodeNow>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
     let script = r#"
-        ?[name, body] := *node{id, name, body @ 'NOW'}, id = $id
+        ?[type, tier, name, body, tags, visibility, layer] :=
+            *node{id, type, tier, name, body, tags, visibility, layer @ 'NOW'}, id = $id
     "#;
     let rows = store
         .db_ref()
         .run_script(script, params, ScriptMutability::Immutable)?;
-    let row = rows.rows.first();
-    let result = row.map(|r| {
-        let name = r
-            .first()
-            .and_then(|v| v.get_str())
-            .map(String::from)
-            .unwrap_or_default();
-        let body = r.get(1).and_then(|v| v.get_str()).map(String::from);
-        (name, body)
+    let result = rows.rows.first().map(|r| {
+        let s = |i: usize| {
+            r.get(i)
+                .and_then(|v| v.get_str())
+                .map(String::from)
+                .unwrap_or_default()
+        };
+        NodeNow {
+            type_: s(0),
+            tier: s(1),
+            name: s(2),
+            body: r.get(3).and_then(|v| v.get_str()).map(String::from),
+            tags: match r.get(4) {
+                Some(DataValue::List(items)) => items
+                    .iter()
+                    .filter_map(|x| x.get_str().map(String::from))
+                    .collect(),
+                _ => Vec::new(),
+            },
+            visibility: r
+                .get(5)
+                .and_then(|v| v.get_str())
+                .map(String::from)
+                .unwrap_or_else(|| "local".to_string()),
+            layer: r
+                .get(6)
+                .and_then(|v| v.get_str())
+                .map(String::from)
+                .unwrap_or_else(|| "warm".to_string()),
+        }
     });
     Ok(result)
 }
 
-/// Reads a node's `(type, tier)` strings at NOW for primitives that
-/// preserve them through retract+reassert.
-pub(crate) fn read_type_tier_now(store: &Store, id: &NodeId) -> Result<Option<(String, String)>> {
+/// Tag merge for RMW rewrites: keeps the current tags (so manual tags
+/// survive a rewrite) minus the `drop_prefixes` families the caller is
+/// re-deriving (`status:`, `lang:`, …), then unions in `add`. Order is
+/// stable — survivors first, new tags after — with exact-string dedup.
+pub(crate) fn merge_tags(
+    current: &[String],
+    drop_prefixes: &[&str],
+    add: Vec<String>,
+) -> Vec<String> {
+    let mut out: Vec<String> = current
+        .iter()
+        .filter(|t| !drop_prefixes.iter().any(|p| t.starts_with(p)))
+        .cloned()
+        .collect();
+    for tag in add {
+        if !out.contains(&tag) {
+            out.push(tag);
+        }
+    }
+    out
+}
+
+/// The fully-decided value columns for an RMW re-assert. `initiatives` and
+/// `properties` are deliberately absent: they are opaque to every rewrite
+/// verb and get copied forward from the current row inside the substrate.
+pub(crate) struct ReassertRow<'a> {
+    pub secs: u64,
+    pub type_: &'a str,
+    pub tier: &'a str,
+    pub name: &'a str,
+    pub body: Option<&'a str>,
+    pub tags: Vec<String>,
+    pub visibility: &'a str,
+    pub layer: &'a str,
+}
+
+/// Re-asserts node `id` at `row.secs` with **every** value column of the
+/// schema spelled out — nothing silently falls back to a schema default
+/// (which is how rewrites used to reset `layer` to `warm` and `visibility`
+/// to `local`). The opaque columns (`initiatives`, `properties`) are copied
+/// forward from the row valid at NOW by the substrate itself.
+///
+/// ORDERING INVARIANT: call this **before** retracting the old row. The
+/// copy-forward reads `@ 'NOW'`; once the retract lands, the read resolves
+/// nothing, the `:put` writes zero rows, and the node simply vanishes.
+/// Callers therefore re-assert first and retract second, passing the SAME
+/// whole-second timestamp to both writes — at equal timestamps the
+/// substrate resolves the assertion, so write order within the second
+/// doesn't matter.
+pub(crate) fn reassert_node_now(store: &Store, id: &NodeId, row: ReassertRow<'_>) -> Result<()> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
-    let script = r#"
-        ?[type, tier] := *node{id, type, tier @ 'NOW'}, id = $id
-    "#;
-    let rows = store
+    params.insert("name".to_string(), DataValue::Str(row.name.into()));
+    params.insert(
+        "body".to_string(),
+        match row.body {
+            Some(b) => DataValue::Str(b.into()),
+            None => DataValue::Null,
+        },
+    );
+    // Tags and the Validity literal must be inlined — cozo needs concrete
+    // values for List / Validity columns (same constraint as `upsert_node`).
+    // type / tier / visibility / layer are enum-derived strings, never
+    // attacker-controlled, so inlining their quoted form is safe.
+    let tags_lit = tags_literal(&row.tags);
+    let cols = NODE_VALUE_COLUMNS.join(", ");
+    let script = format!(
+        r#"
+        ?[id, validity, {cols}] :=
+            *node{{id, initiatives, properties @ 'NOW'}}, id = $id,
+            validity = [{secs}.0, true],
+            type = '{ty}', tier = '{tier}',
+            name = $name, body = $body,
+            tags = {tags_lit},
+            visibility = '{vis}', layer = '{layer}'
+        :put node {{id, validity => {cols}}}
+        "#,
+        secs = row.secs,
+        ty = row.type_,
+        tier = row.tier,
+        vis = row.visibility,
+        layer = row.layer,
+    );
+    store
         .db_ref()
-        .run_script(script, params, ScriptMutability::Immutable)?;
-    let result = rows.rows.first().and_then(|r| {
-        let type_str = r.first().and_then(|v| v.get_str()).map(String::from)?;
-        let tier_str = r.get(1).and_then(|v| v.get_str()).map(String::from)?;
-        Some((type_str, tier_str))
-    });
-    Ok(result)
+        .run_script(&script, params, ScriptMutability::Mutable)?;
+    Ok(())
+}
+
+/// Writes the bi-temporal retraction row for `id` at `secs`. The
+/// placeholder values in the value columns are never observable — the row
+/// is a retraction and does not resolve at NOW.
+pub(crate) fn retract_node_at(store: &Store, id: &NodeId, secs: u64) -> Result<()> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+    let script = format!(
+        r#"
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
+            [[$id, [{secs}.0, false], 'placeholder', 'operational', '', null, null, null, null]]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        "#
+    );
+    store
+        .db_ref()
+        .run_script(&script, params, ScriptMutability::Mutable)?;
+    Ok(())
 }
 
 /// Returns every edge (src, dst, edge_type) connected to `node_id` at NOW
@@ -354,4 +492,161 @@ pub(crate) fn read_derived_from_targets(store: &Store, src_id: &NodeId) -> Resul
         .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
         .collect();
     Ok(targets)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use cozo::{DataValue, ScriptMutability};
+
+    use super::{
+        NODE_VALUE_COLUMNS, ReassertRow, merge_tags, read_node_now, reassert_node_now,
+        retract_node_at,
+    };
+    use crate::store::Store;
+
+    /// The `node` schema and [`NODE_VALUE_COLUMNS`] must agree exactly.
+    /// A new schema column that the RMW rewrite paths don't know about
+    /// would silently reset to its default on every rewrite — this test
+    /// makes that a loud failure instead.
+    #[test]
+    fn schema_lock_node_value_columns() {
+        let store = Store::open_in_memory().expect("open");
+        let rows = store
+            .db_ref()
+            .run_script(
+                "::columns node",
+                BTreeMap::new(),
+                ScriptMutability::Immutable,
+            )
+            .expect("::columns node");
+        let names: Vec<String> = rows
+            .rows
+            .iter()
+            .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
+            .collect();
+        let mut expected = vec!["id".to_string(), "validity".to_string()];
+        expected.extend(NODE_VALUE_COLUMNS.iter().map(|s| s.to_string()));
+        assert_eq!(
+            names, expected,
+            "node schema drifted from NODE_VALUE_COLUMNS — teach the RMW \
+             rewrite paths (reassert_node_now and its callers) about the new \
+             column before changing the schema"
+        );
+    }
+
+    /// Round-trip through the RMW helper: every column the caller didn't
+    /// override survives — including the opaque `initiatives` / `properties`
+    /// (copied forward inside the substrate) and `visibility` / `layer`
+    /// (spelled out instead of falling back to schema defaults).
+    #[test]
+    fn reassert_preserves_untouched_columns() {
+        let store = Store::open_in_memory().expect("open");
+
+        // Seed a node carrying a value in EVERY column.
+        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+        p.insert(
+            "props".to_string(),
+            DataValue::Json(cozo::JsonData(serde_json::json!({"a": 1}))),
+        );
+        let seed = r#"
+            ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
+                [['n1', [1000.0, true], 'episode', 'operational', 'old-name', 'old body',
+                  ['custom:x'], ['team-init'], $props, 'shared', 'core']]
+            :put node {id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}
+        "#;
+        store
+            .db_ref()
+            .run_script(seed, p, ScriptMutability::Mutable)
+            .expect("seed");
+
+        let id = "n1".to_string();
+        let now = read_node_now(&store, &id).expect("read").expect("present");
+        assert_eq!(now.visibility, "shared");
+        assert_eq!(now.layer, "core");
+
+        // Rewrite name/body, preserve the rest — re-assert BEFORE retract,
+        // same timestamp for both (the helper's ordering invariant).
+        let secs = super::now_validity_seconds();
+        reassert_node_now(
+            &store,
+            &id,
+            ReassertRow {
+                secs,
+                type_: &now.type_,
+                tier: &now.tier,
+                name: "new-name",
+                body: Some("new body"),
+                tags: merge_tags(&now.tags, &["lang:"], vec!["role:revised".to_string()]),
+                visibility: &now.visibility,
+                layer: &now.layer,
+            },
+        )
+        .expect("reassert");
+        retract_node_at(&store, &id, secs).expect("retract");
+
+        let check = r#"
+            ?[name, tags, initiatives, properties, visibility, layer] :=
+                *node{id, name, tags, initiatives, properties, visibility, layer @ 'NOW'}, id = 'n1'
+        "#;
+        let rows = store
+            .db_ref()
+            .run_script(check, BTreeMap::new(), ScriptMutability::Immutable)
+            .expect("read back");
+        assert_eq!(rows.rows.len(), 1, "node resolves at NOW: {rows:?}");
+        let row = &rows.rows[0];
+        assert_eq!(row[0].get_str(), Some("new-name"));
+        let tags_dbg = format!("{:?}", row[1]);
+        assert!(
+            tags_dbg.contains("custom:x"),
+            "manual tag survives: {tags_dbg}"
+        );
+        assert!(
+            tags_dbg.contains("role:revised"),
+            "new tag merged: {tags_dbg}"
+        );
+        assert!(
+            format!("{:?}", row[2]).contains("team-init"),
+            "initiatives column copied forward: {:?}",
+            row[2]
+        );
+        assert!(
+            format!("{:?}", row[3]).contains('1'),
+            "properties copied forward: {:?}",
+            row[3]
+        );
+        assert_eq!(row[4].get_str(), Some("shared"), "visibility preserved");
+        assert_eq!(row[5].get_str(), Some("core"), "layer preserved");
+    }
+
+    /// `merge_tags` keeps foreign tags, drops the re-derived families, and
+    /// dedups exact matches while preserving order.
+    #[test]
+    fn merge_tags_drops_families_and_dedups() {
+        let current = vec![
+            "custom:x".to_string(),
+            "status:open".to_string(),
+            "lang:en".to_string(),
+            "topic:auth".to_string(),
+        ];
+        let merged = merge_tags(
+            &current,
+            &["status:", "lang:"],
+            vec![
+                "status:done".to_string(),
+                "lang:en".to_string(),
+                "topic:auth".to_string(),
+            ],
+        );
+        assert_eq!(
+            merged,
+            vec![
+                "custom:x".to_string(),
+                "topic:auth".to_string(),
+                "status:done".to_string(),
+                "lang:en".to_string(),
+            ]
+        );
+    }
 }

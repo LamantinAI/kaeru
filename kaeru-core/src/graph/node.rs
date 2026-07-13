@@ -269,9 +269,12 @@ impl FromStr for Layer {
 /// `Local` is the default and a hard floor: a `Local` node never syncs,
 /// regardless of its initiative's `SharePolicy`. Promotion `Local →
 /// Shared` is meant to be an explicit human act, never an automatic agent
-/// decision. Because rewrite primitives that drop the column reset it to
-/// `Local`, the failure direction is fail-safe (a node falls back to
-/// private, never leaks).
+/// decision. Same-id rewrites (`improve`, `complete_task`, status
+/// transitions) preserve an existing `Shared` — the human already made
+/// that call, and losing the flag silently orphaned nodes from the cloud —
+/// while brand-new ids (successors from `supersedes` / `consolidate`)
+/// still start `Local`, so nothing reaches the cloud without an explicit
+/// `share`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {

@@ -1,6 +1,6 @@
 //! Personal-life capture tools: `task`, `done`.
 
-use kaeru_core::Store;
+use kaeru_core::{Store, Visibility, get_visibility};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
@@ -44,6 +44,12 @@ pub fn done(
     with_initiative(store, initiative, || {
         let id = resolve_name_or_id(store, name_or_id)?;
         kaeru_core::complete_task(store, &id).map_err(to_mcp)?;
-        Ok(text(&format!("done: {name_or_id}")))
+        let mut msg = format!("done: {name_or_id}");
+        if get_visibility(store, &id).map_err(to_mcp)? == Visibility::Shared {
+            msg.push_str(
+                "\n⚠ cloud copy is stale — run `share` on this node to push the new version.",
+            );
+        }
+        Ok(text(&msg))
     })
 }

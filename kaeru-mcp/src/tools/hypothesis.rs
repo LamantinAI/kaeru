@@ -1,6 +1,6 @@
 //! Hypothesis-experiment cycle: `claim`, `test`, `confirm`, `refute`.
 
-use kaeru_core::{EdgeType, HypothesisStatus, Store};
+use kaeru_core::{EdgeType, HypothesisStatus, Store, Visibility, get_visibility};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
@@ -59,7 +59,13 @@ pub fn confirm(
         let by_id = resolve_name(store, by)?;
         kaeru_core::update_hypothesis_status(store, &hyp_id, HypothesisStatus::Supported, &by_id)
             .map_err(to_mcp)?;
-        Ok(text(&format!("confirmed: {hypothesis}")))
+        let mut msg = format!("confirmed: {hypothesis}");
+        if get_visibility(store, &hyp_id).map_err(to_mcp)? == Visibility::Shared {
+            msg.push_str(
+                "\n⚠ cloud copy is stale — run `share` on this node to push the new version.",
+            );
+        }
+        Ok(text(&msg))
     })
 }
 
@@ -74,6 +80,12 @@ pub fn refute(
         let by_id = resolve_name(store, by)?;
         kaeru_core::update_hypothesis_status(store, &hyp_id, HypothesisStatus::Refuted, &by_id)
             .map_err(to_mcp)?;
-        Ok(text(&format!("refuted: {hypothesis}")))
+        let mut msg = format!("refuted: {hypothesis}");
+        if get_visibility(store, &hyp_id).map_err(to_mcp)? == Visibility::Shared {
+            msg.push_str(
+                "\n⚠ cloud copy is stale — run `share` on this node to push the new version.",
+            );
+        }
+        Ok(text(&msg))
     })
 }

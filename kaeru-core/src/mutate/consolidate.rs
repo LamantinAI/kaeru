@@ -10,7 +10,7 @@ use cozo::{DataValue, ScriptMutability};
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, attach_node_to_initiative_named,
     build_body_tags, initiatives_of_node, now_validity_seconds, read_derived_from_targets,
-    tags_literal,
+    read_node_now, tags_literal,
 };
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
@@ -93,6 +93,16 @@ fn consolidate(
     // the data flow easy to follow.
     let provenance_targets = read_derived_from_targets(store, old_id)?;
 
+    // The new node inherits the old one's memory layer (a core node's
+    // consolidation must not silently drop out of the awake injection
+    // band). Read before the retract below hides the row. Visibility is
+    // deliberately NOT inherited: `shared` means "is in the cloud", and the
+    // new node — a brand-new id — is not there yet; the MCP layer surfaces
+    // a re-share hint instead.
+    let inherited_layer = read_node_now(store, old_id)?
+        .map(|n| n.layer)
+        .unwrap_or_else(|| "warm".to_string());
+
     let new_id = new_node_id();
     let new_type_str = new_type.as_str();
     let new_tier_str = new_tier.as_str();
@@ -123,9 +133,9 @@ fn consolidate(
     let tags = tags_literal(&all_tags);
     let s2 = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{assert_secs}.0, true], '{new_type_str}', '{new_tier_str}', $name, $body, {tags}, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+            [[$id, [{assert_secs}.0, true], '{new_type_str}', '{new_tier_str}', $name, $body, {tags}, null, null, '{inherited_layer}']]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );
     store
@@ -191,8 +201,34 @@ fn consolidate(
 
 #[cfg(test)]
 mod tests {
-    use crate::graph::{NodeType, Tier};
+    use std::time::Duration;
+
+    use crate::graph::{Layer, NodeType, Tier};
     use crate::store::Store;
+
+    /// The consolidated node used to be written without a `layer` column,
+    /// falling back to `warm` — settling a core draft silently dropped the
+    /// result out of the awake injection band.
+    #[test]
+    fn consolidate_new_node_inherits_layer() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("demo");
+        let draft = crate::jot_with_layer(&store, "core draft", Layer::Core).expect("jot");
+
+        std::thread::sleep(Duration::from_millis(1100));
+        let settled =
+            crate::consolidate_out(&store, &draft, NodeType::Outcome, "settled-core", "body")
+                .expect("consolidate");
+
+        let snap = crate::at(&store, &settled, 9_999_999_999.0)
+            .expect("at")
+            .expect("new node resolves");
+        assert_eq!(snap.layer, "core", "new node inherits the layer");
+        assert_eq!(
+            snap.visibility, "local",
+            "visibility deliberately not inherited — the new id is not in the cloud"
+        );
+    }
 
     /// A consolidation performed with no active initiative scope used to
     /// leave the replacement node without any membership — invisible to
