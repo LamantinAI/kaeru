@@ -28,6 +28,14 @@ fn not_configured() -> McpError {
     )
 }
 
+/// Renders a guard hit as `rule: "fragment"`. The fragment is
+/// `GuardHit.matched`, which the guard already truncates for safe display —
+/// showing it is what lets a human tell a real secret from a false positive
+/// without re-reading the whole body.
+fn format_hit(h: &kaeru_core::GuardHit) -> String {
+    format!("{}: {:?}", h.rule, h.matched)
+}
+
 /// Reads or sets an initiative's sticky cloud `share_policy` (Gate 1).
 /// Omit `policy` to read the current value.
 pub fn policy(
@@ -90,11 +98,11 @@ pub async fn push_to_cloud(
     let scan_target = format!("{}\n{}", full.name, full.body.clone().unwrap_or_default());
     let hits = kaeru_core::guard::scan_public(&scan_target);
     if !hits.is_empty() && !force {
-        let rules: Vec<&str> = hits.iter().map(|h| h.rule).collect();
+        let shown: Vec<String> = hits.iter().map(format_hit).collect();
         return Ok(format!(
             "not shared: pre-share guard flagged {} secret(s) [{}]. Remove them, or force=true to override.",
             hits.len(),
-            rules.join(",")
+            shown.join("; ")
         ));
     }
 
@@ -450,7 +458,7 @@ pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, Mc
     }
 
     let mut propose: Vec<&kaeru_core::NodeFull> = Vec::new();
-    let mut keep: Vec<(&kaeru_core::NodeFull, Vec<&str>)> = Vec::new();
+    let mut keep: Vec<(&kaeru_core::NodeFull, Vec<String>)> = Vec::new();
     for n in &locals {
         let target = format!("{}\n{}", n.name, n.body.clone().unwrap_or_default());
         // Strict scanner — the share gate must be ≥ the export gate (see `share`).
@@ -458,7 +466,10 @@ pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, Mc
         if hits.is_empty() {
             propose.push(n);
         } else {
-            keep.push((n, hits.iter().map(|h| h.rule).collect()));
+            // Rule id + the matched fragment (already truncated by the
+            // guard for safe display) — without the fragment a false
+            // positive can't be recognised without re-reading the body.
+            keep.push((n, hits.iter().map(format_hit).collect()));
         }
     }
 
@@ -477,13 +488,13 @@ pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, Mc
         "\nKEEP LOCAL ({}) — secret guard flagged:\n",
         keep.len()
     ));
-    for (n, rules) in &keep {
+    for (n, hits) in &keep {
         out.push_str(&format!(
             "  - {} ({}) — {} [{}]\n",
             n.name,
             n.node_type,
             n.id,
-            rules.join(",")
+            hits.join("; ")
         ));
     }
     out.push_str(
