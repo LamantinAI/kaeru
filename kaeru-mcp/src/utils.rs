@@ -16,6 +16,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, NaiveDate, Utc};
 use kaeru_core::{
     Error, Layer, NodeBrief, NodeId, Store, SummaryView, Tier, count_nodes_in_initiative, edges_of,
+    history,
 };
 use rmcp::ErrorData as McpError;
 use rmcp::model::{CallToolResult, Content};
@@ -71,6 +72,55 @@ fn should_nudge(store: &Store, id: &NodeId, initiative: Option<&str>) -> bool {
         && count_nodes_in_initiative(store, init)
             .map(|n| n > 1)
             .unwrap_or(false)
+}
+
+// ---- Deepen-lane hints -------------------------------------------------
+//
+// The read verbs (`recall` / `drill` / `search`) surface only an id or a
+// truncated excerpt, and agents routinely forget the two verbs that go
+// deeper: `at` (whole body, and time-travel) and `history` (the timeline).
+// These build the forward edges — one-line pointers appended to a result,
+// only when they teach (a body was actually cut, a node actually changed).
+// Hints, never gates: the substrate facilitates, it does not enforce.
+
+/// The `…` that `truncate_excerpt` appends is the tell that a body was cut,
+/// so `at` would reveal more than the excerpt shown here.
+pub fn body_truncated(excerpt: Option<&str>) -> bool {
+    excerpt.is_some_and(|e| e.ends_with('…'))
+}
+
+/// True when the node carries more than its birth assertion — a real
+/// revision/retraction history worth pointing `history` at. One indexed read;
+/// only called from single-node verbs. Best-effort: any error suppresses the
+/// hint rather than failing the caller.
+pub fn was_revised(store: &Store, id: &NodeId) -> bool {
+    history(store, id).map(|h| h.len() > 1).unwrap_or(false)
+}
+
+/// `↳ full text: at <name>` — the forward edge a truncating single-node read
+/// owes to `at`. Names the node so the hint is a ready-to-run call.
+pub fn at_fulltext_hint(name: &str) -> String {
+    format!("\n↳ excerpt only — full text: `at {name}`.")
+}
+
+/// Generic form for multi-result reads (`search`), where no single name fits.
+pub const AT_FULLTEXT_HINT_MANY: &str = "\n↳ excerpts only — read one in full with `at <name>`.";
+
+/// `recall` returns just an opaque id; this reminds the agent it can now read
+/// the node — in full via `at`, or with its drill-down children via `drill`.
+pub fn recall_read_hint(name: &str) -> String {
+    format!("\n↳ that's the id — read it: `at {name}` (full) or `drill {name}` (＋children).")
+}
+
+/// Single-node reads point here once the node has actually changed.
+pub fn history_hint(name: &str) -> String {
+    format!("\n↳ this node has changed — timeline: `history {name}`.")
+}
+
+/// `history` lists timestamps; this closes the loop back to `at`'s time-travel
+/// so the agent reads a specific past version instead of stopping at the list.
+pub fn history_read_version_hint(name: &str) -> String {
+    format!("\n↳ read any version in full: `at {name} when=<t>` (`5m`/`2h` ago, or unix secs).")
 }
 
 pub fn to_mcp(e: Error) -> McpError {
