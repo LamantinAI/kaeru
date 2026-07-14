@@ -13,8 +13,6 @@ function hash(str) { let h = 2166136261; for (let i = 0; i < str.length; i++) { 
 function rng(seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296 } }
 
 // ── palettes ──────────────────────────────────────────────────────────────
-const TIER_COLOR = { operational: '#ff6ad5', archival: '#56d0ff' }
-const LAYER_COLOR = { core: '#ffce4d', hot: '#ff7a45', warm: '#6f95ff', cold: '#5566a0', frozen: '#46506f' }
 const LAYER_BAR = { core: '#caa24a', hot: '#c8402e', warm: '#7e96cf', cold: '#6f7da0', frozen: '#566' }
 const EDGE_COLOR = {
   derived_from: [0.45, 0.78, 0.85], refers_to: [0.55, 0.6, 0.82], causal: [0.88, 0.66, 0.36],
@@ -32,8 +30,35 @@ const LAYER = {
   cold:   { spread: 300, size: 7,  mix: 0.0,  a: 0.72 },
   frozen: { spread: 345, size: 5,  mix: 0.0,  a: 0.52 },
 }
-const WHITE = new THREE.Color(0xfff3df)
-const BG = 0x2a2a2f   // greyish backdrop, not pure black
+// ── themes ────────────────────────────────────────────────────────────────
+// dark ("the work" — near-black) is the on-brand default; light ("aged paper")
+// recolours the whole galaxy for a warm-paper ground.
+const THEMES = {
+  dark: {
+    bg: 0x2a2a2f, fog: 0.00018,
+    sat: 0.95, light: 0.60, mix: new THREE.Color(0xfff3df),
+    edgeMul: 1.0, edgeGround: [0, 0, 0], edgeOpacity: 0.10, spoke: [0.15, 0.16, 0.21],
+    hotEdge: [0.95, 0.88, 0.66], chainEdge: [1.0, 0.83, 0.4],
+    bridge: 0xcf8b2e, bridgeRest: 0.6, bridgeDim: 0.14, particle: 0xe6a83c,
+    star: 0x9a968c, starOp: 0.4, ring: 0xece8df,
+    dimTo: new THREE.Color(0x000000), dimAmt: 0.8,
+    hotLerp: new THREE.Color(0xffffff), chainCur: 0xffffff, chainVisited: 0xffd86a, chainLerp: 0.2,
+  },
+  light: {
+    bg: 0xfcfbf8, fog: 0.00009,
+    sat: 0.85, light: 0.43, mix: new THREE.Color(0x2a231b),
+    edgeMul: 0.34, edgeGround: [0.988, 0.984, 0.973], edgeOpacity: 0.4, spoke: [0.84, 0.8, 0.72],
+    hotEdge: [0.42, 0.30, 0.12], chainEdge: [0.55, 0.37, 0.06],
+    bridge: 0x8a6b24, bridgeRest: 0.7, bridgeDim: 0.18, particle: 0x8a6b24,
+    star: 0xb8b09c, starOp: 0.0, ring: 0x35312a,
+    dimTo: new THREE.Color(0xfcfbf8), dimAmt: 0.72,
+    hotLerp: new THREE.Color(0x1a120a), chainCur: 0x17171b, chainVisited: 0x8a5a10, chainLerp: 0.28,
+  },
+}
+let themePref = (() => { try { return localStorage.getItem('kaeru-viz-theme') || 'auto' } catch (_) { return 'auto' } })()
+const mql = matchMedia('(prefers-color-scheme: light)')
+const resolvedTheme = () => (themePref === 'auto' ? (mql.matches ? 'light' : 'dark') : themePref)
+let TH = THEMES[resolvedTheme()]
 
 // ── data ──────────────────────────────────────────────────────────────────
 async function loadGraph() {
@@ -63,10 +88,10 @@ const rawNodes = data.nodes.filter((n) => n.type !== 'chain')
 const primInit = (n) => (n.isHub ? n.hubInit : (n.initiatives && n.initiatives[0]) || '∅')
 
 const initNames = data.initiatives.map((i) => i.name)
-const initColor = {}, initCenter = {}
+const initHue = {}, initCenter = {}   // hue per initiative; colour is computed per-theme
 const R = 1050
 initNames.forEach((name, i) => {
-  initColor[name] = new THREE.Color().setHSL(((i * 137.508) % 360) / 360, 0.95, 0.6)
+  initHue[name] = ((i * 137.508) % 360) / 360
   const y = initNames.length > 1 ? 1 - (i / (initNames.length - 1)) * 2 : 0
   const rad = Math.sqrt(Math.max(0, 1 - y * y)), theta = i * 2.39996
   initCenter[name] = new THREE.Vector3(Math.cos(theta) * rad * R, y * R * 0.82, Math.sin(theta) * rad * R)
@@ -131,12 +156,12 @@ edges.forEach((e, i) => { adj[e.a].add(i); adj[e.b].add(i) })
 // ── scene ─────────────────────────────────────────────────────────────────
 const host = $('graph')
 const scene = new THREE.Scene()
-scene.fog = new THREE.FogExp2(BG, 0.00018)
+scene.fog = new THREE.FogExp2(TH.bg, TH.fog)
 const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 1, 8000)
 const renderer = new THREE.WebGLRenderer({ antialias: true })
 renderer.setPixelRatio(Math.min(2, devicePixelRatio))
 renderer.setSize(innerWidth, innerHeight)
-renderer.setClearColor(BG, 1)
+renderer.setClearColor(TH.bg, 1)
 host.appendChild(renderer.domElement)
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true; controls.dampingFactor = 0.08; controls.enablePan = false
@@ -174,16 +199,28 @@ const nmat = new THREE.ShaderMaterial({
   fragmentShader: `uniform sampler2D map;varying vec3 vC;varying float vA;
     void main(){if(vA<0.01)discard;vec4 t=texture2D(map,gl_PointCoord);if(t.a<0.04)discard;gl_FragColor=vec4(vC,t.a*vA);}`,
 })
-scene.add(new THREE.Points(ng, nmat))
+const nodePoints = new THREE.Points(ng, nmat); nodePoints.renderOrder = 3; scene.add(nodePoints)
 
 // edges — one LineSegments, per-vertex colour carries visibility/intensity
 const epos = new Float32Array(edges.length * 6), ecol = new Float32Array(edges.length * 6)
-edges.forEach((e, i) => { const A = nodes[e.a].pos, B = nodes[e.b].pos; epos.set([A.x, A.y, A.z, B.x, B.y, B.z], i * 6) })
+edges.forEach((e, i) => {
+  const A = nodes[e.a].pos, B = nodes[e.b].pos
+  let bx = B.x, by = B.y, bz = B.z
+  // spokes point AT the core but stop short of it, leaving a clear zone so the
+  // hub node reads through the converging threads
+  if (e.kind === 'spoke') {
+    const dx = A.x - B.x, dy = A.y - B.y, dz = A.z - B.z
+    const d = Math.hypot(dx, dy, dz) || 1
+    const t = Math.min(0.45, (48 * (clusterScale[nodes[e.b].hubInit] || 1)) / d)
+    bx += dx * t; by += dy * t; bz += dz * t
+  }
+  epos.set([A.x, A.y, A.z, bx, by, bz], i * 6)
+})
 const eg = new THREE.BufferGeometry()
 eg.setAttribute('position', new THREE.BufferAttribute(epos, 3))
 eg.setAttribute('color', new THREE.BufferAttribute(ecol, 3))
-const emat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.1, depthWrite: false })
-scene.add(new THREE.LineSegments(eg, emat))
+const emat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: TH.edgeOpacity, depthWrite: false })
+const edgeLines = new THREE.LineSegments(eg, emat); edgeLines.renderOrder = 0; scene.add(edgeLines)
 
 // cross-project bridges — their own brighter ochre layer (the 0.1 edge layer
 // would otherwise bury them)
@@ -191,24 +228,25 @@ const bgeo = new THREE.BufferGeometry()
 const bpos2 = new Float32Array(bridges.length * 6)
 bridges.forEach((e, i) => { const A = nodes[e.a].pos, B = nodes[e.b].pos; bpos2.set([A.x, A.y, A.z, B.x, B.y, B.z], i * 6) })
 bgeo.setAttribute('position', new THREE.BufferAttribute(bpos2, 3))
-const bmat = new THREE.LineBasicMaterial({ color: 0xcf8b2e, transparent: true, opacity: 0.6, depthWrite: false })
-scene.add(new THREE.LineSegments(bgeo, bmat))
+const bmat = new THREE.LineBasicMaterial({ color: TH.bridge, transparent: true, opacity: TH.bridgeRest, depthWrite: false })
+const bridgeLines = new THREE.LineSegments(bgeo, bmat); bridgeLines.renderOrder = 1; scene.add(bridgeLines)
 
 // distant starfield (depth)
 const sf = []; const sr = rng(99); for (let i = 0; i < 900; i++) sf.push(new THREE.Vector3(sr() * 2 - 1, sr() * 2 - 1, sr() * 2 - 1).normalize().multiplyScalar(2200 + sr() * 1600))
 const sg = new THREE.BufferGeometry(); const sp = new Float32Array(sf.length * 3); sf.forEach((v, i) => sp.set([v.x, v.y, v.z], i * 3))
 sg.setAttribute('position', new THREE.BufferAttribute(sp, 3))
-scene.add(new THREE.Points(sg, new THREE.PointsMaterial({ size: 3, map: TEX, color: 0x9a968c, transparent: true, opacity: 0.4, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true })))
+const starMat = new THREE.PointsMaterial({ size: 3, map: TEX, color: TH.star, transparent: true, opacity: TH.starOp, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true })
+const starPoints = new THREE.Points(sg, starMat); starPoints.renderOrder = -2; scene.add(starPoints)
 
 // bridge particles
 const bp = bridges.flatMap(() => [0.2, 0.55, 0.85])
 const bpGeo = new THREE.BufferGeometry(); const bpPos = new Float32Array(bp.length * 3)
 bpGeo.setAttribute('position', new THREE.BufferAttribute(bpPos, 3))
-const bpPoints = new THREE.Points(bpGeo, new THREE.PointsMaterial({ size: 5, map: TEX, color: 0xe6a83c, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }))
-scene.add(bpPoints)
+const bpPoints = new THREE.Points(bpGeo, new THREE.PointsMaterial({ size: 5, map: TEX, color: TH.particle, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, sizeAttenuation: true }))
+bpPoints.renderOrder = 2; scene.add(bpPoints)
 
 // selection ring
-const ring = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex(), transparent: true, depthTest: false, depthWrite: false }))
+const ring = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex(), color: TH.ring, transparent: true, depthTest: false, depthWrite: false }))
 ring.visible = false; ring.renderOrder = 10; scene.add(ring)
 
 // ── state ─────────────────────────────────────────────────────────────────
@@ -218,12 +256,28 @@ let timeFilter = Infinity
 const chain = new Set()
 let hovered = -1, pinned = -1
 
+// tier/layer colours share the SAME per-theme register as initiatives (setHSL with
+// TH.sat / TH.light) so they harmonise instead of reading as raw, off-key hexes.
+// each entry: [hue, sat multiplier, lightness delta]. layer is an ordinal ramp.
+const TIER_C = { operational: [0.03, 1.00, 0.00], archival: [0.53, 0.90, -0.02] }
+const LAYER_C = {
+  core:   [0.12, 1.00,  0.05],
+  hot:    [0.03, 1.00,  0.00],
+  warm:   [0.58, 0.92,  0.00],
+  cold:   [0.63, 0.55, -0.04],
+  frozen: [0.09, 0.28,  0.14],
+}
+const clamp01 = (x) => (x < 0 ? 0 : x > 1 ? 1 : x)
+const modeColor = (tbl, key) => { const [h, s, dl] = tbl[key] || [0.6, 1, 0]; return new THREE.Color().setHSL(h, clamp01(TH.sat * s), clamp01(TH.light + dl)) }
+
+const initSwatch = (name) => new THREE.Color().setHSL(initHue[name] ?? 0.6, TH.sat, TH.light)
 const baseColor = (n) => {
-  if (colorMode === 'tier') return new THREE.Color(TIER_COLOR[n.tier] || '#888')
-  if (colorMode === 'layer') return new THREE.Color(LAYER_COLOR[n.layer] || '#888')
-  const hue = initColor[n.init] || initColor[n.hubInit] || new THREE.Color('#9af')
+  if (colorMode === 'tier') return modeColor(TIER_C, n.tier)
+  if (colorMode === 'layer') return modeColor(LAYER_C, n.layer)
+  const h = initHue[n.init] ?? initHue[n.hubInit]
+  const base = h == null ? new THREE.Color('#9af') : new THREE.Color().setHSL(h, TH.sat, TH.light)
   const L = LAYER[n.layer] || LAYER.warm
-  return hue.clone().lerp(WHITE, L.mix)
+  return base.lerp(TH.mix, L.mix)
 }
 const visible = (n) => n.isHub ? true : (n.created_secs ?? 0) <= timeFilter
 
@@ -247,21 +301,22 @@ function applyVisuals() {
       if (n.init !== focusInit && n.hubInit !== focusInit) dim = true
     }
     _c.copy(baseColor(n))
-    if (hot === 'cur') _c.set('#ffffff')
-    else if (hot && chain.size) _c.copy(n.__visited ? new THREE.Color('#ffd86a') : baseColor(n)).lerp(WHITE, 0.2)
-    else if (dim) _c.multiplyScalar(0.2)
+    if (hot === 'cur') _c.set(TH.chainCur)
+    else if (hot && chain.size) _c.copy(n.__visited ? new THREE.Color(TH.chainVisited) : baseColor(n)).lerp(TH.hotLerp, TH.chainLerp)
+    else if (dim) _c.lerp(TH.dimTo, TH.dimAmt)
     col[i * 3] = _c.r; col[i * 3 + 1] = _c.g; col[i * 3 + 2] = _c.b
     siz[i] = size; alp[i] = a
   }
   ng.attributes.aColor.needsUpdate = ng.attributes.aSize.needsUpdate = ng.attributes.aAlpha.needsUpdate = true
   // bridges glow ochre at rest; recede while a node/chain/focus is in the spotlight
-  bmat.opacity = (chain.size || hovered >= 0 || pinned >= 0 || focusInit) ? 0.14 : 0.6
+  bmat.opacity = (chain.size || hovered >= 0 || pinned >= 0 || focusInit) ? TH.bridgeDim : TH.bridgeRest
   applyEdges()
 }
 function edgeBaseColor(e) {
   // only real + spoke edges live in this layer; bridges are a separate LineSegments
-  if (e.kind === 'spoke') return [0.15, 0.16, 0.21]
-  return EDGE_COLOR[e.type] || EDGE_DEFAULT
+  if (e.kind === 'spoke') return TH.spoke
+  const base = EDGE_COLOR[e.type] || EDGE_DEFAULT
+  return TH.edgeMul === 1 ? base : [base[0] * TH.edgeMul, base[1] * TH.edgeMul, base[2] * TH.edgeMul]
 }
 function applyEdges() {
   const anyFocus = focusInit && !chain.size
@@ -271,15 +326,21 @@ function applyEdges() {
     let c = edgeBaseColor(e), k = 1
     const vis = visible(na) && visible(nb)
     if (!vis) k = 0
-    else if (chain.size) { k = (chain.has(na.id) && chain.has(nb.id) && e.kind !== 'spoke') ? 1.4 : 0.05; if (k > 1) c = [1.0, 0.83, 0.4] }
+    else if (chain.size) { k = (chain.has(na.id) && chain.has(nb.id) && e.kind !== 'spoke') ? 1.4 : 0.05; if (k > 1) c = TH.chainEdge }
     else if (act >= 0) {
       const inc = adj[act].has(i)
-      if (inc) { k = 1.5; c = [0.95, 0.88, 0.66] } else k = 0.06
+      if (inc) { k = 1.5; c = TH.hotEdge } else k = 0.06
     } else if (anyFocus) {
       const inF = (na.init === focusInit || na.hubInit === focusInit) && (nb.init === focusInit || nb.hubInit === focusInit)
       k = inF ? 1 : 0.05
     } else if (e.kind === 'spoke') { const ml = nodes[e.a].layer; k = (ml === 'cold' || ml === 'frozen') ? 0 : 0.85 }
-    for (let q = 0; q < 6; q += 3) { ecol[i * 6 + q] = c[0] * k; ecol[i * 6 + q + 1] = c[1] * k; ecol[i * 6 + q + 2] = c[2] * k }
+    // fade toward the ground (black on dark, paper on light) by intensity k
+    const g = TH.edgeGround
+    for (let q = 0; q < 6; q += 3) {
+      ecol[i * 6 + q] = g[0] + (c[0] - g[0]) * k
+      ecol[i * 6 + q + 1] = g[1] + (c[1] - g[1]) * k
+      ecol[i * 6 + q + 2] = g[2] + (c[2] - g[2]) * k
+    }
   }
   eg.attributes.color.needsUpdate = true
 }
@@ -309,7 +370,7 @@ const hideReadout = () => readout.classList.remove('show')
 // ── hover (speed-gated, forgiving pick) ─────────────────────────────────────
 let hoverNb = new Set(), pinnedNb = new Set()
 const chip = (() => { const d = document.createElement('div'); d.id = 'nodechip'; document.body.appendChild(d); return d })()
-chip.style.cssText = 'position:fixed;z-index:11;pointer-events:none;transform:translate(-50%,-145%);background:rgba(18,18,21,.94);border:1px solid rgba(236,232,223,.2);border-radius:4px;padding:5px 9px;font-family:"Zen Old Mincho",Georgia,serif;font-size:13px;white-space:nowrap;display:none;box-shadow:0 4px 18px rgba(0,0,0,.5)'
+chip.style.cssText = 'position:fixed;z-index:11;pointer-events:none;transform:translate(-50%,-145%);padding:5px 9px;font-family:var(--serif,Georgia,serif);font-size:13px;white-space:nowrap;display:none'
 
 let mouse = null, lastMove = 0, lastP = null, speed = 0, dragging = false, downAt = null
 let hoverCand = -1, candSince = 0
@@ -366,7 +427,7 @@ function setHover(i) {
   chip.style.display = 'block'
   chip.style.left = ((_v.x * 0.5 + 0.5) * innerWidth) + 'px'
   chip.style.top = ((-_v.y * 0.5 + 0.5) * innerHeight) + 'px'
-  chip.innerHTML = `${esc(n.name)}<div style="font-family:var(--mono,monospace);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#8b887e;margin-top:2px">${esc(n.type)} · ${hoverNb.size - 1} neighbours</div>`
+  chip.innerHTML = `${esc(n.name)}<div style="font-family:var(--mono,monospace);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin-top:2px">${esc(n.type)} · ${hoverNb.size - 1} neighbours</div>`
   host.style.cursor = 'pointer'
   refreshActive()
 }
@@ -491,12 +552,12 @@ function hex(c) { return '#' + c.getHexString() }
 function buildLegend() {
   const el = $('legend')
   if (colorMode === 'initiative') {
-    el.innerHTML = data.initiatives.slice(0, 8).map((i) => `${esc(i.name)} <span class="sw" style="background:${hex(initColor[i.name])}"></span>`).join('<br>') +
+    el.innerHTML = data.initiatives.slice(0, 8).map((i) => `${esc(i.name)} <span class="sw" style="background:${hex(initSwatch(i.name))}"></span>`).join('<br>') +
       `<br><span style="opacity:.6">+ ${Math.max(0, data.initiatives.length - 8)} more</span>`
   } else if (colorMode === 'tier') {
-    el.innerHTML = `operational (hippocampus) <span class="sw" style="background:${TIER_COLOR.operational}"></span><br>archival (cortex) <span class="sw" style="background:${TIER_COLOR.archival}"></span>`
+    el.innerHTML = `operational (hippocampus) <span class="sw" style="background:${hex(modeColor(TIER_C, 'operational'))}"></span><br>archival (cortex) <span class="sw" style="background:${hex(modeColor(TIER_C, 'archival'))}"></span>`
   } else {
-    el.innerHTML = ['core', 'hot', 'warm', 'cold', 'frozen'].map((l) => `${l} <span class="sw" style="background:${LAYER_COLOR[l]}"></span>`).join('<br>')
+    el.innerHTML = ['core', 'hot', 'warm', 'cold', 'frozen'].map((l) => `${l} <span class="sw" style="background:${hex(modeColor(LAYER_C, l))}"></span>`).join('<br>')
   }
 }
 buildLegend()
@@ -568,6 +629,29 @@ $('scriptPrev').addEventListener('click', prevScene)
 $('scriptExit').addEventListener('click', exitScript)
 addEventListener('keydown', (e) => { if ($('script').hidden) return; if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextScene() } else if (e.key === 'ArrowLeft') { e.preventDefault(); prevScene() } else if (e.key === 'Escape') exitScript() })
 
+// ── theme (dark / light / auto) ──────────────────────────────────────────────
+function applyThemeToScene() {
+  renderer.setClearColor(TH.bg, 1)
+  scene.fog.color.set(TH.bg); scene.fog.density = TH.fog
+  emat.opacity = TH.edgeOpacity
+  bmat.color.set(TH.bridge)
+  bpPoints.material.color.set(TH.particle)
+  starMat.color.set(TH.star); starMat.opacity = TH.starOp
+  ring.material.color.set(TH.ring)
+  buildLegend(); applyVisuals()
+}
+function setTheme(pref) {
+  themePref = pref
+  try { localStorage.setItem('kaeru-viz-theme', pref) } catch (_) {}
+  if (pref === 'auto') document.documentElement.removeAttribute('data-theme')
+  else document.documentElement.setAttribute('data-theme', pref)
+  TH = THEMES[resolvedTheme()]
+  applyThemeToScene()
+  const seg = $('themeSeg'); if (seg) for (const b of seg.children) b.classList.toggle('on', b.dataset.t === pref)
+}
+for (const b of $('themeSeg').children) b.addEventListener('click', () => setTheme(b.dataset.t))
+mql.addEventListener('change', () => { if (themePref === 'auto') { TH = THEMES[resolvedTheme()]; applyThemeToScene() } })
+
 // ── loop ─────────────────────────────────────────────────────────────────────
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })
 let t = 0
@@ -608,4 +692,4 @@ if (new URLSearchParams(location.search).has('rec')) {
   }
 }
 
-applyVisuals(); frame(0); loop()
+setTheme(themePref); frame(0); loop()
