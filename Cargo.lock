@@ -1830,6 +1830,7 @@ name = "kaeru-rig"
 version = "0.4.2"
 dependencies = [
  "kaeru-core",
+ "reqwest 0.12.28",
  "rig-core",
  "serde",
  "serde_json",

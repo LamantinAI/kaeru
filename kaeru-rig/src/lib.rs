@@ -51,6 +51,8 @@ use serde_json::{Value, json};
 
 mod capture;
 mod chains;
+mod cloud;
+mod cloud_client;
 mod evolve;
 mod lookup;
 mod manage;
@@ -58,6 +60,8 @@ mod reason;
 
 pub use capture::*;
 pub use chains::*;
+pub use cloud::*;
+pub use cloud_client::{CloudClient, CloudRegistry};
 pub use evolve::*;
 pub use lookup::*;
 pub use manage::*;
@@ -70,6 +74,7 @@ pub use reason::*;
 pub struct KaeruMemory {
     store: Arc<Store>,
     initiative: Option<Arc<str>>,
+    clouds: CloudRegistry,
 }
 
 impl KaeruMemory {
@@ -78,6 +83,7 @@ impl KaeruMemory {
         Self {
             store,
             initiative: None,
+            clouds: CloudRegistry::default(),
         }
     }
 
@@ -87,7 +93,72 @@ impl KaeruMemory {
         Self {
             store,
             initiative: Some(Arc::from(initiative.into())),
+            clouds: CloudRegistry::default(),
         }
+    }
+
+    /// Memory scoped to one initiative **and** wired to one or more clouds — the
+    /// cloud tools (`share` / `pull` / `cloud_recall` / …) become usable, each
+    /// targeting a named cloud or the registry's default. The caller (the host
+    /// app) owns the config: it builds the [`CloudRegistry`] from its own
+    /// endpoints/tokens and hands it in; kaeru just holds and uses it.
+    pub fn with_clouds(
+        store: Arc<Store>,
+        initiative: impl Into<String>,
+        clouds: CloudRegistry,
+    ) -> Self {
+        Self {
+            store,
+            initiative: Some(Arc::from(initiative.into())),
+            clouds,
+        }
+    }
+
+    /// The cloud a tool call targets: an explicit name, else the registry
+    /// default. `None` when unknown / none configured.
+    pub(crate) fn cloud(&self, name: Option<&str>) -> Option<&CloudClient> {
+        self.clouds.get(name)
+    }
+
+    /// The full cloud registry — for tools that inspect it (name validation,
+    /// soft-link routing, discovery).
+    pub(crate) fn clouds(&self) -> &CloudRegistry {
+        &self.clouds
+    }
+
+    /// This memory's default initiative name, if scoped.
+    pub(crate) fn initiative(&self) -> Option<&str> {
+        self.initiative.as_deref()
+    }
+
+    /// Runs synchronous store work `f` on a blocking thread, scoped to this
+    /// memory's initiative, and returns its value. The generic sibling of
+    /// [`run`](Self::run) (which is `Value`-only): cloud tools interleave
+    /// several store reads/writes with network `await`s, so each store span
+    /// goes through this to stay off the async executor. A store panic (a bug)
+    /// propagates as a join failure.
+    pub(crate) async fn blocking<T, F>(&self, f: F) -> T
+    where
+        F: FnOnce(&Store) -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        self.blocking_in(None, f).await
+    }
+
+    /// Like [`blocking`](Self::blocking) but scoped to an explicit `initiative`
+    /// (falling back to the memory's own) — for the name→id resolution a cloud
+    /// tool does under a chosen initiative.
+    pub(crate) async fn blocking_in<T, F>(&self, initiative: Option<String>, f: F) -> T
+    where
+        F: FnOnce(&Store) -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        let store = self.store.clone();
+        let init: Option<String> =
+            initiative.or_else(|| self.initiative.as_deref().map(str::to_owned));
+        tokio::task::spawn_blocking(move || store.scoped(init.as_deref(), f))
+            .await
+            .expect("kaeru store task panicked")
     }
 
     /// Runs synchronous store work `f` on a blocking thread, scoped to this
@@ -289,6 +360,28 @@ impl KaeruMemory {
     pub fn export(&self) -> Export {
         Export(self.clone())
     }
+    // cloud (only meaningful when the memory was built with `with_clouds`)
+    pub fn policy(&self) -> Policy {
+        Policy(self.clone())
+    }
+    pub fn share(&self) -> Share {
+        Share(self.clone())
+    }
+    pub fn cloud_recall(&self) -> CloudRecall {
+        CloudRecall(self.clone())
+    }
+    pub fn pull(&self) -> Pull {
+        Pull(self.clone())
+    }
+    pub fn link_cloud(&self) -> LinkCloud {
+        LinkCloud(self.clone())
+    }
+    pub fn cloud_links(&self) -> CloudLinks {
+        CloudLinks(self.clone())
+    }
+    pub fn sync_review(&self) -> SyncReview {
+        SyncReview(self.clone())
+    }
 
     /// Install the **full** kaeru tool surface (parity with the kaeru MCP) onto a
     /// fresh agent builder in one call, instead of adding ~45 tools by hand. Each
@@ -360,6 +453,36 @@ impl KaeruMemory {
                 attach,
                 rename_initiative,
                 delete_initiative,
+            ]
+        )
+    }
+
+    /// Like [`install`](Self::install), plus the **cloud** tools (`share` /
+    /// `pull` / `cloud_recall` / `link_cloud` / `cloud_links` / `policy` /
+    /// `sync_review`). Use this when the memory was built with
+    /// [`with_clouds`](Self::with_clouds); the cloud tools still load without a
+    /// configured cloud, but each reports "cloud not configured" until one is
+    /// wired. (rig's builder is type-state, so cloud tools can't be toggled at
+    /// runtime inside one `install` — the caller picks the method by config.)
+    pub fn install_with_cloud<M>(
+        &self,
+        b: AgentBuilder<M, (), NoToolConfig>,
+    ) -> AgentBuilder<M, (), WithBuilderTools>
+    where
+        M: CompletionModel,
+    {
+        let b = self.install(b);
+        chain_tools!(
+            b,
+            self,
+            [
+                policy,
+                share,
+                cloud_recall,
+                pull,
+                link_cloud,
+                cloud_links,
+                sync_review,
             ]
         )
     }
@@ -497,6 +620,50 @@ macro_rules! mem_tool_in {
     };
 }
 pub(crate) use mem_tool_in;
+
+/// Like [`mem_tool!`], but for the **cloud** tools: the body is `async` and
+/// receives `mem: &KaeruMemory` (store + initiative + cloud registry) instead
+/// of a bare `&Store`. Store spans go through `mem.blocking(...)` (blocking
+/// thread); network calls `await` the [`CloudClient`] directly. The body
+/// evaluates to a `serde_json::Value` (errors as data).
+macro_rules! mem_tool_cloud {
+    (
+        $(#[$meta:meta])*
+        $tool:ident, $name:literal, $desc:expr, $args_ty:ty, $params:tt,
+        |$mem:ident, $a:ident| $body:expr
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone)]
+        pub struct $tool(pub(crate) $crate::KaeruMemory);
+
+        impl ::rig::tool::Tool for $tool {
+            const NAME: &'static str = $name;
+            type Error = ::std::convert::Infallible;
+            type Args = $args_ty;
+            type Output = ::serde_json::Value;
+
+            async fn definition(
+                &self,
+                _prompt: ::std::string::String,
+            ) -> ::rig::completion::ToolDefinition {
+                ::rig::completion::ToolDefinition {
+                    name: $name.to_string(),
+                    description: ($desc).to_string(),
+                    parameters: ::serde_json::json!($params),
+                }
+            }
+
+            async fn call(
+                &self,
+                $a: $args_ty,
+            ) -> ::core::result::Result<::serde_json::Value, ::std::convert::Infallible> {
+                let $mem = &self.0;
+                ::core::result::Result::Ok(async move { $body }.await)
+            }
+        }
+    };
+}
+pub(crate) use mem_tool_cloud;
 
 #[cfg(test)]
 mod tests {
