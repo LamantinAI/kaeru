@@ -2,7 +2,7 @@
 
 use kaeru_core::{
     attach_node, awake, delete_initiative, export_vault, lint, list_initiatives, overview, pin,
-    recent_episodes, reflect, rename_initiative, unpin,
+    recent_episodes, reflect, rename_initiative, suggest_initiative, unpin,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -19,14 +19,26 @@ mem_tool!(
     NoArgs,
     { "type": "object", "properties": {} },
     |store, _args| match awake(store) {
-        Ok(ctx) => json!({
-            "initiative": ctx.initiative,
-            "all_initiatives": ctx.all_initiatives,
-            "cortex": briefs(&ctx.cortex),
-            "pinned": briefs_by_ids(store, &ctx.pinned),
-            "recent": briefs_by_ids(store, &ctx.recent),
-            "under_review": briefs_by_ids(store, &ctx.under_review),
-        }),
+        Ok(ctx) => {
+            let mut out = json!({
+                "initiative": ctx.initiative,
+                "all_initiatives": ctx.all_initiatives,
+                "cortex": briefs(&ctx.cortex),
+                "pinned": briefs_by_ids(store, &ctx.pinned),
+                "recent": briefs_by_ids(store, &ctx.recent),
+                "under_review": briefs_by_ids(store, &ctx.under_review),
+            });
+            // Did-you-mean parity with MCP: an active scope that matches no known
+            // initiative (a typo, or a fresh project) suggests the closest one.
+            if let Some(active) = ctx.initiative.as_deref() {
+                if !ctx.all_initiatives.iter().any(|n| n == active) {
+                    if let Ok(Some(s)) = suggest_initiative(store, active) {
+                        out["did_you_mean"] = json!(s);
+                    }
+                }
+            }
+            out
+        }
         Err(e) => json!({ "error": e.to_string() }),
     }
 );

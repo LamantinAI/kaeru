@@ -1,8 +1,8 @@
 //! Capture & connect: write thoughts, references, tasks, and typed links.
 
 use kaeru_core::{
-    EdgeType, EpisodeKind, Significance, cite, complete_task, jot, link_with_weight, unlink,
-    write_episode, write_task,
+    EdgeType, EpisodeKind, Significance, cite, complete_task, jot, link_with_weight,
+    set_edge_weight, unlink, write_episode, write_task,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -114,6 +114,46 @@ mem_tool!(
                 Err(e) => json!({ "linked": false, "error": e.to_string() }),
             },
             Err(e) => json!({ "linked": false, "error": e.to_string() }),
+        }
+    }
+);
+
+#[derive(Debug, Deserialize)]
+pub struct ReweightArgs {
+    pub from: String,
+    pub to: String,
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    pub weight: f64,
+}
+
+mem_tool!(
+    /// `kaeru_reweight` — adjust an existing link's connection strength.
+    Reweight,
+    "kaeru_reweight",
+    "Adjust the strength (`weight` 0..1) of an existing link in place — stronger links make \
+     shorter knowledge chains. Use to tune which connections matter after the fact. Edge types \
+     match `kaeru_link` (default refers_to).",
+    ReweightArgs,
+    { "type": "object", "properties": {
+        "from": { "type": "string", "description": "source node name or id" },
+        "to": { "type": "string", "description": "destination node name or id" },
+        "edge_type": { "type": "string", "description": "link type (default refers_to)" },
+        "weight": { "type": "number", "description": "new strength 0..1" }
+    }, "required": ["from", "to", "weight"] },
+    |store, args| {
+        let from = resolve(store, &args.from);
+        let to = resolve(store, &args.to);
+        let weight = args.weight.clamp(0.0, 1.0);
+        match args.edge_type.as_deref().unwrap_or("refers_to").parse::<EdgeType>() {
+            Ok(et) => match set_edge_weight(store, &from, &to, et, weight) {
+                Ok(()) => json!({
+                    "reweighted": true, "from": from, "to": to,
+                    "edge_type": et.as_str(), "weight": weight
+                }),
+                Err(e) => json!({ "reweighted": false, "error": e.to_string() }),
+            },
+            Err(e) => json!({ "reweighted": false, "error": e.to_string() }),
         }
     }
 );

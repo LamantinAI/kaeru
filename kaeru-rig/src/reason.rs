@@ -1,8 +1,8 @@
 //! The hypothesis cycle and the review flow.
 
 use kaeru_core::{
-    HypothesisStatus, formulate_hypothesis, mark_resolved, mark_under_review, run_experiment,
-    update_hypothesis_status,
+    HypothesisStatus, formulate_hypothesis, mark_resolved, mark_under_review, resolve_review,
+    run_experiment, update_hypothesis_status,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -154,6 +154,34 @@ mem_tool!(
         match mark_resolved(store, &q, &by) {
             Ok(()) => json!({ "resolved": true }),
             Err(e) => json!({ "resolved": false, "error": e.to_string() }),
+        }
+    }
+);
+
+#[derive(Debug, Deserialize)]
+pub struct CloseReviewArgs {
+    pub target: String,
+    #[serde(default)]
+    pub resolution: Option<String>,
+}
+
+mem_tool!(
+    /// `kaeru_close_review` — close an open review non-destructively.
+    CloseReview,
+    "kaeru_close_review",
+    "Close an open review on a node — the counterpart to `kaeru_flag`. Retracts its `contradicts` \
+     edge(s) so it leaves `kaeru_awake`'s under-review list, while the doubt stays in history. \
+     Pass an optional `resolution` note to record how it was settled as provenance.",
+    CloseReviewArgs,
+    { "type": "object", "properties": {
+        "target": { "type": "string", "description": "node name or id whose review to close" },
+        "resolution": { "type": "string", "description": "optional note on how it was settled" }
+    }, "required": ["target"] },
+    |store, args| {
+        let target = resolve(store, &args.target);
+        match resolve_review(store, &target, args.resolution.as_deref()) {
+            Ok(closed) => json!({ "closed": closed.len(), "reviews": closed }),
+            Err(e) => json!({ "closed": 0, "error": e.to_string() }),
         }
     }
 );

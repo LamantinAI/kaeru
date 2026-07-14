@@ -146,6 +146,9 @@ impl KaeruMemory {
     pub fn link(&self) -> Link {
         Link(self.clone())
     }
+    pub fn reweight(&self) -> Reweight {
+        Reweight(self.clone())
+    }
     pub fn unlink(&self) -> Unlink {
         Unlink(self.clone())
     }
@@ -224,6 +227,9 @@ impl KaeruMemory {
     pub fn resolve(&self) -> Resolve {
         Resolve(self.clone())
     }
+    pub fn close_review(&self) -> CloseReview {
+        CloseReview(self.clone())
+    }
     // evolve: consolidation + metabolism
     pub fn settle(&self) -> Settle {
         Settle(self.clone())
@@ -296,20 +302,66 @@ impl KaeruMemory {
     where
         M: CompletionModel,
     {
-        chain_tools!(b, self, [
-            // orient / recall
-            awake, overview, recall, recent, read, drill, trace, tagged, between,
-            surface, at, history, ideas, outcomes, initiatives,
-            // capture
-            remember, cite, task, done,
-            // relate / curate
-            link, unlink, chain, chains, read_chain, rechain, path, synthesise,
-            layer, pin, unpin, flag,
-            // claims lifecycle
-            claim, test, confirm, refute, settle, revise, supersede, resolve, reopen,
-            // maintain
-            reflect, lint, forget, export, attach, rename_initiative, delete_initiative,
-        ])
+        chain_tools!(
+            b,
+            self,
+            [
+                // orient / recall
+                awake,
+                overview,
+                recall,
+                recent,
+                read,
+                drill,
+                trace,
+                tagged,
+                between,
+                surface,
+                at,
+                history,
+                ideas,
+                outcomes,
+                initiatives,
+                // capture
+                remember,
+                cite,
+                task,
+                done,
+                // relate / curate
+                link,
+                reweight,
+                unlink,
+                chain,
+                chains,
+                read_chain,
+                rechain,
+                path,
+                synthesise,
+                layer,
+                pin,
+                unpin,
+                flag,
+                close_review,
+                // claims lifecycle
+                claim,
+                test,
+                confirm,
+                refute,
+                settle,
+                revise,
+                supersede,
+                resolve,
+                reopen,
+                // maintain
+                reflect,
+                lint,
+                forget,
+                export,
+                attach,
+                rename_initiative,
+                delete_initiative,
+            ]
+        )
     }
 }
 
@@ -525,6 +577,17 @@ mod tests {
             "path found; got {path}"
         );
 
+        // reweight that link in place (tune connection strength after the fact).
+        let reweighted = mem
+            .reweight()
+            .call(args(serde_json::json!({ "from": "expiry-bug", "to": "auth-decision", "edge_type": "causal", "weight": 0.4 })))
+            .await
+            .unwrap();
+        assert_eq!(
+            reweighted["reweighted"], true,
+            "reweight ok; got {reweighted}"
+        );
+
         // awake reports the active initiative + recent captures.
         let ctx = mem.awake().call(args(serde_json::json!({}))).await.unwrap();
         assert_eq!(ctx["initiative"], "test-proj");
@@ -597,6 +660,20 @@ mod tests {
             settled["settled"], true,
             "settled to archival; got {settled}"
         );
+
+        // review flow: flag → close_review (the #26 counterpart, now in rig too).
+        let flagged = mem
+            .flag()
+            .call(args(serde_json::json!({ "target": "expiry-bug", "reason": "double-check the platform" })))
+            .await
+            .unwrap();
+        assert_eq!(flagged["flagged"], true, "flagged; got {flagged}");
+        let closed = mem
+            .close_review()
+            .call(args(serde_json::json!({ "target": "expiry-bug", "resolution": "confirmed on both platforms" })))
+            .await
+            .unwrap();
+        assert_eq!(closed["closed"], 1, "one review closed; got {closed}");
     }
 
     /// A per-call `initiative` on a capture tool routes the write to that
@@ -608,7 +685,9 @@ mod tests {
 
         // default scope → "home"
         mem.remember()
-            .call(args(serde_json::json!({ "name": "grocery", "body": "buy milk today" })))
+            .call(args(
+                serde_json::json!({ "name": "grocery", "body": "buy milk today" }),
+            ))
             .await
             .unwrap();
         // per-call override → a brand-new "finances" initiative
@@ -634,11 +713,17 @@ mod tests {
         // "finances" by passing the initiative, and by default cannot.
         let via_arg = mem
             .recall()
-            .call(args(serde_json::json!({ "query": "mortgage", "initiative": "finances" })))
+            .call(args(
+                serde_json::json!({ "query": "mortgage", "initiative": "finances" }),
+            ))
             .await
             .unwrap();
         assert!(
-            via_arg["results"].as_array().unwrap().iter().any(|r| r["name"] == "mortgage"),
+            via_arg["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["name"] == "mortgage"),
             "recall with initiative arg reaches finances; got {via_arg}"
         );
         let via_default = mem
@@ -647,7 +732,11 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            !via_default["results"].as_array().unwrap().iter().any(|r| r["name"] == "mortgage"),
+            !via_default["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["name"] == "mortgage"),
             "default (home) recall does not see finances; got {via_default}"
         );
 
@@ -659,7 +748,11 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            hit["results"].as_array().unwrap().iter().any(|r| r["name"] == "mortgage"),
+            hit["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["name"] == "mortgage"),
             "finances recall finds the routed note; got {hit}"
         );
         let miss = fin
@@ -668,7 +761,11 @@ mod tests {
             .await
             .unwrap();
         assert!(
-            !miss["results"].as_array().unwrap().iter().any(|r| r["name"] == "grocery"),
+            !miss["results"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|r| r["name"] == "grocery"),
             "the default-scope note stayed in home, not finances; got {miss}"
         );
     }
