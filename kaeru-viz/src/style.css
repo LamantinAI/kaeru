@@ -23,15 +23,15 @@
   :root:not([data-theme]) {
     --bg: #fcfbf8; --fg: #35312a; --fg-2: #544d42; --dim: #6e6557; --faint: #a99e8c;
     --line: rgba(53, 49, 42, 0.14); --line-2: rgba(53, 49, 42, 0.20);
-    --panel: #ffffff; --panel-2: rgba(252, 251, 248, 0.86); --ctl-bg: #f4efe6;
-    --gold: #8a6b24; --seal-fg: #8a2a1a;
+    --panel: #eee9d8; --panel-2: rgba(238, 233, 216, 0.86); --ctl-bg: #f4efe6;
+    --gold: #caa24a; --seal-fg: #8a2a1a;
   }
 }
 :root[data-theme="light"] {
   --bg: #fcfbf8; --fg: #35312a; --fg-2: #544d42; --dim: #6e6557; --faint: #a99e8c;
   --line: rgba(53, 49, 42, 0.14); --line-2: rgba(53, 49, 42, 0.20);
-  --panel: #ffffff; --panel-2: rgba(252, 251, 248, 0.86); --ctl-bg: #f4efe6;
-  --gold: #8a6b24; --seal-fg: #8a2a1a;
+  --panel: #eee9d8; --panel-2: rgba(238, 233, 216, 0.86); --ctl-bg: #f4efe6;
+  --gold: #caa24a; --seal-fg: #8a2a1a;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
