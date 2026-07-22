@@ -15,7 +15,11 @@ authors = ["GrumpyChubbyCat <lamantin-ai@yandex.ru>"]
 # disk-mode `Store::open(path)` opens the embedded RocksDB engine via
 # `DbInstance::new("rocksdb", path, "")`. The "compact" default features
 # (minimal + requests + graph-algo) stay on.
-cozo = { version = "0.7", features = ["storage-rocksdb"] }
+# default-features off drops cozo's `minimal` bundle, which forces the sqlite
+# storage engine (dep `sqlite3-src`, `links = "sqlite3"`) — kaeru only ever opens
+# the "mem"/"rocksdb" engines, so it was dead weight, and it clashed with any other
+# sqlite (e.g. an app that also uses sqlx). Keep graph-algo + requests + rocksdb.
+cozo = { version = "0.7", default-features = false, features = ["graph-algo", "requests", "storage-rocksdb"] }
 
 # CLI parsing
 clap = { version = "4", features = ["derive", "env"] }
