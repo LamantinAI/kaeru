@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { createReader } from './reader.js'
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
@@ -55,6 +56,7 @@ const THEMES = {
     hotLerp: new THREE.Color(0x1a120a), chainCur: 0x17171b, chainVisited: 0x8a5a10, chainLerp: 0.28,
   },
 }
+let reader = null          // the reader view; built once the graph is in (see below)
 let themePref = (() => { try { return localStorage.getItem('kaeru-viz-theme') || 'auto' } catch (_) { return 'auto' } })()
 const mql = matchMedia('(prefers-color-scheme: light)')
 const resolvedTheme = () => (themePref === 'auto' ? (mql.matches ? 'light' : 'dark') : themePref)
@@ -362,6 +364,7 @@ function showReadout(n, step, total) {
       <div class="tags">${meta}</div>
       <p>${esc(n.body || (n.redacted ? '⟨body redacted⟩' : (n.isHub ? 'A project cluster — hover its nodes to explore.' : '—')))}</p>
       ${n.isHub ? '' : `<div class="ts">asserted <b>${asserted}</b></div>`}
+      ${n.isHub ? '' : `<button class="btn go rd" data-read="${esc(n.id)}">read this trail →</button>`}
     </div>`
   readout.classList.add('show')
 }
@@ -505,6 +508,46 @@ data.chains.forEach((c, i) => { const o = document.createElement('option'); o.va
 $('chainPlay').addEventListener('click', () => { const c = data.chains[+chainPick.value || 0]; if (c) startReplay(c) })
 $('chainReset').addEventListener('click', resetChain)
 
+// ── reader: the same chain, read instead of surveyed ────────────────────────
+reader = createReader(data, { fmtDateTime })
+let readerOpen = false
+const readBtn = $('chainRead')
+async function setReader(on, nodeId) {
+  if (on) {
+    readBtn.textContent = '…'
+    const ok = nodeId
+      ? await reader.showNode(nodeId)
+      : await reader.show((data.chains[+chainPick.value || 0] || {}).id)
+    readBtn.textContent = ok ? 'galaxy' : 'read'
+    if (!ok) return
+    // if the node sat on a saved chain, let the picker follow the reader
+    const cid = reader.chainId()
+    if (cid) {
+      const i = data.chains.findIndex((c) => c.id === cid)
+      if (i >= 0 && +chainPick.value !== i) { chainPick.value = i; chainPick._sync && chainPick._sync() }
+    }
+  }
+  readerOpen = on
+  $('reader').hidden = !on
+  if (on) { setHover(-1); chip.style.display = 'none' }   // drop the galaxy's hover chip
+  readBtn.classList.toggle('go', on)
+  readBtn.textContent = on ? 'galaxy' : 'read'
+  // the panel stays; the rest of the galaxy's chrome belongs to the galaxy
+  $('readout').hidden = on
+  $('legend').hidden = on
+  $('readerSeg').hidden = !on            // reader controls join the console
+  $('colorMode').closest('.seg').hidden = on   // colour-by belongs to the galaxy
+  $('focus').closest('.seg').hidden = on
+}
+readBtn.addEventListener('click', () => setReader(!readerOpen))
+// the readout is rebuilt on every hover, so delegate rather than re-bind
+$('readout').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-read]')
+  if (b) setReader(true, b.dataset.read)
+})
+// picking another chain while reading re-reads it
+chainPick.addEventListener('change', () => { if (readerOpen) setReader(true) })
+
 // custom archive-styled dropdowns over the (hidden) native selects
 function makeDropdown(sel) {
   sel.style.display = 'none'
@@ -639,6 +682,7 @@ function applyThemeToScene() {
   starMat.color.set(TH.star); starMat.opacity = TH.starOp
   ring.material.color.set(TH.ring)
   buildLegend(); applyVisuals()
+  if (reader) reader.redraw()
 }
 function setTheme(pref) {
   themePref = pref
@@ -673,7 +717,8 @@ function loop() {
   // auto-rotate only when idle — stop on hover, chain, focus, tour, camera tween
   controls.autoRotate = !(window.__rec && window.__rec.active) &&
     hovered < 0 && !chain.size && !focusInit && $('script').hidden && !tween
-  controls.update(); renderer.render(scene, camera)
+  controls.update()
+  if (!readerOpen) renderer.render(scene, camera)   // the reader covers the canvas
 }
 
 // recording hook — only present with ?rec, drives a deterministic seamless orbit
