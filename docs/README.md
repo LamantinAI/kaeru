@@ -15,6 +15,10 @@ this folder is the deeper "how it's built and why" reference.
 - **[structure.md](structure.md)** — the code map: the four crates, the
   `kaeru-core` module layout (graph / recall / mutate), and where a given
   concern lives.
+- **[board.md](board.md)** — the task board: how a per-initiative status registry
+  turns the existing `task` nodes into a customizable tracker, why a card's
+  column is a tag while the column *order* is a registry, and the JSON contract a
+  UI builds a board (and a time scrubber) on.
 - **[curator-api.md](curator-api.md)** — the verb taxonomy: the ~40 curator
   primitives grouped by what they do (re-entry, capture, link & chain, recall,
   time-travel, evolve, initiatives, sharing, maintenance), with the epistemic
