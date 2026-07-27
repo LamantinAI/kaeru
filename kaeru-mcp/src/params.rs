@@ -124,6 +124,17 @@ pub struct ScopeOnly {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct BoardParams {
+    /// Initiative whose board to show (required).
+    #[serde(default)]
+    pub initiative: Option<String>,
+    /// Optional moment to rewind the board to (unix seconds, RFC-3339, or
+    /// `5m` / `2h` ago). Omit for the board as it stands now.
+    #[serde(default)]
+    pub when: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct SetStatusParams {
     /// Task node name or id to move.
     pub task: String,

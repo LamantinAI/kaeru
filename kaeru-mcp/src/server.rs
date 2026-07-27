@@ -640,10 +640,10 @@ impl KaeruServer {
 
     // ----- Task board ----------------------------------------------------
     #[tool(
-        description = "Show the initiative's task board: status columns (from its registry, in order, empties included) with the tasks bucketed into them. Requires `initiative`."
+        description = "Show the initiative's task board: status columns (from its registry, in order, empties included) with the tasks bucketed into them. Requires `initiative`. Optional `when` rewinds the whole board — columns and cards — to a past moment (unix seconds, RFC-3339, or `5m` / `2h` ago)."
     )]
-    fn board(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
-        tools::board::board(&self.store, p.initiative.as_deref())
+    fn board(&self, Parameters(p): Parameters<BoardParams>) -> Result<CallToolResult, McpError> {
+        tools::board::board(&self.store, p.initiative.as_deref(), p.when.as_deref())
     }
 
     #[tool(

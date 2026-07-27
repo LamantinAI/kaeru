@@ -82,7 +82,7 @@ pub fn set_status(store: &Store, initiative: &str, task_id: &NodeId, status: &st
 /// Finds `initiative`'s `Board` node, creating it (seeded from
 /// [`DEFAULT_STATUSES`]) if it doesn't exist yet. Returns the board id.
 pub fn ensure_board(store: &Store, initiative: &str) -> Result<NodeId> {
-    if let Some(id) = board_node_id(store, initiative)? {
+    if let Some(id) = board_node_id(store, initiative, None)? {
         return Ok(id);
     }
     let id = new_node_id();
@@ -151,7 +151,7 @@ where
     F: FnOnce(&mut Vec<BoardStatus>) -> Result<()>,
 {
     let board_id = ensure_board(store, initiative)?;
-    let mut statuses = read_board_statuses(store, &board_id)?;
+    let mut statuses = read_board_statuses(store, &board_id, None)?;
     if statuses.is_empty() {
         statuses = default_statuses();
     }
@@ -284,6 +284,37 @@ mod tests {
             count_in(&board_view(&store, "proj").unwrap(), "in-progress"),
             1
         );
+    }
+
+    /// The board is bi-temporal for free: a card's column is a tag on the task,
+    /// so reading the substrate at a past moment rewinds the whole board — the
+    /// card sits where it sat then. This is what a time-lapse scrubber rides on.
+    #[test]
+    fn board_rewinds_to_a_past_moment() {
+        use crate::board_view_at;
+
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("proj");
+        let id = write_task(&store, "write the spec", None).expect("task");
+
+        // t0: the task is open. Capture the moment, then move it.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let t0 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as f64;
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        set_status(&store, "proj", &id, "done").expect("move");
+
+        // NOW: it's done.
+        let now = board_view(&store, "proj").expect("now");
+        assert_eq!(count_in(&now, "done"), 1, "done today");
+        assert_eq!(count_in(&now, "open"), 0);
+
+        // t0: it was open — the board as it stood, not today's snapshot.
+        let past = board_view_at(&store, "proj", Some(t0)).expect("past");
+        assert_eq!(count_in(&past, "open"), 1, "was open at t0; got {past:?}");
+        assert_eq!(count_in(&past, "done"), 0, "not yet done at t0");
     }
 
     #[test]

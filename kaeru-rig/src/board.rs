@@ -23,14 +23,18 @@ fn target_initiative(mem: &KaeruMemory, arg: &Option<String>) -> Option<String> 
 pub struct BoardArgs {
     #[serde(default)]
     pub initiative: Option<String>,
+    /// Unix seconds to rewind the board to. Omit for the board as it stands now.
+    #[serde(default)]
+    pub when: Option<f64>,
 }
 
 async fn do_board(mem: &KaeruMemory, a: BoardArgs) -> Value {
     let Some(init) = target_initiative(mem, &a.initiative) else {
         return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
     };
+    let at = a.when;
     match mem
-        .blocking(move |s| kaeru_core::board_view(s, &init))
+        .blocking(move |s| kaeru_core::board_view_at(s, &init, at))
         .await
     {
         Ok(view) => json!({
@@ -141,10 +145,12 @@ mem_tool_cloud!(
     Board,
     "kaeru_board",
     "Show the task board for an initiative: status columns (from its registry, in order, empty \
-     ones included) with the tasks bucketed into them. Defaults to the memory's initiative.",
+     ones included) with the tasks bucketed into them. Defaults to the memory's initiative. Pass \
+     `when` (unix seconds) to rewind the whole board — columns and cards — to a past moment.",
     BoardArgs,
     { "type": "object", "properties": {
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" }
+        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
+        "when": { "type": "number", "description": "unix seconds to rewind the board to (omit for now)" }
     } },
     |mem, a| do_board(mem, a).await
 );

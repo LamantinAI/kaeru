@@ -27,7 +27,10 @@ pub mod under_review;
 pub mod walk;
 
 pub use between::{EdgeRow, between, cloud_links, edges_of};
-pub use board::{BoardColumn, BoardStatus, BoardTask, BoardView, board_view, effective_statuses};
+pub use board::{
+    BoardColumn, BoardStatus, BoardTask, BoardView, board_view, board_view_at, effective_statuses,
+    effective_statuses_at,
+};
 pub use by_name::{
     count_by_type, local_nodes_for_review, node_brief_by_id, read_node_full, recall_id_by_name,
     recall_id_by_name_at, recall_id_by_name_global,

@@ -64,20 +64,39 @@ pub struct BoardView {
     pub columns: Vec<BoardColumn>,
 }
 
-/// The `Board` node's id for `initiative`, or `None` when the initiative hasn't
-/// customized its board yet. Datalog guarantees at most one board per
-/// initiative in practice (created find-or-create); the first is taken.
-pub(crate) fn board_node_id(store: &Store, initiative: &str) -> Result<Option<NodeId>> {
+/// The bi-temporal read modifier: `'NOW'` for the present, or a literal unix
+/// timestamp to read the graph as it stood at that moment. Every board read
+/// funnels its `@ …` through here so the whole board — columns *and* cards —
+/// can be rewound together.
+fn at_expr(at: Option<f64>) -> String {
+    match at {
+        Some(secs) => format!("{secs}"),
+        None => "'NOW'".to_string(),
+    }
+}
+
+/// The `Board` node's id for `initiative` (as of `at`, or NOW), or `None` when
+/// the initiative hasn't customized its board yet. Datalog guarantees at most
+/// one board per initiative in practice (created find-or-create); the first is
+/// taken.
+pub(crate) fn board_node_id(
+    store: &Store,
+    initiative: &str,
+    at: Option<f64>,
+) -> Result<Option<NodeId>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("init".to_string(), DataValue::Str(initiative.into()));
-    let script = r#"
-        ?[id] := *node_initiative{initiative, node_id: id},
+    let script = format!(
+        r#"
+        ?[id] := *node_initiative{{initiative, node_id: id}},
                  initiative = $init,
-                 *node{id, type @ 'NOW'}, type = 'board'
-    "#;
+                 *node{{id, type @ {at}}}, type = 'board'
+    "#,
+        at = at_expr(at)
+    );
     let rows = store
         .db_ref()
-        .run_script(script, params, ScriptMutability::Immutable)?;
+        .run_script(&script, params, ScriptMutability::Immutable)?;
     Ok(rows
         .rows
         .first()
@@ -86,17 +105,24 @@ pub(crate) fn board_node_id(store: &Store, initiative: &str) -> Result<Option<No
         .map(String::from))
 }
 
-/// Reads a board node's `properties.statuses` into an ordered `Vec`. Malformed
-/// / missing entries are skipped defensively.
-pub(crate) fn read_board_statuses(store: &Store, board_id: &NodeId) -> Result<Vec<BoardStatus>> {
+/// Reads a board node's `properties.statuses` into an ordered `Vec` (as of
+/// `at`, or NOW). Malformed / missing entries are skipped defensively.
+pub(crate) fn read_board_statuses(
+    store: &Store,
+    board_id: &NodeId,
+    at: Option<f64>,
+) -> Result<Vec<BoardStatus>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("bid".to_string(), DataValue::Str(board_id.clone().into()));
-    let script = r#"
-        ?[properties] := *node{id, properties @ 'NOW'}, id = $bid
-    "#;
+    let script = format!(
+        r#"
+        ?[properties] := *node{{id, properties @ {at}}}, id = $bid
+    "#,
+        at = at_expr(at)
+    );
     let rows = store
         .db_ref()
-        .run_script(script, params, ScriptMutability::Immutable)?;
+        .run_script(&script, params, ScriptMutability::Immutable)?;
     let Some(DataValue::Json(JsonData(v))) = rows.rows.first().and_then(|r| r.first()) else {
         return Ok(Vec::new());
     };
@@ -120,12 +146,22 @@ pub(crate) fn read_board_statuses(store: &Store, board_id: &NodeId) -> Result<Ve
     Ok(statuses)
 }
 
-/// The status vocabulary in force for `initiative`: the customized board's
-/// registry if one exists, otherwise the built-in [`DEFAULT_STATUSES`]. Never
-/// writes — the read side and `set_status` both validate against this.
+/// The status vocabulary in force for `initiative` **now**: the customized
+/// board's registry if one exists, otherwise the built-in [`DEFAULT_STATUSES`].
+/// Never writes — the read side and `set_status` both validate against this.
 pub fn effective_statuses(store: &Store, initiative: &str) -> Result<Vec<BoardStatus>> {
-    if let Some(board_id) = board_node_id(store, initiative)? {
-        let statuses = read_board_statuses(store, &board_id)?;
+    effective_statuses_at(store, initiative, None)
+}
+
+/// [`effective_statuses`] as of `at` (unix seconds), or NOW when `None` — so a
+/// rewound board shows the columns as they stood then, not today's.
+pub fn effective_statuses_at(
+    store: &Store,
+    initiative: &str,
+    at: Option<f64>,
+) -> Result<Vec<BoardStatus>> {
+    if let Some(board_id) = board_node_id(store, initiative, at)? {
+        let statuses = read_board_statuses(store, &board_id, at)?;
         if !statuses.is_empty() {
             return Ok(statuses);
         }
@@ -144,19 +180,33 @@ pub fn effective_statuses(store: &Store, initiative: &str) -> Result<Vec<BoardSt
 /// tag. A task whose status isn't a known column (legacy / drift) falls into
 /// the first column so it never disappears.
 pub fn board_view(store: &Store, initiative: &str) -> Result<BoardView> {
-    let statuses = effective_statuses(store, initiative)?;
+    board_view_at(store, initiative, None)
+}
+
+/// [`board_view`] as of `at` (unix seconds), or NOW when `None` — the board as
+/// it stood at that moment: the columns of the day *and* each task in the
+/// column it was in then.
+///
+/// This is free of any extra bookkeeping: a card's column is a bi-temporal tag
+/// on the task, so rewinding the substrate rewinds the board. It's what lets a
+/// UI scrub a sprint's history rather than only show its end state.
+pub fn board_view_at(store: &Store, initiative: &str, at: Option<f64>) -> Result<BoardView> {
+    let statuses = effective_statuses_at(store, initiative, at)?;
     let excerpt_chars = store.config().body_excerpt_chars;
 
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("init".to_string(), DataValue::Str(initiative.into()));
-    let script = r#"
+    let script = format!(
+        r#"
         ?[id, name, body, tags, validity] :=
-            *node_initiative{initiative, node_id: id}, initiative = $init,
-            *node{id, type, name, body, tags, validity @ 'NOW'}, type = 'task'
-    "#;
+            *node_initiative{{initiative, node_id: id}}, initiative = $init,
+            *node{{id, type, name, body, tags, validity @ {at}}}, type = 'task'
+    "#,
+        at = at_expr(at)
+    );
     let rows = store
         .db_ref()
-        .run_script(script, params, ScriptMutability::Immutable)?;
+        .run_script(&script, params, ScriptMutability::Immutable)?;
 
     // Column index by key; the first column is the fallback bucket.
     let mut columns: Vec<BoardColumn> = statuses
