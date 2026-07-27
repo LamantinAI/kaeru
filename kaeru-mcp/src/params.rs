@@ -124,6 +124,35 @@ pub struct ScopeOnly {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct SetStatusParams {
+    /// Task node name or id to move.
+    pub task: String,
+    /// Target status (board column key) — must exist in the initiative's board.
+    pub status: String,
+    /// Initiative whose board defines the valid statuses (required).
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct BoardStatusParams {
+    /// What to do: `add` / `remove` / `relabel` / `reorder`.
+    pub action: String,
+    /// Status key (stable id). Required for add / remove / relabel.
+    #[serde(default)]
+    pub key: Option<String>,
+    /// Human label. Required for relabel; optional for add (defaults to key).
+    #[serde(default)]
+    pub label: Option<String>,
+    /// Full ordered list of existing keys. Required for reorder.
+    #[serde(default)]
+    pub order: Option<Vec<String>>,
+    /// Initiative whose board to customize (required).
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct SurfaceParams {
     /// Comma/space-separated memory layers to surface, e.g. `cold,frozen`
     /// or `cold`. Defaults to `cold,frozen` when omitted.

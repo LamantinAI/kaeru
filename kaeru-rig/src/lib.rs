@@ -7,7 +7,7 @@
 //! as discrete tools, each with its own schema, over a shared `Arc<Store>`. A
 //! rig agent gets the same memory vocabulary a Claude Code session has over MCP:
 //! capture, recall, time-travel, knowledge chains, the hypothesis cycle,
-//! consolidation, metabolism, and session re-entry.
+//! consolidation, metabolism, the task board, and session re-entry.
 //!
 //! Pick the tools an agent should have and add them to its toolset:
 //!
@@ -34,11 +34,17 @@
 //! Every tool runs its store work on a blocking thread via
 //! [`tokio::task::spawn_blocking`], so a tool call never blocks the async
 //! executor. A single `Arc<Store>` is one RocksDB writer — point one
-//! `KaeruMemory` (one initiative) at one vault.
+//! `KaeruMemory` (one initiative) at one vault. The **cloud** tools are the
+//! one natively-async family: they `.await` the HTTP client and keep only
+//! their store spans on the blocking pool, since only they do real network I/O.
 //!
-//! **Out of scope here:** the cloud sharing verbs (`share` / `pull` /
-//! `cloud_recall` / …) need an HTTP client to a `kaeru-cloud` service; that is
-//! the `kaeru-mcp` daemon's job, not the embedded adapter's.
+//! **Cloud (optional).** Build the memory with
+//! [`KaeruMemory::with_clouds`] and a [`CloudRegistry`] to reach one or more
+//! `kaeru-cloud` endpoints in process — `share` / `pull` / `cloud_recall` /
+//! `link_cloud` / `cloud_links` / `sync_review` / `policy`, the same surface
+//! (and the same two sharing gates) the `kaeru-mcp` daemon exposes. The host
+//! app owns the endpoint/token config; [`KaeruMemory::install_with_cloud`]
+//! installs those tools on top of the local set.
 
 use std::sync::Arc;
 
@@ -49,6 +55,7 @@ use rig::agent::{AgentBuilder, NoToolConfig, WithBuilderTools};
 use rig::completion::CompletionModel;
 use serde_json::{Value, json};
 
+mod board;
 mod capture;
 mod chains;
 mod cloud;
@@ -58,6 +65,7 @@ mod lookup;
 mod manage;
 mod reason;
 
+pub use board::*;
 pub use capture::*;
 pub use chains::*;
 pub use cloud::*;
@@ -228,6 +236,16 @@ impl KaeruMemory {
     }
     pub fn done(&self) -> Done {
         Done(self.clone())
+    }
+    // task board
+    pub fn board(&self) -> Board {
+        Board(self.clone())
+    }
+    pub fn set_status(&self) -> SetStatus {
+        SetStatus(self.clone())
+    }
+    pub fn board_status(&self) -> BoardStatusEdit {
+        BoardStatusEdit(self.clone())
     }
     // lookup
     pub fn recall(&self) -> Recall {
@@ -420,6 +438,10 @@ impl KaeruMemory {
                 cite,
                 task,
                 done,
+                // task board
+                board,
+                set_status,
+                board_status,
                 // relate / curate
                 link,
                 reweight,
@@ -841,6 +863,67 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(closed["closed"], 1, "one review closed; got {closed}");
+
+        // task board: a fresh task defaults to `open`; move it, read the board,
+        // customize a column, and confirm strict validation.
+        let bt = mem
+            .task()
+            .call(args(serde_json::json!({ "body": "triage the inbox" })))
+            .await
+            .unwrap();
+        let bt_id = bt["id"].as_str().unwrap().to_string();
+        std::thread::sleep(std::time::Duration::from_millis(1100)); // cross validity second
+        let moved = mem
+            .set_status()
+            .call(args(
+                serde_json::json!({ "task": bt_id, "status": "in-progress" }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(moved["moved"], true, "moved; got {moved}");
+
+        let board = mem.board().call(args(serde_json::json!({}))).await.unwrap();
+        let in_prog = board["columns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["key"] == "in-progress")
+            .unwrap();
+        assert!(
+            in_prog["tasks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|t| t["id"] == bt_id.as_str()),
+            "task sits in in-progress; got {board}"
+        );
+
+        // customize: add a column
+        let edit = mem
+            .board_status()
+            .call(args(
+                serde_json::json!({ "action": "add", "key": "blocked", "label": "Blocked" }),
+            ))
+            .await
+            .unwrap();
+        assert!(
+            edit["statuses"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["key"] == "blocked"),
+            "column added; got {edit}"
+        );
+
+        // strict: an unknown status is refused
+        let bad = mem
+            .set_status()
+            .call(args(
+                serde_json::json!({ "task": bt_id, "status": "ghost" }),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(bad["moved"], false, "unknown status refused; got {bad}");
     }
 
     /// A per-call `initiative` on a capture tool routes the write to that

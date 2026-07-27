@@ -6,6 +6,7 @@
 //!
 //! Mirrors the layout of `kaeru-cli/src/commands/`.
 
+pub mod board;
 pub mod capture;
 pub mod chain;
 pub mod cloud;

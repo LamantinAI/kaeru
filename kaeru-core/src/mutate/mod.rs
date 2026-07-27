@@ -15,6 +15,7 @@ use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
 
+pub mod board;
 pub mod chain;
 pub mod cite;
 pub mod consolidate;
@@ -31,6 +32,9 @@ pub mod supersedes;
 pub mod synthesise;
 pub mod task;
 
+pub use board::{
+    add_status, ensure_board, relabel_status, remove_status, reorder_statuses, set_status,
+};
 pub use chain::{ChainOutcome, RechainStats, create_chain, extend_chain, regenerate_chain};
 pub use cite::{cite, cite_with_layer};
 pub use consolidate::{consolidate_in, consolidate_out};

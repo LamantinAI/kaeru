@@ -67,6 +67,7 @@ kaeru-core/src/
 │   ├── fts.rs              ← fuzzy_recall via Cozo FTS
 │   ├── initiatives.rs      ← list_initiatives
 │   ├── between.rs          ← edges between two nodes (both directions)
+│   ├── board.rs            ← task board: status registry + bucketed view
 │   └── tagged.rs           ← read by tag
 └── mutate/                 ← write-side primitives
     ├── mod.rs              ← shared helpers (now_validity_seconds, RMW reads, attach_node_to_initiative)
@@ -78,6 +79,7 @@ kaeru-core/src/
     ├── hypothesis.rs       ← formulate / run_experiment / update_status
     ├── consolidate.rs      ← consolidate_out / consolidate_in
     ├── metabolism.rs       ← forget / improve
+    ├── board.rs            ← set_status + the board's status registry
     └── cite.rs             ← Reference node with URL in properties JSON
 ```
 
@@ -128,6 +130,7 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 - Bi-temporal `Validity` is core to the design — when introducing a new stored relation in `kaeru-core`, decide explicitly whether `Validity` belongs in the PK. Most domain relations do (`node`, `edge`); junction relations do not.
 - `audit_event` nodes are written automatically by every mutation primitive in `kaeru-core`. Do not bypass mutation primitives by writing to substrate directly from `kaeru-mcp`.
 - The project is a **facilitator, not an enforcer**. MCP tools hint when context is missing (e.g. no active initiative); they do not block. Cognitive primitives are available tools, not mandatory protocol. Do not introduce required call sequences.
+- **The task board is the one deliberate exception.** `set_status` validates strictly against the initiative's status registry and refuses an unknown key. That is not enforcement of a *workflow* — any task may move to any column, in any order — it protects the registry's role as the single source of truth for a shared vocabulary: a typo must not silently spawn a phantom column. Widening the vocabulary stays an explicit act (`add_status`). The board describes columns; it never gates transitions.
 
 ## Backend Rules
 

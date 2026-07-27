@@ -1,0 +1,221 @@
+//! Task-board reads — the status registry + a bucketed board view.
+//!
+//! A board is a per-initiative status *registry*: one `Board` node whose
+//! `properties.statuses` is the ordered `{key, label}` vocabulary. Task nodes
+//! carry `status:<key>`; a board view buckets the initiative's tasks into the
+//! registry's columns, in order, empty columns included.
+//!
+//! Until an initiative customizes its board (via `board_status`), no `Board`
+//! node exists and the *effective* statuses are the built-in defaults — so a
+//! plain read never writes. `set_status` validates against these same
+//! effective statuses.
+
+use std::collections::BTreeMap;
+
+use cozo::{DataValue, JsonData, ScriptMutability};
+
+use super::truncate_excerpt;
+use crate::errors::Result;
+use crate::graph::NodeId;
+use crate::graph::temporal::validity_seconds;
+use crate::store::Store;
+
+/// The built-in status vocabulary an initiative starts with, before it
+/// customizes its board. `open` first (matches `write_task`'s default), `done`
+/// last.
+pub const DEFAULT_STATUSES: [(&str, &str); 3] = [
+    ("open", "Open"),
+    ("in-progress", "In Progress"),
+    ("done", "Done"),
+];
+
+/// One column of the registry: a stable `key` (the `status:<key>` tag) plus a
+/// human `label` (freely re-editable without touching task tags).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BoardStatus {
+    pub key: String,
+    pub label: String,
+}
+
+/// A task as it appears on the board — lighter than `NodeBrief`, with the
+/// `due:` date surfaced for card display and the assertion `ts` for the
+/// time-lapse scrubber.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoardTask {
+    pub id: NodeId,
+    pub name: String,
+    pub body_excerpt: Option<String>,
+    pub due: Option<String>,
+    pub ts: Option<f64>,
+}
+
+/// One column: its status plus the tasks bucketed into it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoardColumn {
+    pub key: String,
+    pub label: String,
+    pub tasks: Vec<BoardTask>,
+}
+
+/// A full board view for an initiative — columns in registry order.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoardView {
+    pub initiative: String,
+    pub columns: Vec<BoardColumn>,
+}
+
+/// The `Board` node's id for `initiative`, or `None` when the initiative hasn't
+/// customized its board yet. Datalog guarantees at most one board per
+/// initiative in practice (created find-or-create); the first is taken.
+pub(crate) fn board_node_id(store: &Store, initiative: &str) -> Result<Option<NodeId>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("init".to_string(), DataValue::Str(initiative.into()));
+    let script = r#"
+        ?[id] := *node_initiative{initiative, node_id: id},
+                 initiative = $init,
+                 *node{id, type @ 'NOW'}, type = 'board'
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .first()
+        .and_then(|r| r.first())
+        .and_then(|v| v.get_str())
+        .map(String::from))
+}
+
+/// Reads a board node's `properties.statuses` into an ordered `Vec`. Malformed
+/// / missing entries are skipped defensively.
+pub(crate) fn read_board_statuses(store: &Store, board_id: &NodeId) -> Result<Vec<BoardStatus>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("bid".to_string(), DataValue::Str(board_id.clone().into()));
+    let script = r#"
+        ?[properties] := *node{id, properties @ 'NOW'}, id = $bid
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+    let Some(DataValue::Json(JsonData(v))) = rows.rows.first().and_then(|r| r.first()) else {
+        return Ok(Vec::new());
+    };
+    let statuses = v
+        .get("statuses")
+        .and_then(|s| s.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|e| {
+                    let key = e.get("key").and_then(|x| x.as_str())?.to_string();
+                    let label = e
+                        .get("label")
+                        .and_then(|x| x.as_str())
+                        .map(String::from)
+                        .unwrap_or_else(|| key.clone());
+                    Some(BoardStatus { key, label })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(statuses)
+}
+
+/// The status vocabulary in force for `initiative`: the customized board's
+/// registry if one exists, otherwise the built-in [`DEFAULT_STATUSES`]. Never
+/// writes — the read side and `set_status` both validate against this.
+pub fn effective_statuses(store: &Store, initiative: &str) -> Result<Vec<BoardStatus>> {
+    if let Some(board_id) = board_node_id(store, initiative)? {
+        let statuses = read_board_statuses(store, &board_id)?;
+        if !statuses.is_empty() {
+            return Ok(statuses);
+        }
+    }
+    Ok(DEFAULT_STATUSES
+        .iter()
+        .map(|(k, l)| BoardStatus {
+            key: (*k).to_string(),
+            label: (*l).to_string(),
+        })
+        .collect())
+}
+
+/// The board view for `initiative`: every effective column in order (empty
+/// ones included), with the initiative's tasks bucketed by their `status:`
+/// tag. A task whose status isn't a known column (legacy / drift) falls into
+/// the first column so it never disappears.
+pub fn board_view(store: &Store, initiative: &str) -> Result<BoardView> {
+    let statuses = effective_statuses(store, initiative)?;
+    let excerpt_chars = store.config().body_excerpt_chars;
+
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("init".to_string(), DataValue::Str(initiative.into()));
+    let script = r#"
+        ?[id, name, body, tags, validity] :=
+            *node_initiative{initiative, node_id: id}, initiative = $init,
+            *node{id, type, name, body, tags, validity @ 'NOW'}, type = 'task'
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+
+    // Column index by key; the first column is the fallback bucket.
+    let mut columns: Vec<BoardColumn> = statuses
+        .iter()
+        .map(|s| BoardColumn {
+            key: s.key.clone(),
+            label: s.label.clone(),
+            tasks: Vec::new(),
+        })
+        .collect();
+    let index: BTreeMap<String, usize> = statuses
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.key.clone(), i))
+        .collect();
+
+    for row in &rows.rows {
+        let id = row
+            .first()
+            .and_then(|v| v.get_str())
+            .map(String::from)
+            .unwrap_or_default();
+        let name = row
+            .get(1)
+            .and_then(|v| v.get_str())
+            .map(String::from)
+            .unwrap_or_default();
+        let body_excerpt = row
+            .get(2)
+            .and_then(|v| v.get_str())
+            .map(|s| truncate_excerpt(s, excerpt_chars));
+        let tags: Vec<&str> = match row.get(3) {
+            Some(DataValue::List(items)) => items.iter().filter_map(|x| x.get_str()).collect(),
+            _ => Vec::new(),
+        };
+        let status = tags
+            .iter()
+            .find_map(|t| t.strip_prefix("status:"))
+            .unwrap_or("");
+        let due = tags
+            .iter()
+            .find_map(|t| t.strip_prefix("due:"))
+            .map(String::from);
+        let ts = validity_seconds(row.get(4));
+
+        let col = index.get(status).copied().unwrap_or(0);
+        if let Some(c) = columns.get_mut(col) {
+            c.tasks.push(BoardTask {
+                id,
+                name,
+                body_excerpt,
+                due,
+                ts,
+            });
+        }
+    }
+
+    Ok(BoardView {
+        initiative: initiative.to_string(),
+        columns,
+    })
+}

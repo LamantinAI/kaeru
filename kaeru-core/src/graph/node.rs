@@ -67,6 +67,10 @@ pub enum NodeType {
     /// A materialized "knowledge chain" — an ordered reasoning path saved as
     /// a node; members live in the `chain_member` relation.
     Chain,
+    /// A task board's status registry — one per initiative. Holds the ordered
+    /// `{key, label}` status vocabulary in `properties.statuses`; task nodes
+    /// carry `status:<key>` and are bucketed into its columns.
+    Board,
     // Archival
     Idea,
     Outcome,
@@ -90,6 +94,7 @@ impl NodeType {
             NodeType::Episode => "episode",
             NodeType::AuditEvent => "audit_event",
             NodeType::Chain => "chain",
+            NodeType::Board => "board",
             NodeType::Idea => "idea",
             NodeType::Outcome => "outcome",
             NodeType::Reference => "reference",
@@ -130,6 +135,7 @@ impl FromStr for NodeType {
             "episode" => Ok(NodeType::Episode),
             "audit_event" => Ok(NodeType::AuditEvent),
             "chain" => Ok(NodeType::Chain),
+            "board" => Ok(NodeType::Board),
             "idea" => Ok(NodeType::Idea),
             "outcome" => Ok(NodeType::Outcome),
             "reference" => Ok(NodeType::Reference),

@@ -638,6 +638,41 @@ impl KaeruServer {
         tools::task::done(&self.store, &p.name, p.initiative.as_deref())
     }
 
+    // ----- Task board ----------------------------------------------------
+    #[tool(
+        description = "Show the initiative's task board: status columns (from its registry, in order, empties included) with the tasks bucketed into them. Requires `initiative`."
+    )]
+    fn board(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
+        tools::board::board(&self.store, p.initiative.as_deref())
+    }
+
+    #[tool(
+        description = "Move a task to a board column: sets its `status:<key>`, strictly validated against the initiative's board registry (unknown status is refused). The general form of `done`."
+    )]
+    fn set_status(
+        &self,
+        Parameters(p): Parameters<SetStatusParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::board::set_status(&self.store, &p.task, &p.status, p.initiative.as_deref())
+    }
+
+    #[tool(
+        description = "Customize the initiative's board columns: action add (key,label?) / remove (key) / relabel (key,label) / reorder (order = all keys permuted). The board is created from defaults [open, in-progress, done] on first edit."
+    )]
+    fn board_status(
+        &self,
+        Parameters(p): Parameters<BoardStatusParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::board::board_status(
+            &self.store,
+            p.initiative.as_deref(),
+            &p.action,
+            p.key.as_deref(),
+            p.label.as_deref(),
+            p.order.as_deref(),
+        )
+    }
+
     // ----- Metabolism ----------------------------------------------------
     #[tool(
         description = "Bi-temporal forget — retract a node and every edge connected to it. Historical reads still see it; reads at NOW skip."
