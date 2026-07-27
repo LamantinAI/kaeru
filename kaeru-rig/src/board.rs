@@ -10,12 +10,7 @@
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{KaeruMemory, mem_tool_cloud, resolve};
-
-/// The initiative a board call targets: an explicit arg, else the memory's own.
-fn target_initiative(mem: &KaeruMemory, arg: &Option<String>) -> Option<String> {
-    arg.clone().or_else(|| mem.initiative().map(String::from))
-}
+use crate::{KaeruMemory, mem_tool_cloud, resolve, target_initiative};
 
 // ── board (read) ─────────────────────────────────────────────────────────────
 

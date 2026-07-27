@@ -521,6 +521,13 @@ pub(crate) fn resolve(store: &Store, name_or_id: &str) -> String {
         .unwrap_or_else(|| name_or_id.to_string())
 }
 
+/// The initiative a per-call tool targets: the explicit arg when given, else the
+/// memory's own. Shared by the tool families whose operation is keyed by
+/// initiative *name* (board, cloud) rather than by the ambient scope.
+pub(crate) fn target_initiative(mem: &KaeruMemory, arg: &Option<String>) -> Option<String> {
+    arg.clone().or_else(|| mem.initiative().map(String::from))
+}
+
 /// Like [`resolve`], but resolves across **all** initiatives. Tool bodies run
 /// inside `KaeruMemory::run` → `Store::scoped(<memory initiative>)`, so a plain
 /// `resolve` only sees the memory's own initiative — no good for `attach`,

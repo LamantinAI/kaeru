@@ -30,12 +30,11 @@ mem_tool!(
             });
             // Did-you-mean parity with MCP: an active scope that matches no known
             // initiative (a typo, or a fresh project) suggests the closest one.
-            if let Some(active) = ctx.initiative.as_deref() {
-                if !ctx.all_initiatives.iter().any(|n| n == active) {
-                    if let Ok(Some(s)) = suggest_initiative(store, active) {
-                        out["did_you_mean"] = json!(s);
-                    }
-                }
+            if let Some(active) = ctx.initiative.as_deref()
+                && !ctx.all_initiatives.iter().any(|n| n == active)
+                && let Ok(Some(s)) = suggest_initiative(store, active)
+            {
+                out["did_you_mean"] = json!(s);
             }
             out
         }
