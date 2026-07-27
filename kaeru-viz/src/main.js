@@ -490,6 +490,7 @@ $('timePlay').addEventListener('click', () => (timeAnim ? stopTimeLapse() : star
 // ── focus ───────────────────────────────────────────────────────────────────
 function setFocus(name) {
   focusInit = name || null; $('focus').value = name || ''; $('focus')._sync && $('focus')._sync()
+  markActiveProject()
   pinned = -1; pinnedNb = new Set()
   applyVisuals()
   if (focusInit) frameCluster(focusInit, 1400); else frame(1200)
@@ -592,18 +593,41 @@ $('stats').innerHTML =
   `<div class="cell"><div class="n">${m.chain_count ?? data.chains.length}</div><div class="l">chains</div></div>` +
   `<div class="cell span">${fmtDate(T0)} — ${fmtDate(T1)}<span class="sub">one agent · ${Math.round((T1 - T0) / 86400)} days</span></div>`
 function hex(c) { return '#' + c.getHexString() }
+// The project list is the colour key AND the way to narrow the galaxy: the
+// swatch tells you what a cluster's colour means, the row focuses it.
+function markActiveProject() {
+  const el = $('projects'); if (!el) return
+  for (const row of el.children) row.classList.toggle('on', (row.dataset.init || null) === focusInit)
+}
+function buildProjects() {
+  const el = $('projects')
+  const rows = [...data.initiatives].sort((a, b) => (b.node_count || 0) - (a.node_count || 0))
+  el.innerHTML =
+    `<div class="pr all${focusInit ? '' : ' on'}" data-init="">
+       <span class="nm">all projects</span><span class="ct">${rawNodes.length}</span>
+       <span class="sw" style="background:transparent"></span></div>` +
+    rows.map((i) => `<div class="pr${focusInit === i.name ? ' on' : ''}" data-init="${esc(i.name)}" title="${esc(i.name)}">
+       <span class="nm">${esc(i.name)}</span><span class="ct">${i.node_count || 0}</span>
+       <span class="sw" style="background:${hex(initSwatch(i.name))}"></span></div>`).join('')
+  for (const row of el.children) {
+    row.addEventListener('click', () => {
+      const name = row.dataset.init || null
+      setFocus(focusInit === name ? null : name)   // clicking the active one clears it
+    })
+  }
+}
+
 function buildLegend() {
   const el = $('legend')
   if (colorMode === 'initiative') {
-    el.innerHTML = data.initiatives.slice(0, 8).map((i) => `${esc(i.name)} <span class="sw" style="background:${hex(initSwatch(i.name))}"></span>`).join('<br>') +
-      `<br><span style="opacity:.6">+ ${Math.max(0, data.initiatives.length - 8)} more</span>`
+    el.innerHTML = ''            // the project list above already carries the swatches
   } else if (colorMode === 'tier') {
     el.innerHTML = `operational (hippocampus) <span class="sw" style="background:${hex(modeColor(TIER_C, 'operational'))}"></span><br>archival (cortex) <span class="sw" style="background:${hex(modeColor(TIER_C, 'archival'))}"></span>`
   } else {
     el.innerHTML = ['core', 'hot', 'warm', 'cold', 'frozen'].map((l) => `${l} <span class="sw" style="background:${hex(modeColor(LAYER_C, l))}"></span>`).join('<br>')
   }
 }
-buildLegend()
+buildLegend(); buildProjects()
 
 // ── camera framing ───────────────────────────────────────────────────────────
 function boundsOf(filter) {
@@ -681,7 +705,7 @@ function applyThemeToScene() {
   bpPoints.material.color.set(TH.particle)
   starMat.color.set(TH.star); starMat.opacity = TH.starOp
   ring.material.color.set(TH.ring)
-  buildLegend(); applyVisuals()
+  buildLegend(); buildProjects(); applyVisuals()
   if (reader) reader.redraw()
 }
 function setTheme(pref) {
@@ -695,6 +719,71 @@ function setTheme(pref) {
 }
 for (const b of $('themeSeg').children) b.addEventListener('click', () => setTheme(b.dataset.t))
 mql.addEventListener('change', () => { if (themePref === 'auto') { TH = THEMES[resolvedTheme()]; applyThemeToScene() } })
+
+// ── find a node by name, instead of hunting for it in the galaxy ────────────
+const findInput = $('findInput'), findHits = $('findHits')
+let hits = [], hitAt = -1
+// nodes only: hubs are reachable from the project list above
+const searchable = nodes.filter((n) => !n.isHub)
+
+function goToNode(i) {
+  const n = nodes[i]; if (!n) return
+  // a hit must not stay invisible: lift the time filter and any project focus
+  if (!visible(n)) { timeFilter = Infinity; timeEl.value = 100; timeLabel('— full graph —') }
+  if (focusInit && n.init !== focusInit) setFocus(null)
+  if (readerOpen) setReader(false)
+  chain.clear(); nodes.forEach((x) => { x.__visited = false; x.__cur = false })
+  pinNode(i); flyTo(n.pos, 1100)
+}
+function closeHits() { findHits.hidden = true; hits = []; hitAt = -1 }
+function renderHits() {
+  if (!hits.length) { findHits.innerHTML = '<div class="none">nothing found</div>'; findHits.hidden = false; return }
+  findHits.innerHTML = hits.map((i, k) => {
+    const n = nodes[i]
+    return `<div class="hit${k === hitAt ? ' on' : ''}" data-i="${i}">
+      <span class="hn">${esc(n.name)}</span>
+      <span class="hm">${esc(n.type)} · ${esc(n.init)}</span></div>`
+  }).join('')
+  findHits.hidden = false
+  for (const row of findHits.children) {
+    if (!row.dataset.i) continue
+    row.addEventListener('mousedown', (e) => { e.preventDefault(); goToNode(+row.dataset.i); closeHits(); findInput.blur() })
+  }
+}
+function runFind() {
+  const q = findInput.value.trim().toLowerCase()
+  if (q.length < 2) { closeHits(); return }
+  const starts = [], has = []
+  for (let i = 0; i < searchable.length && starts.length + has.length < 200; i++) {
+    const nm = searchable[i].name.toLowerCase()
+    const at = nm.indexOf(q)
+    if (at === 0) starts.push(idx.get(searchable[i].id))
+    else if (at > 0) has.push(idx.get(searchable[i].id))
+  }
+  hits = [...starts, ...has].slice(0, 40)
+  hitAt = hits.length ? 0 : -1
+  renderHits()
+}
+findInput.addEventListener('input', runFind)
+findInput.addEventListener('focus', () => { if (findInput.value.trim().length >= 2) runFind() })
+findInput.addEventListener('blur', () => setTimeout(closeHits, 120))
+findInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { findInput.value = ''; closeHits(); findInput.blur(); return }
+  if (!hits.length) return
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    hitAt = (hitAt + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length
+    renderHits()
+    findHits.children[hitAt]?.scrollIntoView({ block: 'nearest' })
+  } else if (e.key === 'Enter' && hitAt >= 0) {
+    e.preventDefault(); goToNode(hits[hitAt]); closeHits(); findInput.blur()
+  }
+})
+// "/" focuses the search, the way every other tool does it
+addEventListener('keydown', (e) => {
+  if (e.key !== '/' || e.target.tagName === 'INPUT' || !$('script').hidden) return
+  e.preventDefault(); findInput.focus(); findInput.select()
+})
 
 // ── loop ─────────────────────────────────────────────────────────────────────
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })

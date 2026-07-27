@@ -96,7 +96,16 @@
     </section>
 
     <aside id="readout"></aside>
-    <div id="legend"></div>
+
+    <!-- right rail: find a node by name, or narrow the galaxy to one project -->
+    <aside id="rail">
+      <div id="find">
+        <input id="findInput" type="search" placeholder="find a node…" autocomplete="off" spellcheck="false" />
+        <div id="findHits" hidden></div>
+      </div>
+      <div id="projects"></div>
+      <div id="legend"></div>
+    </aside>
 
     <section id="script" hidden>
       <div class="scriptcard">
