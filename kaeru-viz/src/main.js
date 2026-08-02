@@ -517,11 +517,14 @@ const readBtn = $('chainRead')
 async function setReader(on, nodeId) {
   if (on) {
     readBtn.textContent = '…'
+    // Unhide BEFORE laying out: the reader measures card heights to stack its
+    // lanes, and a `display:none` subtree measures zero.
+    $('reader').hidden = false
     const ok = nodeId
       ? await reader.showNode(nodeId)
       : await reader.show((data.chains[+chainPick.value || 0] || {}).id)
     readBtn.textContent = ok ? 'galaxy' : 'read'
-    if (!ok) return
+    if (!ok) { $('reader').hidden = true; return }
     // if the node sat on a saved chain, let the picker follow the reader
     const cid = reader.chainId()
     if (cid) {

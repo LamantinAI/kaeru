@@ -304,7 +304,15 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .step .meta .t { color: var(--acc); font-weight: 500; }
 .step .meta .s { opacity: .45; }
 .step h2 { margin: 11px 0 0; font-weight: 500; font-size: 23px; line-height: 1.24; letter-spacing: -.01em; }
-.step .body { margin-top: 12px; font-size: 15px; line-height: 1.7; color: var(--fg-2); }
+/* Enough to read at a glance, capped so one long node cannot dominate the
+   trail; `expand` lifts the cap. */
+.step .body { position: relative; margin-top: 12px; font-size: 15px; line-height: 1.7;
+  color: var(--fg-2); max-height: 320px; overflow: hidden; }
+.step .body.clipped::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0;
+  height: 64px; background: linear-gradient(to bottom, transparent, var(--bg)); }
+.step.open .body { max-height: none; overflow: visible; }
+.step.open .body.clipped::after { content: none; }
+.step.aside.open .body, .step.aside .body { }
 .step .body p { margin: 0 0 11px; }
 .step .body p:last-child { margin-bottom: 0; }
 .step .foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding-top: 13px;

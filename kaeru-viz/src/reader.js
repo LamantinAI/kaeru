@@ -162,8 +162,8 @@ export function createReader(data, { fmtDateTime }) {
       const main = onChain.has(id), idx = steps.findIndex((s) => s.id === id)
       // You opened the reader to read: the body starts OPEN. Folding is the
       // opt-in, for when a long trail needs to be scanned rather than read.
-      const long = (n.body || '').length > 380
-      const brief = long ? n.body.slice(0, 380).replace(/\s\S*$/, '') + '…' : (n.body || '')
+      // the body is always rendered whole — CSS caps what is visible, so the
+      // trail keeps its shape and `expand` only lifts the cap
       const el = h(`<div class="step${main ? '' : ' aside'}" data-id="${id}" style="left:${x}px;top:${y}px;--acc:${acc}">
         <div class="pad">
           <div class="meta"><span class="num">${main ? String(idx + 1).padStart(2, '0') : '—'}</span>
@@ -171,23 +171,27 @@ export function createReader(data, { fmtDateTime }) {
             <span>${esc(n.tier)}</span><span class="s">·</span><span>${esc(n.layer)}</span></div>
           <h2>${esc(deslug(n.name))}</h2>
           <div class="body">${paras(n.body || '')}</div>
-          <div class="foot"><span class="when">asserted <b>${when(n)}</b></span>
-            ${long ? '<button class="more">collapse</button>' : ''}</div>
+          <div class="foot"><span class="when">asserted <b>${when(n)}</b></span></div>
         </div></div>`)
       world.appendChild(el)
-      const more = el.querySelector('.more')
-      if (more) more.onclick = () => {
-        const folded = more.dataset.folded === '1'
-        el.querySelector('.body').innerHTML = paras(folded ? n.body : brief)
-        more.dataset.folded = folded ? '' : '1'
-        more.textContent = folded ? 'collapse' : 'expand'
-        drawTrack()
+      // only offer the control when there is genuinely more to see
+      const body = el.querySelector('.body')
+      if (body.scrollHeight > body.clientHeight + 4) {
+        body.classList.add('clipped')
+        const more = h('<button type="button" class="more">expand</button>')
+        el.querySelector('.foot').appendChild(more)
+        more.onclick = () => {
+          const open = el.classList.toggle('open')
+          more.textContent = open ? 'collapse' : 'expand'
+          restack(); drawTrack()
+        }
       }
-      // one consequence hung above the node, if it has one outside the research
-      const above = (ADJ[id] || []).filter((l) => !research.has(l.o) && !shared.has(l.o) && l.dir === 'in' && l.t === 'refers_to')
-      placeSat(above.slice(0, 1), x, y - 300, id)
     })
 
+    // A lane's height is whatever its tallest card turned out to be. Spacing
+    // lanes by a fixed constant worked only while bodies were clipped; with
+    // them open a long card runs straight through the lane below it.
+    restack()
     labelLanes(onChain)
     placeBedrock()
     drawTrack()
@@ -195,6 +199,32 @@ export function createReader(data, { fmtDateTime }) {
     // whole research — a deep one fits only by shrinking the text to nothing.
     requestAnimationFrame(frameStart)
   }
+  /** Stack lanes by measured height, then hang each node's satellite above it. */
+  function restack() {
+    const byLane = {}
+    Object.entries(POS).forEach(([id, p]) => {
+      const el = world.querySelector(`.step[data-id="${id}"]`); if (!el) return
+      ;(byLane[p.lane] = byLane[p.lane] || []).push({ id, p, el })
+    })
+    const GAP = 150, SAT = 260      // between lanes, and room for a satellite above
+    let top = SPINE_Y - 70
+    Object.keys(byLane).map(Number).sort((a, b) => a - b).forEach((ln) => {
+      const row = byLane[ln]
+      const hasSat = row.some(({ id }) => satOf(id).length)
+      if (hasSat) top += SAT
+      row.forEach(({ p, el }) => { p.y = top; el.style.top = `${top}px` })
+      top += Math.max(...row.map(({ el }) => el.offsetHeight)) + GAP
+    })
+    // satellites only now, when the card they hang off has its final position
+    Object.entries(POS).forEach(([id, p]) => {
+      const list = satOf(id); if (!list.length) return
+      const el = world.querySelector(`.step[data-id="${id}"]`); if (!el) return
+      placeSat(list.slice(0, 1), p.x, p.y - 240, id)
+    })
+  }
+  const satOf = (id) => (ADJ[id] || []).filter((l) =>
+    !research.has(l.o) && !shared.has(l.o) && l.dir === 'in' && l.t === 'refers_to')
+
   function placeSat(list, sx, y, ofId) {
     list.forEach((l, j) => {
       const n = N[l.o]; if (!n) return
@@ -213,8 +243,10 @@ export function createReader(data, { fmtDateTime }) {
   function labelLanes(onChain) {
     const heads = {}
     Object.entries(POS).forEach(([id, p]) => { if (!heads[p.lane] || p.d < POS[heads[p.lane]].d) heads[p.lane] = id })
+    // exactly one lane is the authored trail: the one carrying its first step
+    const mainLane = steps.length && POS[steps[0].id] ? POS[steps[0].id].lane : 0
     Object.entries(heads).forEach(([ln, id]) => {
-      const p = POS[id], main = onChain.has(id)
+      const p = POS[id], main = +ln === mainLane
       // above its own first card, never beside it — to the left is where the
       // title page sits, and the tag used to collide with it
       world.appendChild(h(`<div class="lanetag${main ? ' main' : ''}" style="left:${p.x}px;top:${p.y - 30}px">
@@ -224,7 +256,12 @@ export function createReader(data, { fmtDateTime }) {
   function placeBedrock() {
     if (!shared.size) return
     const xs = Object.values(POS).map((p) => p.x)
-    const y = SPINE_Y - 70 + lanes * LANE_DY + 120, total = shared.size
+    let lowest = SPINE_Y
+    Object.entries(POS).forEach(([id, p]) => {
+      const el = world.querySelector(`.step[data-id="${id}"]`)
+      lowest = Math.max(lowest, p.y + (el ? el.offsetHeight : 300))
+    })
+    const y = lowest + 150, total = shared.size
     const mid = (Math.min(...xs) + Math.max(...xs) + 540) / 2, left = mid - (total * 310) / 2
     world.appendChild(h(`<div class="bedlabel" style="left:${left}px;top:${y - 30}px">
       shared ground — more than one line rests on this</div>`))
