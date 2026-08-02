@@ -36,7 +36,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   font-family: var(--serif); overflow: hidden;
-  transition: background .3s ease, color .3s ease; }
+  transition: background-color .3s ease, color .3s ease; }
 [hidden] { display: none !important; }
 #graph { position: fixed; inset: 0; }
 
@@ -184,6 +184,13 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 #readout .ts b { color: var(--gold); font-weight: 400; }
 
 /* ── legend ───────────────────────────────────────────── */
+/* keyboard focus is visible everywhere; pointer users still see nothing */
+:focus-visible { outline: 2px solid var(--seal); outline-offset: 2px; border-radius: 2px; }
+
+/* for text only assistive tech should read */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
 /* ── right rail: find a node, or narrow to one project ─── */
 #rail { position: fixed; right: 22px; top: 96px; bottom: 96px; width: 236px; z-index: 9;
   display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
@@ -193,7 +200,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   border: 1px solid var(--line-2); border-radius: 3px; padding: 0 10px;
   font-family: var(--mono); font-size: 12px; }
 #findInput::placeholder { color: var(--faint); }
-#findInput:focus { outline: none; border-color: var(--seal); }
+#findInput:focus { border-color: var(--seal); }
 #findInput::-webkit-search-cancel-button { -webkit-appearance: none; }
 #findHits { position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 12;
   max-height: 46vh; overflow-y: auto; background: var(--panel);
@@ -204,25 +211,25 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 #findHits .hit:hover, #findHits .hit.on { background: var(--ctl-bg); }
 #findHits .hn { font-family: var(--serif); font-size: 13px; color: var(--fg); line-height: 1.3;
   display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#findHits .hm { font-family: var(--mono); font-size: 9.5px; color: var(--faint);
+#findHits .hm { font-family: var(--mono); font-size: 9.5px; color: var(--dim);
   letter-spacing: .06em; text-transform: uppercase; margin-top: 4px; display: block; }
-#findHits .none { padding: 9px 11px; font-family: var(--mono); font-size: 11px; color: var(--faint); }
+#findHits .none { padding: 9px 11px; font-family: var(--mono); font-size: 11px; color: var(--dim); }
 
 /* the colour key doubles as the project menu — click a row to narrow the galaxy */
 #projects { flex: 1 1 auto; min-height: 0; overflow-y: auto; text-align: right;
   scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 #projects::-webkit-scrollbar { width: 8px; }
 #projects::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
-#projects .pr { display: flex; align-items: center; justify-content: flex-end; gap: 9px;
-  padding: 4px 2px 4px 8px; border-radius: 3px; cursor: pointer; font-family: var(--mono);
-  font-size: 10.5px; letter-spacing: .03em; color: var(--dim); line-height: 1.5;
-  transition: color .12s, background .12s; }
+#projects .pr { display: flex; align-items: center; justify-content: flex-end; gap: 9px; width: 100%;
+  padding: 4px 2px 4px 8px; border: 0; background: 0; border-radius: 3px; cursor: pointer;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .03em; color: var(--dim);
+  line-height: 1.5; text-align: right; transition: color .12s, background .12s; }
 #projects .pr:hover { color: var(--fg); background: var(--panel-2); }
 #projects .pr.on { color: var(--fg); }
 #projects .pr.on .nm::after { content: ""; position: absolute; right: -8px; top: 50%;
   width: 3px; height: 3px; margin-top: -1.5px; border-radius: 50%; background: var(--seal); }
 #projects .nm { position: relative; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-#projects .ct { color: var(--faint); font-variant-numeric: tabular-nums; flex: none; }
+#projects .ct { color: var(--fg-2); font-variant-numeric: tabular-nums; flex: none; }
 #projects .sw { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 #projects .all { border-bottom: 1px solid var(--line); margin-bottom: 5px; padding-bottom: 7px; }
 
@@ -291,7 +298,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   background: var(--acc); border-radius: 4px 0 0 4px; }
 .step .pad { padding: 22px 30px 20px; }
 .step .meta { display: flex; align-items: center; gap: 9px; font-family: var(--mono); font-size: 10px;
-  letter-spacing: .13em; text-transform: uppercase; color: var(--faint); cursor: grab; }
+  letter-spacing: .13em; text-transform: uppercase; color: var(--dim); }
 .step .num { font-family: var(--mono); font-size: 11px; letter-spacing: .06em; color: var(--seal);
   font-weight: 500; flex: none; }
 .step .meta .t { color: var(--acc); font-weight: 500; }
@@ -301,27 +308,30 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .step .body p { margin: 0 0 11px; }
 .step .body p:last-child { margin-bottom: 0; }
 .step .foot { display: flex; align-items: center; gap: 14px; margin-top: 16px; padding-top: 13px;
-  border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; color: var(--faint); }
+  border-top: 1px solid var(--line); font-family: var(--mono); font-size: 10.5px; color: var(--fg-2); }
 .step .foot .when b { color: var(--gold); font-weight: 400; }
 /* a node on a side line of inquiry — same anatomy, quieter voice */
 .step.aside { width: 470px; background: var(--ctl-bg); }
 .step.aside h2 { font-size: 20px; }
 .step.aside .body { font-size: 14px; }
-.step.aside .num { color: var(--faint); }
+.step.aside .num { color: var(--dim); }
 .more { border: 0; background: 0; padding: 0; cursor: pointer; font-family: var(--mono);
   font-size: 10.5px; color: var(--gold); letter-spacing: .02em; }
 .more:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 /* satellites, and the ground several lines rest on */
 .sat { position: absolute; width: 290px; background: var(--ctl-bg); border: 1px solid var(--line);
-  border-radius: 4px; padding: 13px 15px; cursor: pointer;
-  transition: transform .15s, border-color .15s; }
+  border-radius: 4px; padding: 13px 15px; cursor: pointer; display: block; text-align: left;
+  font: inherit; color: inherit; transition: transform .15s, border-color .15s; }
 .sat:hover { transform: translateY(-2px); border-color: var(--line-2); }
-.sat .rel { font-family: var(--mono); font-size: 9px; letter-spacing: .15em; text-transform: uppercase;
-  color: var(--acc); margin-bottom: 7px; }
-.sat h3 { margin: 0; font-weight: 500; font-size: 15px; line-height: 1.34; }
-.sat .ex { margin: 7px 0 0; font-size: 13px; line-height: 1.55; color: var(--dim); }
-.sat .tag { margin-top: 9px; font-family: var(--mono); font-size: 9.5px; color: var(--faint); letter-spacing: .04em; }
+.sat .rel { display: block; font-family: var(--mono); font-size: 9px; letter-spacing: .15em;
+  text-transform: uppercase; color: var(--acc); margin-bottom: 7px; }
+.sat .h3 { display: block; font-family: var(--serif); font-weight: 500; font-size: 15px;
+  line-height: 1.34; color: var(--fg); }
+.sat .ex { display: block; margin-top: 7px; font-family: var(--serif); font-size: 13px;
+  line-height: 1.55; color: var(--dim); }
+.sat .tag { display: block; margin-top: 9px; font-family: var(--mono); font-size: 9.5px;
+  color: var(--dim); letter-spacing: .04em; }
 .sat.bed { background: var(--bg); border-color: var(--line-2); }
 .sat.bed .rel { color: var(--gold); }
 .bedlabel { position: absolute; width: 640px; white-space: nowrap; font-family: var(--mono);
@@ -329,7 +339,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .lanetag { position: absolute; white-space: nowrap; font-family: var(--mono); font-size: 10px;
   letter-spacing: .1em; text-transform: uppercase; color: var(--dim); line-height: 1;
   display: flex; align-items: baseline; gap: 9px; }
-.lanetag .ln { font-size: 19px; letter-spacing: 0; color: var(--faint); font-weight: 500; }
+.lanetag .ln { font-size: 19px; letter-spacing: 0; color: var(--dim); font-weight: 500; }
 .lanetag.main { color: var(--fg-2); }
 .lanetag.main .ln { color: var(--seal); }
 
@@ -370,3 +380,11 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   border: 1px solid var(--line); border-radius: 2px; padding: 0 4px; }
 /* the way into the reader from a node you clicked in the galaxy */
 #readout .rd { margin-top: 13px; width: 100%; justify-content: center; }
+
+/* ── motion, only for those who want it ────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
+}

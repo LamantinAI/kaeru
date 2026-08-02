@@ -100,10 +100,14 @@
     <!-- right rail: find a node by name, or narrow the galaxy to one project -->
     <aside id="rail">
       <div id="find">
-        <input id="findInput" type="search" placeholder="find a node…" autocomplete="off" spellcheck="false" />
-        <div id="findHits" hidden></div>
+        <label class="sr-only" for="findInput">Find a node by name</label>
+        <input id="findInput" type="search" placeholder="find a node…" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="false" aria-controls="findHits"
+               aria-autocomplete="list" aria-haspopup="listbox" />
+        <div id="findHits" role="listbox" aria-label="Search results" hidden></div>
       </div>
-      <div id="projects"></div>
+      <p id="findStatus" class="sr-only" role="status" aria-live="polite"></p>
+      <div id="projects" role="group" aria-label="Projects"></div>
       <div id="legend"></div>
     </aside>
 

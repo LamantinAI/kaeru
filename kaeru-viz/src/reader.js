@@ -200,11 +200,12 @@ export function createReader(data, { fmtDateTime }) {
       const n = N[l.o]; if (!n) return
       const acc = LAYER_ACCENT[n.layer] || 'var(--dim)'
       const label = (REL[l.t] || [l.t, l.t])[l.dir === 'out' ? 0 : 1]
-      const el = h(`<div class="sat" data-id="${n.id}" data-of="${ofId}"
-          style="left:${sx + 8 + j * 310}px;top:${y}px;--acc:${acc}" title="read this node">
-        <div class="rel">${esc(label)}</div><h3>${esc(deslug(n.name))}</h3>
-        <p class="ex">${clip(n.body, 110)}</p>
-        <div class="tag">${esc(n.type)} · ${esc(n.tier)}</div></div>`)
+      const el = h(`<button type="button" class="sat" data-id="${n.id}" data-of="${ofId}"
+          style="left:${sx + 8 + j * 310}px;top:${y}px;--acc:${acc}"
+          aria-label="Read ${esc(deslug(n.name))} — ${esc(label)}">
+        <span class="rel">${esc(label)}</span><span class="h3">${esc(deslug(n.name))}</span>
+        <span class="ex">${clip(n.body, 110)}</span>
+        <span class="tag">${esc(n.type)} · ${esc(n.tier)}</span></button>`)
       el.onclick = () => openNode(n.id)
       world.appendChild(el)
     })
@@ -230,11 +231,12 @@ export function createReader(data, { fmtDateTime }) {
     ;[...shared].forEach(([id, v], i) => {
       const n = N[id]; if (!n) return
       const acc = LAYER_ACCENT[n.layer] || 'var(--dim)'
-      const el = h(`<div class="sat bed" data-id="${id}" data-steps="${v.steps.join(',')}"
-          style="left:${left + i * 310}px;top:${y}px;--acc:${acc}" title="read this node">
-        <div class="rel">shared ground · ${v.n}×</div><h3>${esc(deslug(n.name))}</h3>
-        <p class="ex">${clip(n.body, 130)}</p>
-        <div class="tag">${esc(n.type)} · ${esc(n.tier)}</div></div>`)
+      const el = h(`<button type="button" class="sat bed" data-id="${id}" data-steps="${v.steps.join(',')}"
+          style="left:${left + i * 310}px;top:${y}px;--acc:${acc}"
+          aria-label="Read ${esc(deslug(n.name))} — shared ground for ${v.n} steps">
+        <span class="rel">shared ground · ${v.n}×</span><span class="h3">${esc(deslug(n.name))}</span>
+        <span class="ex">${clip(n.body, 130)}</span>
+        <span class="tag">${esc(n.type)} · ${esc(n.tier)}</span></button>`)
       el.onclick = () => openNode(id)
       world.appendChild(el)
     })

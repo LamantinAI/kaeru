@@ -57,6 +57,7 @@ const THEMES = {
   },
 }
 let reader = null          // the reader view; built once the graph is in (see below)
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
 let themePref = (() => { try { return localStorage.getItem('kaeru-viz-theme') || 'auto' } catch (_) { return 'auto' } })()
 const mql = matchMedia('(prefers-color-scheme: light)')
 const resolvedTheme = () => (themePref === 'auto' ? (mql.matches ? 'light' : 'dark') : themePref)
@@ -597,18 +598,23 @@ function hex(c) { return '#' + c.getHexString() }
 // swatch tells you what a cluster's colour means, the row focuses it.
 function markActiveProject() {
   const el = $('projects'); if (!el) return
-  for (const row of el.children) row.classList.toggle('on', (row.dataset.init || null) === focusInit)
+  for (const row of el.children) {
+    const on = (row.dataset.init || null) === focusInit
+    row.classList.toggle('on', on); row.setAttribute('aria-pressed', String(on))
+  }
 }
 function buildProjects() {
   const el = $('projects')
   const rows = [...data.initiatives].sort((a, b) => (b.node_count || 0) - (a.node_count || 0))
   el.innerHTML =
-    `<div class="pr all${focusInit ? '' : ' on'}" data-init="">
+    `<button type="button" class="pr all${focusInit ? '' : ' on'}" data-init=""
+       aria-pressed="${focusInit ? 'false' : 'true'}">
        <span class="nm">all projects</span><span class="ct">${rawNodes.length}</span>
-       <span class="sw" style="background:transparent"></span></div>` +
-    rows.map((i) => `<div class="pr${focusInit === i.name ? ' on' : ''}" data-init="${esc(i.name)}" title="${esc(i.name)}">
+       <span class="sw" style="background:transparent"></span></button>` +
+    rows.map((i) => `<button type="button" class="pr${focusInit === i.name ? ' on' : ''}"
+       data-init="${esc(i.name)}" aria-pressed="${focusInit === i.name ? 'true' : 'false'}">
        <span class="nm">${esc(i.name)}</span><span class="ct">${i.node_count || 0}</span>
-       <span class="sw" style="background:${hex(initSwatch(i.name))}"></span></div>`).join('')
+       <span class="sw" style="background:${hex(initSwatch(i.name))}"></span></button>`).join('')
   for (const row of el.children) {
     row.addEventListener('click', () => {
       const name = row.dataset.init || null
@@ -733,18 +739,34 @@ function goToNode(i) {
   if (focusInit && n.init !== focusInit) setFocus(null)
   if (readerOpen) setReader(false)
   chain.clear(); nodes.forEach((x) => { x.__visited = false; x.__cur = false })
-  pinNode(i); flyTo(n.pos, 1100)
+  pinNode(i); flyTo(n.pos, reducedMotion.matches ? 0 : 1100)
+  say(`Showing ${n.name}`)
 }
-function closeHits() { findHits.hidden = true; hits = []; hitAt = -1 }
+function closeHits() {
+  findHits.hidden = true; hits = []; hitAt = -1
+  findInput.setAttribute('aria-expanded', 'false')
+  findInput.removeAttribute('aria-activedescendant')
+}
+function say(msg) { $('findStatus').textContent = msg }
 function renderHits() {
-  if (!hits.length) { findHits.innerHTML = '<div class="none">nothing found</div>'; findHits.hidden = false; return }
+  findInput.setAttribute('aria-expanded', 'true')
+  if (!hits.length) {
+    findHits.innerHTML = '<div class="none">nothing found</div>'
+    findHits.hidden = false
+    findInput.removeAttribute('aria-activedescendant')
+    say('No nodes found')
+    return
+  }
   findHits.innerHTML = hits.map((i, k) => {
     const n = nodes[i]
-    return `<div class="hit${k === hitAt ? ' on' : ''}" data-i="${i}">
+    return `<div class="hit${k === hitAt ? ' on' : ''}" id="hit-${i}" role="option"
+      aria-selected="${k === hitAt}" data-i="${i}">
       <span class="hn">${esc(n.name)}</span>
       <span class="hm">${esc(n.type)} · ${esc(n.init)}</span></div>`
   }).join('')
   findHits.hidden = false
+  if (hitAt >= 0) findInput.setAttribute('aria-activedescendant', `hit-${hits[hitAt]}`)
+  say(`${hits.length} node${hits.length === 1 ? '' : 's'} found`)
   for (const row of findHits.children) {
     if (!row.dataset.i) continue
     row.addEventListener('mousedown', (e) => { e.preventDefault(); goToNode(+row.dataset.i); closeHits(); findInput.blur() })
@@ -804,7 +826,7 @@ function loop() {
   bpGeo.attributes.position.needsUpdate = true
   if (tween) tween()
   // auto-rotate only when idle — stop on hover, chain, focus, tour, camera tween
-  controls.autoRotate = !(window.__rec && window.__rec.active) &&
+  controls.autoRotate = !reducedMotion.matches && !(window.__rec && window.__rec.active) &&
     hovered < 0 && !chain.size && !focusInit && $('script').hidden && !tween
   controls.update()
   if (!readerOpen) renderer.render(scene, camera)   // the reader covers the canvas
