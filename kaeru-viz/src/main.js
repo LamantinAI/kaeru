@@ -538,13 +538,16 @@ async function setReader(on, nodeId) {
   readBtn.classList.toggle('go', on)
   readBtn.textContent = on ? 'galaxy' : 'read'
   // the panel stays; the rest of the galaxy's chrome belongs to the galaxy
+  // Reading is its own room. Colour-by, focus, time-lapse, node search and the
+  // project list are all instruments for surveying the galaxy; none of them
+  // mean anything while you are reading a trail, so the whole chrome steps out.
+  $('panel').hidden = on
+  $('rail').hidden = on
   $('readout').hidden = on
-  $('legend').hidden = on
-  $('readerSeg').hidden = !on            // reader controls join the console
-  $('colorMode').closest('.seg').hidden = on   // colour-by belongs to the galaxy
-  $('focus').closest('.seg').hidden = on
+  $('hud').hidden = on
 }
 readBtn.addEventListener('click', () => setReader(!readerOpen))
+$('rBack').addEventListener('click', () => setReader(false))
 // the readout is rebuilt on every hover, so delegate rather than re-bind
 $('readout').addEventListener('click', (e) => {
   const b = e.target.closest('[data-read]')

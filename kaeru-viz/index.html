@@ -15,7 +15,15 @@
     <section id="reader" hidden>
       <div id="rcanvas"><div id="rworld"><svg id="rtrack"></svg></div></div>
       <div id="manuscript"></div>
-      <div id="rhint">X — how far the reasoning ran · Y — depth: grounds below, consequences above</div>
+      <header id="rbar">
+        <button id="rBack" class="btn">← galaxy</button>
+        <div class="rtitle"><span class="rkind">reasoning chain</span><b id="rname">—</b></div>
+        <div class="themeseg" id="rView" role="group" aria-label="reader view">
+          <button type="button" id="rTrail" class="on">map</button>
+          <button type="button" id="rMs">read</button>
+        </div>
+      </header>
+      <div id="rhint">click a step to read it</div>
     </section>
 
     <header id="hud">
@@ -54,24 +62,6 @@
           <select id="focus" class="ctl"><option value="">all projects</option></select>
         </div>
         <button id="talkBtn" class="btn">guided tour</button>
-      </div>
-      <!-- reader controls live in the console too — one chrome, not two -->
-      <div class="seg" id="readerSeg" hidden>
-        <div class="field">
-          <label>view</label>
-          <div class="themeseg" id="rView" role="group" aria-label="reader view">
-            <button type="button" id="rTrail" class="on">trail</button>
-            <button type="button" id="rMs">manuscript</button>
-          </div>
-        </div>
-        <div class="field">
-          <label>zoom</label>
-          <div class="themeseg">
-            <button type="button" id="rOut">−</button>
-            <button type="button" id="rFit"><span id="rzoom">100%</span></button>
-            <button type="button" id="rIn">+</button>
-          </div>
-        </div>
       </div>
       <div class="seg">
         <div class="field">

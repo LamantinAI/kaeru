@@ -18,7 +18,7 @@ const REL = {
   temporal: ['before', 'after'], contradicts: ['contradicts', 'contradicts'],
   blocks: ['blocks', 'blocked by'], targets: ['targets', 'targeted by'],
 }
-const STEP_DX = 760, LANE_DY = 430, SPINE_Y = 560, X0 = 560
+const STEP_DX = 470, LANE_DY = 300, SPINE_Y = 300, X0 = 120
 
 const $ = (id) => document.getElementById(id)
 const esc = (s) => (s || '').replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]))
@@ -135,26 +135,9 @@ export function createReader(data, { fmtDateTime }) {
 
   // ── build ───────────────────────────────────────────────────────────────
   function buildTrail() {
-    world.querySelectorAll('.step,.sat,.thesis,.lanetag,.bedlabel').forEach((e) => e.remove())
+    world.querySelectorAll('.step,.sat,.lanetag,.bedlabel').forEach((e) => e.remove())
     if (!steps.length) return
     layout()
-    const first = steps[0], last = steps[steps.length - 1]
-    world.appendChild(h(`<div class="thesis" style="left:40px;top:${SPINE_Y - 40}px">
-      <div class="kind">${chain.adhoc ? 'node' : research.size > steps.length ? 'deep research' : 'reasoning chain'}
-        · ${research.size} ${research.size === 1 ? 'node' : 'nodes'}
-        · ${lanes} ${lanes === 1 ? 'line' : 'lines'}</div>
-      <h1>${esc(deslug(chain.name))}</h1>
-      <p class="lede">${chain.adhoc
-        ? (research.size > 1
-          ? 'Opened from the galaxy — this node and what it was derived from.'
-          : 'Opened from the galaxy. This node stands on its own: nothing derives from it and it derives from nothing yet.')
-        : lanes > 1
-          ? 'A worked trail that forks: one line carried on, the others went their own way.'
-          : 'A worked trail of reasoning — each step is a node of memory, its links lead back to what it stands on.'}</p>
-      <div class="meta"><b>${when(first)}</b> — first step<br><b>${when(last)}</b> — last step<br>
-        ${(first.initiatives || []).length ? `initiative <b>${esc(first.initiatives[0])}</b>` : ''}</div>
-    </div>`))
-
     const onChain = new Set(steps.map((s) => s.id))
     ;[...research].sort((a, b) => POS[a].d - POS[b].d).forEach((id) => {
       const n = N[id]; if (!n || !POS[id]) return
@@ -162,30 +145,19 @@ export function createReader(data, { fmtDateTime }) {
       const main = onChain.has(id), idx = steps.findIndex((s) => s.id === id)
       // You opened the reader to read: the body starts OPEN. Folding is the
       // opt-in, for when a long trail needs to be scanned rather than read.
-      // the body is always rendered whole — CSS caps what is visible, so the
-      // trail keeps its shape and `expand` only lifts the cap
-      const el = h(`<div class="step${main ? '' : ' aside'}" data-id="${id}" style="left:${x}px;top:${y}px;--acc:${acc}">
-        <div class="pad">
-          <div class="meta"><span class="num">${main ? String(idx + 1).padStart(2, '0') : '—'}</span>
-            <span class="s">·</span><span class="t">${esc(n.type)}</span><span class="s">·</span>
-            <span>${esc(n.tier)}</span><span class="s">·</span><span>${esc(n.layer)}</span></div>
-          <h2>${esc(deslug(n.name))}</h2>
-          <div class="body">${paras(n.body || '')}</div>
-          <div class="foot"><span class="when">asserted <b>${when(n)}</b></span></div>
-        </div></div>`)
+      const el = h(`<button type="button" class="step${main ? '' : ' aside'}" data-id="${id}"
+          style="left:${x}px;top:${y}px;--acc:${acc}"
+          aria-label="Read ${esc(deslug(n.name))}">
+        <span class="meta"><span class="num">${main ? String(idx + 1).padStart(2, '0') : '—'}</span>
+          <span class="s">·</span><span class="t">${esc(n.type)}</span>
+          <span class="s">·</span><span>${esc(n.layer)}</span></span>
+        <span class="h2-like"></span>
+        <h2>${esc(deslug(n.name))}</h2>
+        <p class="gist">${clip(n.body, 150)}</p>
+        <span class="when">${when(n)}</span>
+      </button>`)
       world.appendChild(el)
-      // only offer the control when there is genuinely more to see
-      const body = el.querySelector('.body')
-      if (body.scrollHeight > body.clientHeight + 4) {
-        body.classList.add('clipped')
-        const more = h('<button type="button" class="more">expand</button>')
-        el.querySelector('.foot').appendChild(more)
-        more.onclick = () => {
-          const open = el.classList.toggle('open')
-          more.textContent = open ? 'collapse' : 'expand'
-          relayout()
-        }
-      }
+      el.onclick = () => readAt(id)
     })
 
     // A lane's height is whatever its tallest card turned out to be. Spacing
@@ -207,7 +179,7 @@ export function createReader(data, { fmtDateTime }) {
       const el = world.querySelector(`.step[data-id="${id}"]`); if (!el) return
       ;(byLane[p.lane] = byLane[p.lane] || []).push({ id, p, el })
     })
-    const GAP = 110, SAT = 250      // between lanes, and room for a satellite above
+    const GAP = 64, SAT = 150       // between lanes, and room for a satellite above
     let top = SPINE_Y - 70
     Object.keys(byLane).map(Number).sort((a, b) => a - b).forEach((ln) => {
       const row = byLane[ln]
@@ -217,7 +189,7 @@ export function createReader(data, { fmtDateTime }) {
     })
     Object.entries(POS).forEach(([id, p]) => {
       const list = satOf(id); if (!list.length) return
-      placeSat(list.slice(0, 1), p.x, p.y - 240, id)
+      placeSat(list.slice(0, 1), p.x, p.y - 130, id)
     })
     labelLanes(new Set(steps.map((x) => x.id)))
     placeBedrock()
@@ -263,7 +235,7 @@ export function createReader(data, { fmtDateTime }) {
       const el = world.querySelector(`.step[data-id="${id}"]`)
       lowest = Math.max(lowest, p.y + (el ? el.offsetHeight : 300))
     })
-    const y = lowest + 150, total = shared.size
+    const y = lowest + 90, total = shared.size
     const mid = (Math.min(...xs) + Math.max(...xs) + 540) / 2, left = mid - (total * 310) / 2
     world.appendChild(h(`<div class="bedlabel" style="left:${left}px;top:${y - 30}px">
       shared ground — more than one line rests on this</div>`))
@@ -330,20 +302,42 @@ export function createReader(data, { fmtDateTime }) {
   }
 
   // ── manuscript: the same trail as one continuous read ───────────────────
+  /** The map is for shape; the words live in the reading view. */
+  function readAt(id) {
+    setView('manuscript')
+    // Point at the step once now and once after the sheet has been given a box.
+    // Not via requestAnimationFrame: it does not reliably fire when the view
+    // that is about to paint was display:none a moment ago.
+    const point = () => {
+      const sec = sheet.querySelector(`section[data-id="${id}"]`)
+      if (!sec) return
+      sheet.querySelectorAll('section.here').forEach((e) => e.classList.remove('here'))
+      sec.classList.add('here')
+      const top = sec.getBoundingClientRect().top - sheet.getBoundingClientRect().top
+      sheet.scrollTo({ top: sheet.scrollTop + top - 96, behavior: reduceMotion() ? 'auto' : 'smooth' })
+    }
+    point(); setTimeout(point, 60)
+  }
+  const reduceMotion = () => matchMedia('(prefers-reduced-motion: reduce)').matches
+
   function buildManuscript() {
     if (!steps.length) { sheet.innerHTML = ''; return }
     let html = `<div class="ms"><div class="kind">${chain.adhoc ? 'node' : 'reasoning chain'}</div>
       <h1>${esc(deslug(chain.name))}</h1>
       <p class="lede">${esc(chain.body || (chain.adhoc ? 'A single node, read in full.' : 'A worked trail of reasoning, read end to end.'))}</p>
       <div class="byline">${steps.length} ${steps.length === 1 ? 'step' : 'steps'} · ${when(steps[0])}${steps.length > 1 ? ' — ' + when(steps[steps.length - 1]) : ''}</div>`
-    steps.forEach((n, i) => {
+    const onChain = new Set(steps.map((x) => x.id))
+    const order = [...steps, ...[...research].filter((id) => !onChain.has(id)).map((id) => N[id])
+      .filter(Boolean).sort((a, b) => (a.created_secs || 0) - (b.created_secs || 0))]
+    order.forEach((n, i) => {
       const acc = LAYER_ACCENT[n.layer] || 'var(--dim)'
-      html += `<section style="--acc:${acc}">
-        <div class="snum">STEP ${String(i + 1).padStart(2, '0')} · ${esc(n.type)} · ${esc(n.tier)}</div>
+      const main = onChain.has(n.id)
+      html += `<section data-id="${n.id}" style="--acc:${acc}">
+        <div class="snum">${main ? `STEP ${String(i + 1).padStart(2, '0')}` : 'SIDE LINE'} · ${esc(n.type)} · ${esc(n.tier)}</div>
         <h2>${esc(deslug(n.name))}</h2>
         <div class="when">asserted <b>${when(n)}</b></div>
         <div class="prose">${paras(n.body || '—')}</div></section>`
-      const links = (ADJ[n.id] || []).filter((l) => !steps.some((s) => s.id === l.o)).slice(0, 3)
+      const links = (ADJ[n.id] || []).filter((l) => !onChain.has(l.o)).slice(0, 3)
       if (links.length) {
         html += `<aside class="marg" style="--acc:${acc}"><div class="mtitle">in the margin</div>`
         links.forEach((l) => {
@@ -367,11 +361,9 @@ export function createReader(data, { fmtDateTime }) {
   }
   /** Frame the start of the trail at a size you can actually read. */
   function frameStart() {
-    const TOP = 96, BOTTOM = 130
-    scale = 0.72
-    tx = 40
-    ty = TOP + (innerHeight - TOP - BOTTOM) / 2 - (SPINE_Y + 90) * scale
-    applyTransform()
+    // the map is meant to be taken in, so start from a fit rather than a
+    // fixed zoom — the stations are legible even well under 100%
+    fit()
   }
   function fit() {
     const els = [...world.children].filter((e) => e.tagName !== 'svg' && e.offsetWidth)
@@ -382,9 +374,9 @@ export function createReader(data, { fmtDateTime }) {
       mnx = Math.min(mnx, x); mny = Math.min(mny, y)
       mxx = Math.max(mxx, x + e.offsetWidth); mxy = Math.max(mxy, y + e.offsetHeight)
     })
-    const pad = 120, TOP = 96, BOTTOM = 130      // masthead above, console below
+    const pad = 90, TOP = 76, BOTTOM = 60        // the reader's own bar, and the hint
     const availH = innerHeight - TOP - BOTTOM
-    scale = clamp(Math.min(innerWidth / (mxx - mnx + pad * 2), availH / (mxy - mny + pad * 2)), 0.2, 1.2)
+    scale = clamp(Math.min(innerWidth / (mxx - mnx + pad * 2), availH / (mxy - mny + pad * 2)), 0.34, 1)
     tx = innerWidth / 2 - (mnx + (mxx - mnx) / 2) * scale
     ty = TOP + availH / 2 - (mny + (mxy - mny) / 2) * scale
     applyTransform()
@@ -408,18 +400,17 @@ export function createReader(data, { fmtDateTime }) {
   }
 
   function setView(v) {
+    const nm = $('rname'); if (nm && chain) nm.textContent = deslug(chain.name)
+    const hint = $('rhint'); if (hint) hint.textContent =
+      v === 'manuscript' ? 'reading the trail end to end' : 'click a step to read it'
     view = v
     sheet.classList.toggle('on', v === 'manuscript')
     canvas.style.display = v === 'manuscript' ? 'none' : ''
-    $('rhint').hidden = v === 'manuscript'
     $('rTrail').classList.toggle('on', v === 'trail')
     $('rMs').classList.toggle('on', v === 'manuscript')
   }
   $('rTrail').onclick = () => setView('trail')
   $('rMs').onclick = () => setView('manuscript')
-  $('rIn').onclick = () => zoomBy(1.2)
-  $('rOut').onclick = () => zoomBy(1 / 1.2)
-  $('rFit').onclick = fit
 
   /** Read a single node: its own chain if it has one, else the node plus what
    *  it was derived from. Used by the galaxy's readout and by every card the
