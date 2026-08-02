@@ -279,6 +279,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   align-items: center; gap: 18px; padding: 14px 22px;
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
+#rbar #rPrev { border-color: var(--seal); color: var(--seal-fg); }
 #rbar .rtitle { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 #rbar .rkind { font-family: var(--mono); font-size: 9px; letter-spacing: .2em;
   text-transform: uppercase; color: var(--seal); }

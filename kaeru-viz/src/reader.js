@@ -36,6 +36,7 @@ export function createReader(data, { fmtDateTime }) {
   }
 
   let chain = null, steps = [], POS = {}, lanes = 0, shared = new Map(), research = new Set()
+  let hist = []                 // trail of what was read before this
   let tx = 60, ty = 40, scale = 0.62, view = 'trail'
   let bodiesLoaded = false
 
@@ -415,16 +416,54 @@ export function createReader(data, { fmtDateTime }) {
     $('rTrail').classList.toggle('on', v === 'trail')
     $('rMs').classList.toggle('on', v === 'manuscript')
   }
+  const prevBtn = $('rPrev')
+  if (prevBtn) prevBtn.onclick = goBack
+  addEventListener('keydown', (e) => {
+    if ($('reader').hidden) return
+    const typing = /^(INPUT|TEXTAREA)$/.test(e.target.tagName)
+    if (typing) return
+    if (e.key === 'Backspace' || (e.altKey && e.key === 'ArrowLeft')) { e.preventDefault(); goBack() }
+  })
   $('rTrail').onclick = () => setView('trail')
   $('rMs').onclick = () => setView('manuscript')
 
   /** Read a single node: its own chain if it has one, else the node plus what
    *  it was derived from. Used by the galaxy's readout and by every card the
    *  trail shows as a link. */
-  function openNode(id) {
+  /** A descriptor of what is on the desk, enough to come back to it. */
+  const mark = () => (!chain ? null : chain.adhoc ? { node: steps[0] && steps[0].id } : { chain: chain.id })
+  function restore(m) {
+    if (!m) return false
+    if (m.chain) {
+      const c = data.chains.find((x) => x.id === m.chain)
+      return c ? render(c, c.members) : false
+    }
+    return m.node && N[m.node] ? render({ name: N[m.node].name, adhoc: true }, [m.node]) : false
+  }
+  function openNode(id, remember = true) {
     if (!N[id]) return false
+    const from = mark()
     const c = data.chains.find((x) => (x.members || []).includes(id))
-    return c ? render(c, c.members) : render({ name: N[id].name, adhoc: true }, [id])
+    const ok = c ? render(c, c.members) : render({ name: N[id].name, adhoc: true }, [id])
+    if (ok && remember && from && JSON.stringify(from) !== JSON.stringify(mark())) hist.push(from)
+    syncBack()
+    return ok
+  }
+  function goBack() {
+    const m = hist.pop()
+    if (!m) return false
+    const ok = restore(m)
+    syncBack()
+    return ok
+  }
+  function syncBack() {
+    const b = $('rPrev'); if (!b) return
+    b.hidden = !hist.length
+    const last = hist[hist.length - 1]
+    const name = !last ? '' : last.chain
+      ? (data.chains.find((x) => x.id === last.chain) || {}).name
+      : (N[last.node] || {}).name
+    b.title = name ? `Back to ${deslug(name)}` : ''
   }
   function render(c, members) {
     chain = c
@@ -439,6 +478,7 @@ export function createReader(data, { fmtDateTime }) {
     async show(chainId) {
       await loadBodies()
       const c = data.chains.find((x) => x.id === chainId) || data.chains.find((x) => x.name === chainId)
+      hist = []; syncBack()
       return c ? render(c, c.members) : false
     },
 
@@ -447,8 +487,13 @@ export function createReader(data, { fmtDateTime }) {
      *  node, which the layout then grows along its derivation links. */
     async showNode(id) {
       await loadBodies()
-      return openNode(id)
+      hist = []; syncBack()
+      return openNode(id, false)
     },
+
+    /** Step back to whatever was being read before the last link. */
+    back: goBack,
+    canBack: () => hist.length > 0,
 
     /** Which chain is on the desk, if any (so the picker can follow along). */
     chainId: () => chain && chain.id,
