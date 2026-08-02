@@ -359,10 +359,13 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   border-left: 1px solid var(--line-2); }
 .marg .mtitle { font-family: var(--mono); font-size: 9px; letter-spacing: .15em;
   text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
-.marg a { display: block; margin-bottom: 12px; text-decoration: none; color: var(--fg-2); cursor: pointer; }
-.marg a:hover { color: var(--fg); }
-.marg .r { font-family: var(--mono); font-size: 9px; letter-spacing: .08em; color: var(--acc); display: block; }
-.marg .n { font-size: 13.5px; line-height: 1.4; }
+.marg .mlink { display: block; width: 100%; margin-bottom: 12px; padding: 0; border: 0;
+  background: 0; text-align: left; font: inherit; color: var(--fg-2); cursor: pointer; }
+.marg .mlink:hover { color: var(--fg); }
+.marg .mlink:hover .n { text-decoration: underline; text-underline-offset: 2px; }
+.marg .r { font-family: var(--mono); font-size: 9px; letter-spacing: .08em; color: var(--acc);
+  display: block; margin-bottom: 2px; }
+.marg .n { font-family: var(--serif); font-size: 13.5px; line-height: 1.4; display: block; }
 
 .rmark { background: color-mix(in srgb, var(--gold) 22%, transparent); border-radius: 2px; padding: 0 3px; }
 #reader code { font-family: var(--mono); font-size: .88em; background: var(--ctl-bg);

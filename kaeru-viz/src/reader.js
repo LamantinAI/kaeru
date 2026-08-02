@@ -343,12 +343,18 @@ export function createReader(data, { fmtDateTime }) {
         links.forEach((l) => {
           const t = N[l.o]; if (!t) return
           const label = (REL[l.t] || [l.t, l.t])[l.dir === 'out' ? 0 : 1]
-          html += `<a><span class="r">${l.dir === 'out' ? '↳ ' : '↰ '}${esc(label)}</span><span class="n">${esc(deslug(t.name))}</span></a>`
+          html += `<button type="button" class="mlink" data-to="${t.id}"
+            aria-label="Read ${esc(deslug(t.name))} — ${esc(label)}">
+            <span class="r">${l.dir === 'out' ? '↳ ' : '↰ '}${esc(label)}</span>
+            <span class="n">${esc(deslug(t.name))}</span></button>`
         })
         html += '</aside>'
       }
     })
     sheet.innerHTML = html + '</div>'
+    sheet.querySelectorAll('.mlink').forEach((b) => {
+      b.onclick = () => { openNode(b.dataset.to); setView('manuscript') }
+    })
   }
 
   // ── pan / zoom ──────────────────────────────────────────────────────────
