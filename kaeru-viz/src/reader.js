@@ -183,7 +183,7 @@ export function createReader(data, { fmtDateTime }) {
         more.onclick = () => {
           const open = el.classList.toggle('open')
           more.textContent = open ? 'collapse' : 'expand'
-          restack(); drawTrack()
+          relayout()
         }
       }
     })
@@ -191,36 +191,37 @@ export function createReader(data, { fmtDateTime }) {
     // A lane's height is whatever its tallest card turned out to be. Spacing
     // lanes by a fixed constant worked only while bodies were clipped; with
     // them open a long card runs straight through the lane below it.
-    restack()
-    labelLanes(onChain)
-    placeBedrock()
-    drawTrack()
+    relayout()
     // Open at a readable size on the head of the trail rather than fitting the
     // whole research — a deep one fits only by shrinking the text to nothing.
     requestAnimationFrame(frameStart)
   }
-  /** Stack lanes by measured height, then hang each node's satellite above it. */
-  function restack() {
+  /** Re-lay the trail around whatever height the cards currently have.
+   *  Everything that hangs off a card — its satellite, its lane tag, the
+   *  shared ground below — is discarded and re-placed, because a card that
+   *  grew leaves all of them pointing at where it used to be. */
+  function relayout() {
+    world.querySelectorAll('.sat,.lanetag,.bedlabel').forEach((e) => e.remove())
     const byLane = {}
     Object.entries(POS).forEach(([id, p]) => {
       const el = world.querySelector(`.step[data-id="${id}"]`); if (!el) return
       ;(byLane[p.lane] = byLane[p.lane] || []).push({ id, p, el })
     })
-    const GAP = 150, SAT = 260      // between lanes, and room for a satellite above
+    const GAP = 110, SAT = 250      // between lanes, and room for a satellite above
     let top = SPINE_Y - 70
     Object.keys(byLane).map(Number).sort((a, b) => a - b).forEach((ln) => {
       const row = byLane[ln]
-      const hasSat = row.some(({ id }) => satOf(id).length)
-      if (hasSat) top += SAT
+      if (row.some(({ id }) => satOf(id).length)) top += SAT
       row.forEach(({ p, el }) => { p.y = top; el.style.top = `${top}px` })
       top += Math.max(...row.map(({ el }) => el.offsetHeight)) + GAP
     })
-    // satellites only now, when the card they hang off has its final position
     Object.entries(POS).forEach(([id, p]) => {
       const list = satOf(id); if (!list.length) return
-      const el = world.querySelector(`.step[data-id="${id}"]`); if (!el) return
       placeSat(list.slice(0, 1), p.x, p.y - 240, id)
     })
+    labelLanes(new Set(steps.map((x) => x.id)))
+    placeBedrock()
+    drawTrack()
   }
   const satOf = (id) => (ADJ[id] || []).filter((l) =>
     !research.has(l.o) && !shared.has(l.o) && l.dir === 'in' && l.t === 'refers_to')
@@ -249,8 +250,9 @@ export function createReader(data, { fmtDateTime }) {
       const p = POS[id], main = +ln === mainLane
       // above its own first card, never beside it — to the left is where the
       // title page sits, and the tag used to collide with it
+      // clear of the card it names: the tag is 18px tall, so sit it above that
       world.appendChild(h(`<div class="lanetag${main ? ' main' : ''}" style="left:${p.x}px;top:${p.y - 30}px">
-        <span class="ln">${String.fromCharCode(65 + +ln)}</span>${main ? 'main trail' : 'side line'}</div>`))
+        <span class="ln">${String.fromCharCode(65 + +ln)}</span> · ${main ? 'main trail' : 'side line'}</div>`))
     })
   }
   function placeBedrock() {

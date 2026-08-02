@@ -310,7 +310,12 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   color: var(--fg-2); max-height: 320px; overflow: hidden; }
 .step .body.clipped::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0;
   height: 64px; background: linear-gradient(to bottom, transparent, var(--bg)); }
-.step.open .body { max-height: none; overflow: visible; }
+/* Expanding must not blow up the trail: the card grows to a bounded height and
+   the rest of the body scrolls inside it, so lanes keep their spacing. */
+.step.open .body { max-height: min(62vh, 780px); overflow-y: auto; overscroll-behavior: contain;
+  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.step.open .body::-webkit-scrollbar { width: 8px; }
+.step.open .body::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
 .step.open .body.clipped::after { content: none; }
 .step.aside.open .body, .step.aside .body { }
 .step .body p { margin: 0 0 11px; }
@@ -344,10 +349,12 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .sat.bed .rel { color: var(--gold); }
 .bedlabel { position: absolute; width: 640px; white-space: nowrap; font-family: var(--mono);
   font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+/* One line, one size — a big letter next to small caps sat on a different
+   baseline and read as broken. */
 .lanetag { position: absolute; white-space: nowrap; font-family: var(--mono); font-size: 10px;
-  letter-spacing: .1em; text-transform: uppercase; color: var(--dim); line-height: 1;
-  display: flex; align-items: baseline; gap: 9px; }
-.lanetag .ln { font-size: 19px; letter-spacing: 0; color: var(--dim); font-weight: 500; }
+  letter-spacing: .14em; text-transform: uppercase; color: var(--dim); line-height: 18px;
+  height: 18px; }
+.lanetag .ln { color: var(--dim); font-weight: 500; }
 .lanetag.main { color: var(--fg-2); }
 .lanetag.main .ln { color: var(--seal); }
 
