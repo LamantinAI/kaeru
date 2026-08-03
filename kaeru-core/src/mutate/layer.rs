@@ -39,13 +39,21 @@ use crate::store::Store;
 /// falls back to the latest historical version, so re-running this verb
 /// also *recovers* such nodes.
 pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
+    set_layer_as(store, node_id, layer, "system")
+}
+
+/// [`set_layer`] with an explicit audit actor. The hygiene pass writes
+/// `"hygiene"` so its moves are separable from an agent's deliberate
+/// `layer` call in the audit trail — "what did the sweep touch on the 12th"
+/// is a query, not a guess.
+pub fn set_layer_as(store: &Store, node_id: &NodeId, layer: Layer, actor: &str) -> Result<()> {
     // The rewrite itself is shared with `set_visibility` and generated from
     // `NODE_VALUE_COLUMNS`, so a column added to the schema round-trips here
     // without this verb being taught about it — the class of silent data loss
     // that hand-written column lists caused before.
     rewrite_node_column_in_place(store, node_id, "layer", layer.as_str())?;
 
-    write_audit(store.db_ref(), "set_layer", "system", &[node_id.clone()])?;
+    write_audit(store.db_ref(), "set_layer", actor, &[node_id.clone()])?;
 
     Ok(())
 }

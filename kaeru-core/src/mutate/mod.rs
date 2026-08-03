@@ -28,6 +28,7 @@ pub mod layer;
 pub mod metabolism;
 pub mod review;
 pub mod sharing;
+pub mod slot;
 pub mod supersedes;
 pub mod synthesise;
 pub mod task;
@@ -47,10 +48,11 @@ pub use ingest::{upsert_edge, upsert_node};
 pub use initiative::{
     AttachStats, DeleteStats, RenameStats, attach_node, delete_initiative, rename_initiative,
 };
-pub use layer::{get_layer, set_layer};
+pub use layer::{get_layer, set_layer, set_layer_as};
 pub use metabolism::{forget, improve};
 pub use review::{mark_resolved, mark_under_review, resolve_review};
 pub use sharing::{get_share_policy, get_visibility, set_share_policy, set_visibility};
+pub use slot::{SlotOutcome, occupy_slot, release_slot, slot_holder, slots_in};
 pub use supersedes::supersedes;
 pub use synthesise::synthesise;
 pub use task::{complete_task, write_task, write_task_with_layer};

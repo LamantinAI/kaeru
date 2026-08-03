@@ -314,6 +314,31 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         pinned_at: Float default now(),
     }
     "#,
+    // A slot is a ROLE an initiative fills with exactly one live node —
+    // `handoff`, `entrypoint`, `queue`. Writing a new member closes the
+    // previous one, so three parallel handoffs cannot happen by accident.
+    // Not bi-temporal: this row is "who holds the role now", and the history
+    // lives in the nodes themselves (superseded_by edges).
+    r#"
+    :create slot_occupant {
+        initiative: String,
+        slot: String =>
+        node_id: String,
+        set_at: Float default now(),
+    }
+    "#,
+    // Bookkeeping for the hygiene pass: when it last ran for an initiative,
+    // how many nodes existed then (the write-count trigger), and the report
+    // waiting to be shown to the agent. Not bi-temporal for the same reason
+    // as `initiative` — maintenance state, not knowledge history.
+    r#"
+    :create initiative_hygiene {
+        initiative: String =>
+        last_run_at: Float default 0.0,
+        nodes_at_last_run: Int default 0,
+        pending_report: String? default null,
+    }
+    "#,
     "::index create node:by_name { name }",
     "::index create node:by_tier_type { tier, type }",
     "::index create node:by_layer { layer }",

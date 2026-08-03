@@ -67,6 +67,14 @@ const MIGRATIONS: &[Migration] = &[
         name: "0004_initiative",
         up: m0004_initiative,
     },
+    Migration {
+        name: "0005_slot_occupant",
+        up: m0005_slot_occupant,
+    },
+    Migration {
+        name: "0006_initiative_hygiene",
+        up: m0006_initiative_hygiene,
+    },
 ];
 
 /// Applies pending migrations. `fresh` is `true` when the vault was just
@@ -353,6 +361,32 @@ fn m0004_initiative(db: &DbInstance) -> Result<()> {
     Ok(())
 }
 
+/// Adds `slot_occupant` — the per-initiative role registry that keeps a slot
+/// (`handoff`, `entrypoint`, …) to exactly one live node.
+fn m0005_slot_occupant(db: &DbInstance) -> Result<()> {
+    if !relation_exists(db, "slot_occupant")? {
+        db.run_script(
+            ":create slot_occupant { initiative: String, slot: String => node_id: String, set_at: Float default now() }",
+            BTreeMap::new(),
+            ScriptMutability::Mutable,
+        )?;
+    }
+    Ok(())
+}
+
+/// Adds `initiative_hygiene` — bookkeeping for the hygiene pass (when it last
+/// ran, the node count it saw, and the report awaiting delivery).
+fn m0006_initiative_hygiene(db: &DbInstance) -> Result<()> {
+    if !relation_exists(db, "initiative_hygiene")? {
+        db.run_script(
+            ":create initiative_hygiene { initiative: String => last_run_at: Float default 0.0, nodes_at_last_run: Int default 0, pending_report: String? default null }",
+            BTreeMap::new(),
+            ScriptMutability::Mutable,
+        )?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -540,12 +574,23 @@ mod tests {
             .rows
             .len()
         };
-        assert_eq!(count(&db), 4, "all four migrations stamped once");
+        // Counted against the registry, not a literal: appending a migration
+        // is routine, and this assertion is about "each stamped exactly once".
+        let registered = super::MIGRATIONS.len();
+        assert_eq!(
+            count(&db),
+            registered,
+            "every registered migration stamped once"
+        );
 
         // Idempotent: a second pass is a no-op that must NOT reset the
         // backfilled values (the column_exists guard prevents a re-`:replace`).
         run_migrations(&db, false).expect("re-run is safe");
-        assert_eq!(count(&db), 4, "still four after re-run");
+        assert_eq!(
+            count(&db),
+            registered,
+            "still one stamp per migration after a re-run"
+        );
         let again = db
             .run_script(
                 "?[layer] := *node{id, layer @ 'NOW'}, id = 'n1'",
