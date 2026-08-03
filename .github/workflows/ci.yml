@@ -1,0 +1,46 @@
+name: ci
+
+# The container build only runs on pushes to main and tags, so until now
+# nothing verified a pull request: `cargo test` existed but ran only where a
+# developer remembered to type it. This workflow makes the suite the gate.
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        run: rustup toolchain install stable --profile minimal --component rustfmt
+
+      - name: Cache cargo registry and build output
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      # Formatting is already clean across the workspace, so this is a cheap
+      # gate. Note rustfmt.toml asks for two nightly-only options; on stable
+      # they are ignored with a warning, which is expected and harmless.
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo test --workspace
+        run: cargo test --workspace --all-targets
