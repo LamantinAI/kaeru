@@ -67,6 +67,37 @@ pub struct KaeruConfig {
     /// [`crate::reflect`] as a cortex candidate — settled work to consolidate
     /// into the archival tier. Default 14 days.
     pub reflect_settle_age_secs: u64,
+
+    // ── Hygiene ────────────────────────────────────────────────────────────
+    // A hygiene pass classifies an initiative's nodes and applies reversible
+    // layer moves. It runs on accumulation, not on a schedule, and never
+    // holds the store guard for longer than one batch.
+    /// Nodes applied per batch. The store guard is taken and released once per
+    /// batch, so this bounds how long a concurrent tool call can wait.
+    pub hygiene_batch_size: usize,
+    /// Pause between batches, in milliseconds. `std::sync::Mutex` is not fair:
+    /// a tight release→acquire loop can keep barging ahead of a waiting client
+    /// thread. This yields the OS a window to hand the guard over.
+    pub hygiene_batch_pause_ms: u64,
+    /// Writes since the last pass that trigger the next one.
+    pub hygiene_writes_trigger: usize,
+    /// `core` population that triggers a pass. The layer is injected whole and
+    /// uncapped, so its growth is felt in every session.
+    pub hygiene_core_trigger: usize,
+    /// Time since the last pass that triggers the next one. Default 30 days.
+    pub hygiene_stale_after_secs: u64,
+    /// Age past which an unreferenced journal episode is archived to `cold`.
+    /// Default 14 days.
+    pub hygiene_journal_age_secs: u64,
+    /// Age past which an untouched, unreferenced `core` node is demoted one
+    /// step (to `hot`, never straight to the archive). Default 30 days.
+    pub hygiene_core_review_age_secs: u64,
+    /// Inbound edges from live nodes that promote a node one step up.
+    pub hygiene_promote_in_degree: usize,
+    /// Interval of the daemon's sweep timer, in seconds. Without it the
+    /// "stale after N days" trigger never fires for an initiative nobody
+    /// opens — it is only ever read when that initiative is touched.
+    pub hygiene_sweep_interval_secs: u64,
 }
 
 impl KaeruConfig {
@@ -86,6 +117,15 @@ impl KaeruConfig {
             chain_max_hops: 12,
             chain_min_weight: 0.0,
             reflect_settle_age_secs: 14 * 24 * 60 * 60,
+            hygiene_batch_size: 25,
+            hygiene_batch_pause_ms: 2,
+            hygiene_writes_trigger: 25,
+            hygiene_core_trigger: 15,
+            hygiene_stale_after_secs: 30 * 24 * 60 * 60,
+            hygiene_journal_age_secs: 14 * 24 * 60 * 60,
+            hygiene_core_review_age_secs: 30 * 24 * 60 * 60,
+            hygiene_promote_in_degree: 5,
+            hygiene_sweep_interval_secs: 6 * 60 * 60,
         }
     }
 
