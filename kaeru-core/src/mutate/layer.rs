@@ -5,7 +5,8 @@ use std::str::FromStr;
 
 use cozo::{DataValue, ScriptMutability};
 
-use crate::errors::{Error, Result};
+use super::rewrite_node_column_in_place;
+use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId};
 use crate::store::Store;
@@ -38,71 +39,11 @@ use crate::store::Store;
 /// falls back to the latest historical version, so re-running this verb
 /// also *recovers* such nodes.
 pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
-    let mut read_params: BTreeMap<String, DataValue> = BTreeMap::new();
-    read_params.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
-
-    // Read the *current* row together with its exact `validity` key, so
-    // the rewrite below can overwrite that same row in place rather than
-    // asserting a new validity version. The `@ 'NOW'` view is preferred;
-    // if the node is not valid at NOW (e.g. left invisible by the older
-    // buggy `set_layer`), fall back to the most recent historical version
-    // — re-running this verb on such a node restores it to NOW.
-    let now_script = r#"
-        ?[validity, type, tier, name, body, tags, initiatives, properties, visibility] :=
-            *node{id, validity, type, tier, name, body, tags, initiatives, properties, visibility @ 'NOW'},
-            id = $id
-    "#;
-    let mut current =
-        store
-            .db_ref()
-            .run_script(now_script, read_params.clone(), ScriptMutability::Immutable)?;
-
-    if current.rows.is_empty() {
-        let hist_script = r#"
-            ?[validity, type, tier, name, body, tags, initiatives, properties, visibility] :=
-                *node{id, validity, type, tier, name, body, tags, initiatives, properties, visibility},
-                id = $id
-            :order -validity
-            :limit 1
-        "#;
-        current =
-            store
-                .db_ref()
-                .run_script(hist_script, read_params, ScriptMutability::Immutable)?;
-    }
-
-    let row = current
-        .rows
-        .first()
-        .ok_or_else(|| Error::NotFound(format!("node not found: {node_id}")))?;
-
-    // In-place rewrite: re-`:put` the SAME (id, validity) primary key with
-    // only the `layer` value changed. No new validity is minted, so the
-    // `@ 'NOW'` travel can never resolve to two competing versions — the
-    // failure mode that previously hid nodes (their edges survived) while
-    // a fresh-assertion approach left a stray duplicate row on RocksDB.
-    // Values round-trip as Cozo parameters (`$validity`, `$body`, …), so
-    // the Validity key and any lists/JSON are preserved byte-for-byte.
-    let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
-    p.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
-    p.insert("validity".to_string(), row[0].clone());
-    p.insert("type".to_string(), row[1].clone());
-    p.insert("tier".to_string(), row[2].clone());
-    p.insert("name".to_string(), row[3].clone());
-    p.insert("body".to_string(), row[4].clone());
-    p.insert("tags".to_string(), row[5].clone());
-    p.insert("initiatives".to_string(), row[6].clone());
-    p.insert("properties".to_string(), row[7].clone());
-    p.insert("visibility".to_string(), row[8].clone());
-    p.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
-    let put_script = r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
-            [[$id, $validity, $type, $tier, $name, $body, $tags, $initiatives, $properties, $visibility, $layer]]
-        :put node {id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}
-    "#;
-    store
-        .db_ref()
-        .run_script(put_script, p, ScriptMutability::Mutable)?;
+    // The rewrite itself is shared with `set_visibility` and generated from
+    // `NODE_VALUE_COLUMNS`, so a column added to the schema round-trips here
+    // without this verb being taught about it — the class of silent data loss
+    // that hand-written column lists caused before.
+    rewrite_node_column_in_place(store, node_id, "layer", layer.as_str())?;
 
     write_audit(store.db_ref(), "set_layer", "system", &[node_id.clone()])?;
 

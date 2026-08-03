@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
-use super::{now_validity_seconds, tags_literal};
+use super::{NODE_VALUE_COLUMNS, node_row_values, now_validity_seconds, tags_literal};
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{EdgeType, Layer, NodeId, NodeType, Tier, Visibility};
@@ -56,16 +56,27 @@ pub fn upsert_node(
     // inlining their quoted form is safe.
     let tags_lit = tags_literal(tags);
     let now_secs = now_validity_seconds();
+    // The row is assembled from NODE_VALUE_COLUMNS rather than a hand-written
+    // list: a column added to the schema fails loudly here (no value supplied)
+    // instead of quietly landing on its default in every cloud pull.
+    let mut values: BTreeMap<&str, String> = BTreeMap::new();
+    values.insert("type", format!("'{}'", node_type.as_str()));
+    values.insert("tier", format!("'{}'", tier.as_str()));
+    values.insert("name", "$name".to_string());
+    values.insert("body", "$body".to_string());
+    values.insert("tags", tags_lit);
+    values.insert("initiatives", "null".to_string());
+    values.insert("properties", "null".to_string());
+    values.insert("visibility", format!("'{}'", visibility.as_str()));
+    values.insert("layer", format!("'{}'", layer.as_str()));
+    let row_values = node_row_values(&values)?;
+    let cols = NODE_VALUE_COLUMNS.join(", ");
     let script = format!(
         r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
-            [[$id, [{now_secs}.0, true], '{ty}', '{tier}', $name, $body, {tags_lit}, null, null, '{vis}', '{layer}']]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}}
-        "#,
-        ty = node_type.as_str(),
-        tier = tier.as_str(),
-        vis = visibility.as_str(),
-        layer = layer.as_str(),
+        ?[id, validity, {cols}] <-
+            [[$id, [{now_secs}.0, true], {row_values}]]
+        :put node {{id, validity => {cols}}}
+        "#
     );
     store
         .db_ref()

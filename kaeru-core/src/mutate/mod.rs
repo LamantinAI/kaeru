@@ -11,7 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use cozo::{DataValue, ScriptMutability};
 
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::graph::NodeId;
 use crate::store::Store;
 
@@ -348,6 +348,129 @@ pub(crate) fn reassert_node_now(store: &Store, id: &NodeId, row: ReassertRow<'_>
     Ok(())
 }
 
+/// In-place rewrite of exactly ONE value column, with every other column
+/// round-tripped from the row it read. Both the read and the `:put` are
+/// generated from [`NODE_VALUE_COLUMNS`], so a column added to the schema is
+/// carried through automatically instead of silently resetting to its default
+/// — the failure that used to reset `layer` to `warm` and `visibility` to
+/// `local` on every `set_layer` / `set_visibility` call, because each verb
+/// spelled the column list out by hand and read the row positionally.
+///
+/// No new validity is minted: the SAME `(id, validity)` primary key is
+/// overwritten, so an `@ 'NOW'` read can never resolve two competing versions.
+/// The read prefers the `@ 'NOW'` view and falls back to the latest historical
+/// version, so re-running the verb also *recovers* a node left invisible by an
+/// older buggy rewrite.
+///
+/// Values round-trip as Cozo parameters (`$body`, `$tags`, …) — `DataValue`s
+/// read out go straight back in, so bodies, lists and JSON never need escaping.
+pub(crate) fn rewrite_node_column_in_place(
+    store: &Store,
+    id: &NodeId,
+    column: &str,
+    value: &str,
+) -> Result<()> {
+    if !NODE_VALUE_COLUMNS.contains(&column) {
+        return Err(Error::Invalid(format!(
+            "unknown node column `{column}` (known: {})",
+            NODE_VALUE_COLUMNS.join(", ")
+        )));
+    }
+    let cols = NODE_VALUE_COLUMNS.join(", ");
+
+    let mut read_params: BTreeMap<String, DataValue> = BTreeMap::new();
+    read_params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+
+    let now_script = format!(
+        r#"
+        ?[validity, {cols}] :=
+            *node{{id, validity, {cols} @ 'NOW'}}, id = $id
+        "#
+    );
+    let mut current = store.db_ref().run_script(
+        &now_script,
+        read_params.clone(),
+        ScriptMutability::Immutable,
+    )?;
+
+    if current.rows.is_empty() {
+        let hist_script = format!(
+            r#"
+            ?[validity, {cols}] :=
+                *node{{id, validity, {cols}}}, id = $id
+            :order -validity
+            :limit 1
+            "#
+        );
+        current =
+            store
+                .db_ref()
+                .run_script(&hist_script, read_params, ScriptMutability::Immutable)?;
+    }
+
+    let row = current
+        .rows
+        .first()
+        .ok_or_else(|| Error::NotFound(format!("node not found: {id}")))?;
+
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+    params.insert(
+        "validity".to_string(),
+        row.first()
+            .cloned()
+            .ok_or_else(|| Error::Invalid(format!("node {id}: row has no validity")))?,
+    );
+    // Column i of the read sits at row[i + 1] — `validity` occupies row[0].
+    for (index, col) in NODE_VALUE_COLUMNS.iter().enumerate() {
+        let carried = row
+            .get(index + 1)
+            .cloned()
+            .ok_or_else(|| Error::Invalid(format!("node {id}: row has no column `{col}`")))?;
+        let next = if *col == column {
+            DataValue::Str(value.into())
+        } else {
+            carried
+        };
+        params.insert((*col).to_string(), next);
+    }
+
+    let placeholders = NODE_VALUE_COLUMNS
+        .iter()
+        .map(|c| format!("${c}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let put_script = format!(
+        r#"
+        ?[id, validity, {cols}] <- [[$id, $validity, {placeholders}]]
+        :put node {{id, validity => {cols}}}
+        "#
+    );
+    store
+        .db_ref()
+        .run_script(&put_script, params, ScriptMutability::Mutable)?;
+    Ok(())
+}
+
+/// Builds the inline value tuple for a whole-row `:put node`, in
+/// [`NODE_VALUE_COLUMNS`] order. Every column must have an entry in `values`
+/// — either a Cozo literal (`'episode'`, `null`, `['a','b']`) or a parameter
+/// reference (`$name`). A column added to the schema without a value here
+/// fails loudly at the first call instead of silently taking its default.
+pub(crate) fn node_row_values(values: &BTreeMap<&str, String>) -> Result<String> {
+    let mut out = Vec::with_capacity(NODE_VALUE_COLUMNS.len());
+    for col in NODE_VALUE_COLUMNS {
+        let value = values.get(col).ok_or_else(|| {
+            Error::Invalid(format!(
+                "node column `{col}` has no value in this write path — teach it \
+                 about the column before changing the schema"
+            ))
+        })?;
+        out.push(value.clone());
+    }
+    Ok(out.join(", "))
+}
+
 /// Writes the bi-temporal retraction row for `id` at `secs`. The
 /// placeholder values in the value columns are never observable — the row
 /// is a retraction and does not resolve at NOW.
@@ -508,6 +631,7 @@ mod tests {
         NODE_VALUE_COLUMNS, ReassertRow, merge_tags, read_node_now, reassert_node_now,
         retract_node_at,
     };
+    use crate::graph::NodeId;
     use crate::store::Store;
 
     /// The `node` schema and [`NODE_VALUE_COLUMNS`] must agree exactly.
@@ -622,6 +746,157 @@ mod tests {
         );
         assert_eq!(row[4].get_str(), Some("shared"), "visibility preserved");
         assert_eq!(row[5].get_str(), Some("core"), "layer preserved");
+    }
+
+    /// Seeds `n1` with a non-default value in EVERY value column, so any
+    /// column a rewrite path forgets shows up as a reset to its default.
+    fn seed_full_node(store: &Store) -> NodeId {
+        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+        p.insert(
+            "props".to_string(),
+            DataValue::Json(cozo::JsonData(serde_json::json!({"a": 1}))),
+        );
+        let seed = r#"
+            ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
+                [['n1', [1000.0, true], 'episode', 'operational', 'seeded-name', 'seeded body',
+                  ['custom:x'], ['team-init'], $props, 'shared', 'core']]
+            :put node {id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}
+        "#;
+        store
+            .db_ref()
+            .run_script(seed, p, ScriptMutability::Mutable)
+            .expect("seed");
+        "n1".to_string()
+    }
+
+    /// Reads every value column of `n1` at NOW, in schema order.
+    fn read_full_row(store: &Store) -> Vec<DataValue> {
+        let cols = super::NODE_VALUE_COLUMNS.join(", ");
+        let script = format!(
+            r#"
+            ?[{cols}] := *node{{id, {cols} @ 'NOW'}}, id = 'n1'
+            "#
+        );
+        let rows = store
+            .db_ref()
+            .run_script(&script, BTreeMap::new(), ScriptMutability::Immutable)
+            .expect("read back");
+        assert_eq!(rows.rows.len(), 1, "node resolves at NOW: {rows:?}");
+        rows.rows[0].clone()
+    }
+
+    /// Regression for the 2026-07-08 incident, generalised: `set_layer` used
+    /// to spell the column list out by hand and read the row positionally, so
+    /// a column it didn't know about silently reset to its schema default.
+    /// It now shares the generated rewrite — this test fails loudly if that
+    /// ever regresses, for ANY column, not just the two that were lost then.
+    #[test]
+    fn set_layer_preserves_every_other_column() {
+        let store = Store::open_in_memory().expect("open");
+        let id = seed_full_node(&store);
+
+        crate::mutate::set_layer(&store, &id, crate::graph::Layer::Frozen).expect("set_layer");
+
+        let row = read_full_row(&store);
+        assert_eq!(row[0].get_str(), Some("episode"), "type preserved");
+        assert_eq!(row[1].get_str(), Some("operational"), "tier preserved");
+        assert_eq!(row[2].get_str(), Some("seeded-name"), "name preserved");
+        assert_eq!(row[3].get_str(), Some("seeded body"), "body preserved");
+        assert!(
+            format!("{:?}", row[4]).contains("custom:x"),
+            "tags preserved: {:?}",
+            row[4]
+        );
+        assert!(
+            format!("{:?}", row[5]).contains("team-init"),
+            "initiatives preserved: {:?}",
+            row[5]
+        );
+        assert!(
+            format!("{:?}", row[6]).contains('1'),
+            "properties preserved: {:?}",
+            row[6]
+        );
+        assert_eq!(
+            row[7].get_str(),
+            Some("shared"),
+            "visibility preserved — this is the column the incident lost"
+        );
+        assert_eq!(row[8].get_str(), Some("frozen"), "layer actually changed");
+    }
+
+    /// Mirror of the above for `set_visibility`: the column it must not lose
+    /// is `layer`, which the same incident reset to `warm`.
+    #[test]
+    fn set_visibility_preserves_every_other_column() {
+        let store = Store::open_in_memory().expect("open");
+        let id = seed_full_node(&store);
+
+        crate::mutate::set_visibility(&store, &id, crate::graph::Visibility::Local)
+            .expect("set_visibility");
+
+        let row = read_full_row(&store);
+        assert_eq!(row[2].get_str(), Some("seeded-name"), "name preserved");
+        assert!(
+            format!("{:?}", row[4]).contains("custom:x"),
+            "tags preserved: {:?}",
+            row[4]
+        );
+        assert!(
+            format!("{:?}", row[6]).contains('1'),
+            "properties preserved: {:?}",
+            row[6]
+        );
+        assert_eq!(
+            row[7].get_str(),
+            Some("local"),
+            "visibility actually changed"
+        );
+        assert_eq!(
+            row[8].get_str(),
+            Some("core"),
+            "layer preserved — this is the column the incident lost"
+        );
+    }
+
+    /// The in-place rewrite refuses a column that isn't part of the schema,
+    /// rather than writing a row Cozo would reject with a cryptic message.
+    #[test]
+    fn rewrite_rejects_a_column_outside_the_schema() {
+        let store = Store::open_in_memory().expect("open");
+        let id = seed_full_node(&store);
+
+        let err = super::rewrite_node_column_in_place(&store, &id, "not_a_column", "x")
+            .expect_err("unknown column must be rejected");
+        assert!(
+            format!("{err}").contains("not_a_column"),
+            "error names the offending column: {err}"
+        );
+    }
+
+    /// Whole-row writes (cloud ingest) must supply a value for every column.
+    /// A column added to the schema and to `NODE_VALUE_COLUMNS` but not to a
+    /// write path fails here instead of landing on its default unnoticed.
+    #[test]
+    fn node_row_values_demands_a_value_for_every_column() {
+        let mut partial: BTreeMap<&str, String> = BTreeMap::new();
+        partial.insert("type", "'episode'".to_string());
+        let err = super::node_row_values(&partial).expect_err("missing columns must be rejected");
+        assert!(
+            format!("{err}").contains("tier"),
+            "error names a missing column: {err}"
+        );
+
+        let mut complete: BTreeMap<&str, String> = BTreeMap::new();
+        for col in super::NODE_VALUE_COLUMNS {
+            complete.insert(col, "null".to_string());
+        }
+        let rendered = super::node_row_values(&complete).expect("complete map renders");
+        assert_eq!(
+            rendered.split(", ").count(),
+            super::NODE_VALUE_COLUMNS.len(),
+            "one value per column, in schema order"
+        );
     }
 
     /// `merge_tags` keeps foreign tags, drops the re-derived families, and

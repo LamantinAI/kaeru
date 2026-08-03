@@ -8,7 +8,8 @@ use std::str::FromStr;
 
 use cozo::{DataValue, ScriptMutability};
 
-use crate::errors::{Error, Result};
+use super::rewrite_node_column_in_place;
+use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{NodeId, SharePolicy, Visibility};
 use crate::store::Store;
@@ -28,63 +29,10 @@ use crate::store::Store;
 /// it falls back to the latest historical version, so the verb also
 /// recovers a node left invisible by an earlier buggy rewrite.
 pub fn set_visibility(store: &Store, node_id: &NodeId, visibility: Visibility) -> Result<()> {
-    let mut read_params: BTreeMap<String, DataValue> = BTreeMap::new();
-    read_params.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
-
-    let now_script = r#"
-        ?[validity, type, tier, name, body, tags, initiatives, properties, layer] :=
-            *node{id, validity, type, tier, name, body, tags, initiatives, properties, layer @ 'NOW'},
-            id = $id
-    "#;
-    let mut current =
-        store
-            .db_ref()
-            .run_script(now_script, read_params.clone(), ScriptMutability::Immutable)?;
-
-    if current.rows.is_empty() {
-        let hist_script = r#"
-            ?[validity, type, tier, name, body, tags, initiatives, properties, layer] :=
-                *node{id, validity, type, tier, name, body, tags, initiatives, properties, layer},
-                id = $id
-            :order -validity
-            :limit 1
-        "#;
-        current =
-            store
-                .db_ref()
-                .run_script(hist_script, read_params, ScriptMutability::Immutable)?;
-    }
-
-    let row = current
-        .rows
-        .first()
-        .ok_or_else(|| Error::NotFound(format!("node not found: {node_id}")))?;
-
-    // In-place rewrite: re-`:put` the SAME (id, validity) key with only
-    // `visibility` changed; `layer` and the rest round-trip as parameters.
-    let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
-    p.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
-    p.insert("validity".to_string(), row[0].clone());
-    p.insert("type".to_string(), row[1].clone());
-    p.insert("tier".to_string(), row[2].clone());
-    p.insert("name".to_string(), row[3].clone());
-    p.insert("body".to_string(), row[4].clone());
-    p.insert("tags".to_string(), row[5].clone());
-    p.insert("initiatives".to_string(), row[6].clone());
-    p.insert("properties".to_string(), row[7].clone());
-    p.insert(
-        "visibility".to_string(),
-        DataValue::Str(visibility.as_str().into()),
-    );
-    p.insert("layer".to_string(), row[8].clone());
-    let put_script = r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
-            [[$id, $validity, $type, $tier, $name, $body, $tags, $initiatives, $properties, $visibility, $layer]]
-        :put node {id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}
-    "#;
-    store
-        .db_ref()
-        .run_script(put_script, p, ScriptMutability::Mutable)?;
+    // Shares the generated rewrite with `set_layer`: the column list comes
+    // from `NODE_VALUE_COLUMNS`, so nothing here needs updating when the
+    // schema grows a column — and nothing silently resets to a default.
+    rewrite_node_column_in_place(store, node_id, "visibility", visibility.as_str())?;
 
     write_audit(
         store.db_ref(),
