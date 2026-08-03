@@ -182,6 +182,8 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 #readout .ts { margin-top: 11px; font-family: var(--mono); font-size: 10px; color: var(--faint);
   letter-spacing: .04em; }
 #readout .ts b { color: var(--gold); font-weight: 400; }
+/* the way into the reader from a node you clicked in the galaxy */
+#readout .rd { margin-top: 14px; width: 100%; justify-content: center; }
 
 /* ── legend ───────────────────────────────────────────── */
 /* keyboard focus is visible everywhere; pointer users still see nothing */
