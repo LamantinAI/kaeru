@@ -581,3 +581,38 @@ pub struct TaskParams {
     #[serde(default)]
     pub initiative: Option<String>,
 }
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SlotParams {
+    /// Initiative the role belongs to. Slots are per-initiative: the same
+    /// role name in another initiative is a different slot.
+    pub initiative: String,
+    /// The role — `handoff`, `entrypoint`, `queue`, `prod-state`, or any
+    /// name you keep to one live node.
+    pub slot: String,
+    /// Node to install as the holder. Name or UUIDv7 id.
+    pub name: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SlotScope {
+    /// Initiative whose slots to act on.
+    pub initiative: String,
+    /// The role name.
+    pub slot: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct InitiativeOnly {
+    /// Initiative to report on.
+    pub initiative: String,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct HygieneParams {
+    /// Initiative to report on, or to sweep when `force` is set.
+    pub initiative: String,
+    /// Run a pass now instead of reporting what one would do.
+    #[serde(default)]
+    pub force: bool,
+}

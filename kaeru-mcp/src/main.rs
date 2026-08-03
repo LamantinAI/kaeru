@@ -18,6 +18,7 @@
 // with the external `config` crate that this module imports from.
 mod auth;
 mod cloud_client;
+mod hygiene;
 mod params;
 mod server;
 mod settings;
@@ -146,7 +147,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
-    let server = KaeruServer::new(store, clouds);
+    // The cancellation token is created before the server so the background
+    // hygiene scheduler can hold a child of it and stop cleanly on shutdown.
+    let cancel = CancellationToken::new();
+
+    // Hygiene keeps memory from silting up; `KAERU_MCP_HYGIENE_DISABLE=1`
+    // turns it off entirely for anyone who wants the graph left exactly as
+    // written.
+    let hygiene_disabled = matches!(
+        std::env::var("KAERU_MCP_HYGIENE_DISABLE").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE")
+    );
+
+    let server = KaeruServer::new(store, clouds, cancel.child_token(), hygiene_disabled);
+    server.hygiene_scheduler().spawn_sweeper();
 
     // Read-only `/graph.json` export for the kaeru-viz visualizer — OFF unless
     // `KAERU_MCP_VIZ_ENABLE` is set, so a daemon never exposes a whole-graph
@@ -189,8 +203,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     if viz_enabled {
         tracing::info!("kaeru-viz /graph.json endpoint enabled (KAERU_MCP_VIZ_ENABLE)");
     }
-
-    let cancel = CancellationToken::new();
 
     let mut session_manager = LocalSessionManager::default();
     // rmcp defaults to a 5-minute idle timeout that reaps Claude Code MCP

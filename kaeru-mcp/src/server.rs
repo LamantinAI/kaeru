@@ -15,11 +15,13 @@ use kaeru_core::Store;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{
-    CallToolResult, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
+    CallToolResult, Content, Implementation, ProtocolVersion, ServerCapabilities, ServerInfo,
 };
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
+use tokio_util::sync::CancellationToken;
 
 use crate::cloud_client::CloudRegistry;
+use crate::hygiene::HygieneScheduler;
 use crate::params::*;
 use crate::tools;
 
@@ -30,6 +32,10 @@ pub struct KaeruServer {
     /// — the cloud tools then report that sharing is unavailable. Tools pick
     /// a cloud by explicit `cloud` argument, else the registry's default.
     clouds: CloudRegistry,
+    /// Decides when a hygiene pass is due and runs it off the reactor. Every
+    /// tool that reads or writes an initiative nudges it; the nudge is a
+    /// no-op unless a pass is actually due.
+    hygiene: HygieneScheduler,
     /// Filled by `Self::tool_router()` (macro-generated); read by the
     /// `#[tool_handler]`-generated `ServerHandler` impl, but the
     /// dead-code analyser doesn't see that path.
@@ -38,10 +44,18 @@ pub struct KaeruServer {
 }
 
 impl KaeruServer {
-    pub fn new(store: Store, clouds: CloudRegistry) -> Self {
+    pub fn new(
+        store: Store,
+        clouds: CloudRegistry,
+        cancel: CancellationToken,
+        hygiene_disabled: bool,
+    ) -> Self {
+        let store = Arc::new(store);
+        let hygiene = HygieneScheduler::new(Arc::clone(&store), cancel, hygiene_disabled);
         Self {
-            store: Arc::new(store),
+            store,
             clouds,
+            hygiene,
             tool_router: Self::tool_router(),
         }
     }
@@ -50,6 +64,42 @@ impl KaeruServer {
     /// endpoint, which exports the whole graph for the visualizer.
     pub fn store(&self) -> Arc<Store> {
         self.store.clone()
+    }
+
+    /// The background hygiene scheduler; `main` starts its sweep timer.
+    pub fn hygiene_scheduler(&self) -> &HygieneScheduler {
+        &self.hygiene
+    }
+
+    /// Post-processes a tool result: prepends any hygiene headline waiting for
+    /// this initiative, then nudges the scheduler.
+    ///
+    /// Delivery rides on tool responses because that is the only channel that
+    /// reaches both Claude Code and Codex: MCP `notifications/message` is
+    /// received by both and displayed by neither (anthropics/claude-code#3174,
+    /// #33679; openai/codex#18056).
+    ///
+    /// Applied to `awake` (the session entry point) and to the capture verbs
+    /// (every write), which together cover both the "agent arrived" and "agent
+    /// wrote something" triggers. The sweep timer covers initiatives nobody
+    /// touches.
+    fn after_tool(
+        &self,
+        initiative: Option<&str>,
+        result: Result<CallToolResult, McpError>,
+    ) -> Result<CallToolResult, McpError> {
+        let Ok(mut result) = result else {
+            return result;
+        };
+        if let Some(init) = initiative
+            && let Ok(Some(headline)) = kaeru_core::hygiene::take_pending_report(&self.store, init)
+        {
+            result
+                .content
+                .insert(0, Content::text(format!("{headline}\n")));
+        }
+        self.hygiene.consider(initiative);
+        Ok(result)
     }
 }
 
@@ -60,7 +110,8 @@ impl KaeruServer {
         description = "Restore session context: pinned set, recent episodes (24h), open reviews. Run this when re-entering a project."
     )]
     fn awake(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
-        tools::session::awake(&self.store, p.initiative.as_deref())
+        let result = tools::session::awake(&self.store, p.initiative.as_deref());
+        self.after_tool(p.initiative.as_deref(), result)
     }
 
     #[tool(
@@ -118,6 +169,37 @@ impl KaeruServer {
         tools::session::surface(&self.store, p.layers.as_deref(), p.initiative.as_deref())
     }
 
+    // ----- Slots & hygiene ------------------------------------------------
+    #[tool(
+        description = "Make a node the live holder of a ROLE in an initiative — `handoff`, `entrypoint`, `queue`, `prod-state`. A role holds exactly one node: taking it archives the previous holder to `cold` and links `supersedes`, so a project can never end up with three current handoffs. Nothing is deleted; the predecessor stays readable via `at` / `surface layers=cold`."
+    )]
+    fn slot(&self, Parameters(p): Parameters<SlotParams>) -> Result<CallToolResult, McpError> {
+        let result = tools::slots::slot(&self.store, &p.initiative, &p.slot, &p.name);
+        self.after_tool(Some(&p.initiative), result)
+    }
+
+    #[tool(description = "List the filled roles of an initiative and which node holds each.")]
+    fn slots(&self, Parameters(p): Parameters<InitiativeOnly>) -> Result<CallToolResult, McpError> {
+        tools::slots::slots(&self.store, &p.initiative)
+    }
+
+    #[tool(
+        description = "Free a role without touching the node that held it — its layer stays as it is."
+    )]
+    fn unslot(&self, Parameters(p): Parameters<SlotScope>) -> Result<CallToolResult, McpError> {
+        tools::slots::unslot(&self.store, &p.initiative, &p.slot)
+    }
+
+    #[tool(
+        description = "Hygiene status for an initiative: node and core counts, when the last pass ran, whether one is due, and exactly what the next pass would move. Passes run on their own — when writes accumulate, when core grows past its threshold, or on the sweep timer — and only ever change a node's layer, reversibly. `force=true` runs one now."
+    )]
+    fn hygiene(
+        &self,
+        Parameters(p): Parameters<HygieneParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::hygiene::hygiene(&self.store, &self.hygiene, &p.initiative, p.force)
+    }
+
     // ----- Capture -------------------------------------------------------
     #[tool(
         description = "Write a deliberately-named operational episode. Use when you know you'll want to recall by exact name. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call."
@@ -126,7 +208,7 @@ impl KaeruServer {
         &self,
         Parameters(p): Parameters<EpisodeParams>,
     ) -> Result<CallToolResult, McpError> {
-        tools::capture::episode(
+        let result = tools::capture::episode(
             &self.store,
             self.clouds.get(None),
             &p.name,
@@ -135,14 +217,15 @@ impl KaeruServer {
             p.visibility.as_deref(),
             p.initiative.as_deref(),
         )
-        .await
+        .await;
+        self.after_tool(p.initiative.as_deref(), result)
     }
 
     #[tool(
         description = "Low-friction episode write — auto-named from body's first words plus a unique id suffix. Defaults to observation/low. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call."
     )]
     async fn jot(&self, Parameters(p): Parameters<JotParams>) -> Result<CallToolResult, McpError> {
-        tools::capture::jot(
+        let result = tools::capture::jot(
             &self.store,
             self.clouds.get(None),
             &p.body,
@@ -150,7 +233,8 @@ impl KaeruServer {
             p.visibility.as_deref(),
             p.initiative.as_deref(),
         )
-        .await
+        .await;
+        self.after_tool(p.initiative.as_deref(), result)
     }
 
     #[tool(
@@ -259,7 +343,7 @@ impl KaeruServer {
         &self,
         Parameters(p): Parameters<CiteParams>,
     ) -> Result<CallToolResult, McpError> {
-        tools::capture::cite(
+        let result = tools::capture::cite(
             &self.store,
             self.clouds.get(None),
             &p.name,
@@ -269,7 +353,8 @@ impl KaeruServer {
             p.visibility.as_deref(),
             p.initiative.as_deref(),
         )
-        .await
+        .await;
+        self.after_tool(p.initiative.as_deref(), result)
     }
 
     // ----- Cloud sharing & recall ---------------------------------------

@@ -90,6 +90,9 @@ pub struct HygieneReport {
     pub core_after: usize,
     /// One line per applied move, for the durable episode.
     pub lines: Vec<String>,
+    /// The pass was asked to stop at a batch boundary (daemon shutting down).
+    /// Not an error: the next pass re-derives whatever is left.
+    pub stopped_early: bool,
 }
 
 impl HygieneReport {
@@ -484,8 +487,25 @@ pub fn take_pending_report(store: &Store, initiative: &str) -> Result<Option<Str
         .map(String::from);
 
     if pending.is_some() {
+        // Clear ONLY the report. Reading it is not a pass: rewriting
+        // `last_run_at` here would push the "N days since the last pass"
+        // trigger forward every time an agent picked up a headline.
         let state = state(store, initiative)?;
-        record_run(store, initiative, state.nodes_at_last_run, None)?;
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("init".to_string(), DataValue::Str(initiative.into()));
+        params.insert("at".to_string(), DataValue::from(state.last_run_at));
+        params.insert(
+            "nodes".to_string(),
+            DataValue::from(state.nodes_at_last_run as i64),
+        );
+        let clear = r#"
+            ?[initiative, last_run_at, nodes_at_last_run, pending_report] <-
+                [[$init, $at, $nodes, null]]
+            :put initiative_hygiene {initiative => last_run_at, nodes_at_last_run, pending_report}
+        "#;
+        store
+            .db_ref()
+            .run_script(clear, params, ScriptMutability::Mutable)?;
     }
     Ok(pending)
 }
@@ -500,20 +520,50 @@ pub fn take_pending_report(store: &Store, initiative: &str) -> Result<Option<Str
 /// an already-scoped closure (the MCP adapter's `with_initiative`) would
 /// deadlock. The daemon's background task is the intended caller.
 ///
-/// `pause` runs between batches, outside the guard. The daemon passes a real
-/// sleep there: `std::sync::Mutex` is not fair, so a tight release→acquire
-/// loop can keep barging ahead of a waiting client thread. Tests pass a no-op.
+/// `pause` runs between batches, outside the guard, and decides whether to
+/// continue: returning `false` stops the pass cleanly at a batch boundary
+/// (the daemon wires it to its cancellation token, so a shutdown never tears
+/// a batch in half). The daemon also sleeps there, because
+/// `std::sync::Mutex` is not fair and a tight release→acquire loop can keep
+/// barging ahead of a waiting client thread. Tests pass `|| true`.
+///
+/// A pass stopped early is not a problem: candidates are predicates over the
+/// current graph, not a stored to-do list, so the next pass simply re-derives
+/// whatever is left.
 ///
 /// Returns `None` when no pass was due.
 pub fn run_pass(
     store: &Store,
     initiative: &str,
-    mut pause: impl FnMut(),
+    pause: impl FnMut() -> bool,
+) -> Result<Option<HygieneReport>> {
+    run_pass_inner(store, initiative, pause, false)
+}
+
+/// [`run_pass`] without the due-check — the `hygiene force=true` path. Used
+/// when a human asks for a sweep now rather than waiting for a trigger.
+/// Everything else is identical, including the batching and the guard
+/// discipline, so this must also be called outside `Store::scoped`.
+pub fn force_pass(
+    store: &Store,
+    initiative: &str,
+    pause: impl FnMut() -> bool,
+) -> Result<Option<HygieneReport>> {
+    run_pass_inner(store, initiative, pause, true)
+}
+
+fn run_pass_inner(
+    store: &Store,
+    initiative: &str,
+    mut pause: impl FnMut() -> bool,
+    force: bool,
 ) -> Result<Option<HygieneReport>> {
     let Some((trigger, candidates, core_before)) =
         store.scoped(Some(initiative), |s| -> Result<_> {
-            let Some(trigger) = due(s, initiative)? else {
-                return Ok(None);
+            let trigger = match due(s, initiative)? {
+                Some(reason) => reason,
+                None if force => "forced".to_string(),
+                None => return Ok(None),
             };
             Ok(Some((
                 trigger,
@@ -534,8 +584,9 @@ pub fn run_pass(
 
     let batch_size = store.config().hygiene_batch_size.max(1);
     for (index, batch) in candidates.chunks(batch_size).enumerate() {
-        if index > 0 {
-            pause();
+        if index > 0 && !pause() {
+            report.stopped_early = true;
+            break;
         }
         // One short critical section per batch: this is the whole reason the
         // pass is batched at all.
@@ -651,7 +702,7 @@ mod tests {
         let fresh = episode_in(&store, "proj", "deployed-today");
         backdate(&store, &old, 30);
 
-        let report = run_pass(&store, "proj", || {})
+        let report = run_pass(&store, "proj", || true)
             .expect("pass")
             .expect("pass was due");
 
@@ -672,7 +723,9 @@ mod tests {
         backdate(&store, &referenced, 30);
         link(&store, &pointer, &referenced, EdgeType::RefersTo).expect("link");
 
-        let report = run_pass(&store, "proj", || {}).expect("pass").expect("due");
+        let report = run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
 
         assert_eq!(report.archived, 0, "something references it");
         assert_eq!(get_layer(&store, &referenced).expect("layer"), Layer::Warm);
@@ -688,7 +741,9 @@ mod tests {
         episode_in(&store, "proj", "filler-a");
         episode_in(&store, "proj", "filler-b");
 
-        let report = run_pass(&store, "proj", || {}).expect("pass").expect("due");
+        let report = run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
 
         assert_eq!(report.demoted, 1);
         assert_eq!(
@@ -707,7 +762,9 @@ mod tests {
             link(&store, &referrer, &hub, EdgeType::RefersTo).expect("link");
         }
 
-        let report = run_pass(&store, "proj", || {}).expect("pass").expect("due");
+        let report = run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
 
         assert_eq!(report.promoted, 1);
         assert_eq!(
@@ -725,7 +782,9 @@ mod tests {
         crate::session::pin(&store, &pinned, "keep in view").expect("pin");
         episode_in(&store, "proj", "filler");
 
-        let report = run_pass(&store, "proj", || {}).expect("pass").expect("due");
+        let report = run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
 
         assert_eq!(report.archived, 0);
         assert_eq!(
@@ -769,7 +828,9 @@ mod tests {
         backdate(&store, &old, 30);
         episode_in(&store, "proj", "filler");
 
-        let first = run_pass(&store, "proj", || {}).expect("pass").expect("due");
+        let first = run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
         assert_eq!(first.archived, 1);
 
         // Nothing new was written, so the pass is not due again...
@@ -801,7 +862,9 @@ mod tests {
             "reason names the trigger: {reason}"
         );
 
-        run_pass(&store, "proj", || {}).expect("pass").expect("due");
+        run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
         assert!(
             due(&store, "proj").expect("due").is_none(),
             "the pass reset the counter"
@@ -814,7 +877,9 @@ mod tests {
         let old = episode_in(&store, "proj", "old-note");
         backdate(&store, &old, 30);
         episode_in(&store, "proj", "filler");
-        run_pass(&store, "proj", || {}).expect("pass").expect("due");
+        run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
 
         let first = take_pending_report(&store, "proj").expect("take");
         assert!(
@@ -857,6 +922,7 @@ mod tests {
                 barrier.wait();
                 run_pass(&store, "proj", || {
                     std::thread::sleep(std::time::Duration::from_millis(4));
+                    true
                 })
                 .expect("pass")
                 .expect("due")
@@ -887,13 +953,73 @@ mod tests {
         );
     }
 
+    /// `force` means force. Found by driving the daemon over MCP: the tool
+    /// advertised "runs one now", but the forced path went through the same
+    /// due-check and answered "nothing was due".
+    #[test]
+    fn a_forced_pass_runs_even_when_nothing_is_due() {
+        let store = eager_store();
+        let old = episode_in(&store, "proj", "old-note");
+        backdate(&store, &old, 30);
+        episode_in(&store, "proj", "filler");
+
+        run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
+        assert!(due(&store, "proj").expect("due").is_none());
+
+        let another = episode_in(&store, "proj", "another-old-note");
+        backdate(&store, &another, 30);
+        assert!(
+            due(&store, "proj").expect("due").is_none(),
+            "one write is below the trigger"
+        );
+
+        let report = force_pass(&store, "proj", || true)
+            .expect("forced")
+            .expect("a forced pass always runs");
+        assert_eq!(report.trigger, "forced");
+        assert_eq!(report.archived, 1);
+        assert_eq!(get_layer(&store, &another).expect("layer"), Layer::Cold);
+    }
+
+    /// Reading the headline is not a pass. An earlier version stamped
+    /// `last_run_at` while clearing the report, which pushed the "N days
+    /// since the last pass" trigger forward every time an agent picked one up.
+    #[test]
+    fn taking_the_report_does_not_move_the_last_run_stamp() {
+        let store = eager_store();
+        let old = episode_in(&store, "proj", "old-note");
+        backdate(&store, &old, 30);
+        episode_in(&store, "proj", "filler");
+        run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
+
+        let before = state(&store, "proj").expect("state");
+        assert!(before.last_run_at > 0.0);
+
+        take_pending_report(&store, "proj")
+            .expect("take")
+            .expect("a headline was waiting");
+
+        let after = state(&store, "proj").expect("state");
+        assert_eq!(
+            after.last_run_at, before.last_run_at,
+            "the stamp survived the read"
+        );
+        assert_eq!(after.nodes_at_last_run, before.nodes_at_last_run);
+    }
+
     #[test]
     fn hygiene_moves_are_attributed_in_the_audit_trail() {
         let store = eager_store();
         let old = episode_in(&store, "proj", "old-note");
         backdate(&store, &old, 30);
         episode_in(&store, "proj", "filler");
-        run_pass(&store, "proj", || {}).expect("pass").expect("due");
+        run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
 
         let rows = store
             .db_ref()
