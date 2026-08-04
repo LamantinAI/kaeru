@@ -23,6 +23,25 @@ const STEP_DX = 470, LANE_DY = 300, SPINE_Y = 300, X0 = 120
 const $ = (id) => document.getElementById(id)
 const esc = (s) => (s || '').replace(/[&<>]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]))
 const deslug = (n) => (n || '').replace(/-20\d\d-\d\d-\d\d$/, '').replace(/-[0-9a-f]{6}$/, '').replace(/-/g, ' ')
+// The trailing hex is noise almost always — but it is the ONLY thing telling
+// two same-named nodes apart, and stripping it makes them look like one node
+// drawn twice. Put it back for exactly those.
+const disambiguate = (nodes) => {
+  const seen = new Map()
+  nodes.forEach((n) => {
+    if (!n) return
+    const t = deslug(n.name)
+    seen.set(t, (seen.get(t) || 0) + 1)
+  })
+  const label = {}
+  nodes.forEach((n) => {
+    if (!n) return
+    const t = deslug(n.name)
+    const tag = seen.get(t) > 1 ? (n.name.match(/-([0-9a-f]{6})$/) || [])[1] : null
+    label[n.id] = tag ? `${t} · ${tag}` : t
+  })
+  return label
+}
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v))
 
 export function createReader(data, { fmtDateTime }) {
@@ -135,10 +154,13 @@ export function createReader(data, { fmtDateTime }) {
   }
 
   // ── build ───────────────────────────────────────────────────────────────
+  let TITLE = {}                // display titles, disambiguated within the view
   function buildTrail() {
     world.querySelectorAll('.step,.sat,.lanetag,.bedlabel').forEach((e) => e.remove())
     if (!steps.length) return
     layout()
+    TITLE = disambiguate([...research].map((id) => N[id])
+      .concat([...shared.keys()].map((id) => N[id])))
     const onChain = new Set(steps.map((s) => s.id))
     ;[...research].sort((a, b) => POS[a].d - POS[b].d).forEach((id) => {
       const n = N[id]; if (!n || !POS[id]) return
@@ -148,12 +170,12 @@ export function createReader(data, { fmtDateTime }) {
       // opt-in, for when a long trail needs to be scanned rather than read.
       const el = h(`<button type="button" class="step${main ? '' : ' aside'}" data-id="${id}"
           style="left:${x}px;top:${y}px;--acc:${acc}"
-          aria-label="Read ${esc(deslug(n.name))}">
+          aria-label="Read ${esc(TITLE[id] || deslug(n.name))}">
         <span class="meta"><span class="num">${main ? String(idx + 1).padStart(2, '0') : '—'}</span>
           <span class="s">·</span><span class="t">${esc(n.type)}</span>
           <span class="s">·</span><span>${esc(n.layer)}</span></span>
         <span class="h2-like"></span>
-        <h2>${esc(deslug(n.name))}</h2>
+        <h2>${esc(TITLE[id] || deslug(n.name))}</h2>
         <p class="gist">${clip(n.body, 150)}</p>
         <span class="when">${when(n)}</span>
       </button>`)
@@ -206,8 +228,8 @@ export function createReader(data, { fmtDateTime }) {
       const label = (REL[l.t] || [l.t, l.t])[l.dir === 'out' ? 0 : 1]
       const el = h(`<button type="button" class="sat" data-id="${n.id}" data-of="${ofId}"
           style="left:${sx + 8 + j * 310}px;top:${y}px;--acc:${acc}"
-          aria-label="Read ${esc(deslug(n.name))} — ${esc(label)}">
-        <span class="rel">${esc(label)}</span><span class="h3">${esc(deslug(n.name))}</span>
+          aria-label="Read ${esc(TITLE[n.id] || deslug(n.name))} — ${esc(label)}">
+        <span class="rel">${esc(label)}</span><span class="h3">${esc(TITLE[n.id] || deslug(n.name))}</span>
         <span class="ex">${clip(n.body, 110)}</span>
         <span class="tag">${esc(n.type)} · ${esc(n.tier)}</span></button>`)
       el.onclick = () => openNode(n.id)
@@ -245,8 +267,8 @@ export function createReader(data, { fmtDateTime }) {
       const acc = LAYER_ACCENT[n.layer] || 'var(--dim)'
       const el = h(`<button type="button" class="sat bed" data-id="${id}" data-steps="${v.steps.join(',')}"
           style="left:${left + i * 310}px;top:${y}px;--acc:${acc}"
-          aria-label="Read ${esc(deslug(n.name))} — shared ground for ${v.n} steps">
-        <span class="rel">shared ground · ${v.n}×</span><span class="h3">${esc(deslug(n.name))}</span>
+          aria-label="Read ${esc(TITLE[id] || deslug(n.name))} — shared ground for ${v.n} steps">
+        <span class="rel">shared ground · ${v.n}×</span><span class="h3">${esc(TITLE[id] || deslug(n.name))}</span>
         <span class="ex">${clip(n.body, 130)}</span>
         <span class="tag">${esc(n.type)} · ${esc(n.tier)}</span></button>`)
       el.onclick = () => openNode(id)
@@ -335,7 +357,7 @@ export function createReader(data, { fmtDateTime }) {
       const main = onChain.has(n.id)
       html += `<section data-id="${n.id}" style="--acc:${acc}">
         <div class="snum">${main ? `STEP ${String(i + 1).padStart(2, '0')}` : 'SIDE LINE'} · ${esc(n.type)} · ${esc(n.tier)}</div>
-        <h2>${esc(deslug(n.name))}</h2>
+        <h2>${esc(TITLE[n.id] || deslug(n.name))}</h2>
         <div class="when">asserted <b>${when(n)}</b></div>
         <div class="prose">${paras(n.body || '—')}</div></section>`
       const links = (ADJ[n.id] || []).filter((l) => !onChain.has(l.o)).slice(0, 3)
@@ -470,6 +492,12 @@ export function createReader(data, { fmtDateTime }) {
     steps = members.map((id) => N[id]).filter(Boolean).sort((a, b) => (a.created_secs || 0) - (b.created_secs || 0))
     if (!steps.length) return false
     buildTrail(); buildManuscript(); setView(view)
+    // Lanes are stacked from measured card heights. Measuring before the web
+    // fonts land sizes them with the fallback face, and every card grows when
+    // Spectral arrives — so lay it out again once the real metrics exist.
+    if (document.fonts && document.fonts.status !== 'loaded') {
+      document.fonts.ready.then(() => { if (chain && steps.length) relayout() })
+    }
     return true
   }
 
