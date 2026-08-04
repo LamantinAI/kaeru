@@ -548,6 +548,13 @@ async function setReader(on, nodeId) {
 }
 readBtn.addEventListener('click', () => setReader(!readerOpen))
 $('rBack').addEventListener('click', () => setReader(false))
+// Escape leaves the reader — the reader covers the whole page, and every other
+// overlay here already closes that way. (Backspace steps back inside it.)
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !readerOpen) return
+  if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return
+  e.preventDefault(); setReader(false)
+})
 // the readout is rebuilt on every hover, so delegate rather than re-bind
 $('readout').addEventListener('click', (e) => {
   const b = e.target.closest('[data-read]')
@@ -706,7 +713,7 @@ $('talkBtn').addEventListener('click', enterScript)
 $('scriptNext').addEventListener('click', nextScene)
 $('scriptPrev').addEventListener('click', prevScene)
 $('scriptExit').addEventListener('click', exitScript)
-addEventListener('keydown', (e) => { if ($('script').hidden) return; if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextScene() } else if (e.key === 'ArrowLeft') { e.preventDefault(); prevScene() } else if (e.key === 'Escape') exitScript() })
+addEventListener('keydown', (e) => { if ($('script').hidden) return; if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextScene() } else if (e.key === 'ArrowLeft') { e.preventDefault(); prevScene() } else if (e.key === 'Escape') exitScript() })
 
 // ── theme (dark / light / auto) ──────────────────────────────────────────────
 function applyThemeToScene() {
@@ -809,7 +816,8 @@ findInput.addEventListener('keydown', (e) => {
 })
 // "/" focuses the search, the way every other tool does it
 addEventListener('keydown', (e) => {
-  if (e.key !== '/' || e.target.tagName === 'INPUT' || !$('script').hidden) return
+  // the rail is gone while reading, so focusing its input would be a no-op
+  if (e.key !== '/' || e.target.tagName === 'INPUT' || !$('script').hidden || readerOpen) return
   e.preventDefault(); findInput.focus(); findInput.select()
 })
 

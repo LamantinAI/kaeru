@@ -76,14 +76,14 @@ export function createReader(data, { fmtDateTime }) {
   // heavier payload once, the first time the reader is actually opened.
   async function loadBodies() {
     if (bodiesLoaded) return
-    bodiesLoaded = true
     for (const url of ['/graph.json?bodies=true', './graph.json?bodies=true']) {
       try {
         const r = await fetch(url)
         if (!r.ok) continue
         const g = await r.json()
         for (const n of g.nodes) if (N[n.id] && n.body) N[n.id].body = n.body
-        return
+        bodiesLoaded = true   // only once it actually arrived: a transient
+        return                // failure must leave the next open free to retry
       } catch (_) { /* fall through to the baked snapshot */ }
     }
   }
@@ -106,6 +106,14 @@ export function createReader(data, { fmtDateTime }) {
       }
     }
     for (const e of E) if (research.has(e.from) && research.has(e.to)) (parents[e.to] = parents[e.to] || []).push(e.from)
+    // Not every chain links its steps with `derived_from` — plenty are just a
+    // sequence. Without a parent every step sits at depth 0, so the trail
+    // stacks into a column of "side lines" that claims ten lines of inquiry
+    // where there is one. The chain's own order is the fallback derivation.
+    for (let i = 1; i < steps.length; i++) {
+      const id = steps[i].id
+      if (!(parents[id] || []).length) parents[id] = [steps[i - 1].id]
+    }
 
     const depth = {}
     const visit = (id, seen) => {
@@ -236,6 +244,14 @@ export function createReader(data, { fmtDateTime }) {
       world.appendChild(el)
     })
   }
+  // A..Z, then AA, AB… — a wide research has more lines than the alphabet
+  const laneLetter = (i) => {
+    let out = ''
+    for (let n = i; ; n = Math.floor(n / 26) - 1) {
+      out = String.fromCharCode(65 + (n % 26)) + out
+      if (n < 26) return out
+    }
+  }
   function labelLanes(onChain) {
     const heads = {}
     Object.entries(POS).forEach(([id, p]) => { if (!heads[p.lane] || p.d < POS[heads[p.lane]].d) heads[p.lane] = id })
@@ -247,7 +263,7 @@ export function createReader(data, { fmtDateTime }) {
       // title page sits, and the tag used to collide with it
       // clear of the card it names: the tag is 18px tall, so sit it above that
       world.appendChild(h(`<div class="lanetag${main ? ' main' : ''}" style="left:${p.x}px;top:${p.y - 30}px">
-        <span class="ln">${String.fromCharCode(65 + +ln)}</span> · ${main ? 'main trail' : 'side line'}</div>`))
+        <span class="ln">${laneLetter(+ln)}</span> · ${main ? 'main trail' : 'side line'}</div>`))
     })
   }
   function placeBedrock() {
@@ -489,7 +505,8 @@ export function createReader(data, { fmtDateTime }) {
   }
   function render(c, members) {
     chain = c
-    steps = members.map((id) => N[id]).filter(Boolean).sort((a, b) => (a.created_secs || 0) - (b.created_secs || 0))
+    steps = (members || []).map((id) => N[id]).filter(Boolean)
+      .sort((a, b) => (a.created_secs || 0) - (b.created_secs || 0))
     if (!steps.length) return false
     buildTrail(); buildManuscript(); setView(view)
     // Lanes are stacked from measured card heights. Measuring before the web
