@@ -36,7 +36,7 @@
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   font-family: var(--serif); overflow: hidden;
-  transition: background .3s ease, color .3s ease; }
+  transition: background-color .3s ease, color .3s ease; }
 [hidden] { display: none !important; }
 #graph { position: fixed; inset: 0; }
 
@@ -163,7 +163,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   color: var(--fg); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.28); }
 
 /* ── readout (node card) ──────────────────────────────── */
-#readout { position: fixed; top: 96px; right: 22px; width: 320px; max-width: 38vw; z-index: 9;
+#readout { position: fixed; top: 96px; right: 270px; width: 320px; max-width: 32vw; z-index: 9;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 5px; display: none; }
 #readout.show { display: block; }
 #readout .bar { height: 3px; background: var(--gold); border-radius: 5px 5px 0 0; }
@@ -182,13 +182,65 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 #readout .ts { margin-top: 11px; font-family: var(--mono); font-size: 10px; color: var(--faint);
   letter-spacing: .04em; }
 #readout .ts b { color: var(--gold); font-weight: 400; }
+/* the way into the reader from a node you clicked in the galaxy */
+#readout .rd { margin-top: 14px; width: 100%; justify-content: center; }
 
 /* ── legend ───────────────────────────────────────────── */
-#legend { position: fixed; bottom: 150px; right: 22px; z-index: 9; font-family: var(--mono);
-  font-size: 10.5px; color: var(--dim); text-align: right; line-height: 1.85;
-  letter-spacing: .03em; pointer-events: none; }
+/* keyboard focus is visible everywhere; pointer users still see nothing */
+:focus-visible { outline: 2px solid var(--seal); outline-offset: 2px; border-radius: 2px; }
+
+/* for text only assistive tech should read */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* ── right rail: find a node, or narrow to one project ─── */
+#rail { position: fixed; right: 22px; top: 96px; bottom: 96px; width: 236px; z-index: 9;
+  display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+
+#find { flex: none; position: relative; }
+#findInput { width: 100%; height: 30px; background: var(--ctl-bg); color: var(--fg);
+  border: 1px solid var(--line-2); border-radius: 3px; padding: 0 10px;
+  font-family: var(--mono); font-size: 12px; }
+#findInput::placeholder { color: var(--faint); }
+#findInput:focus { border-color: var(--seal); }
+#findInput::-webkit-search-cancel-button { -webkit-appearance: none; }
+#findHits { position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 12;
+  max-height: 46vh; overflow-y: auto; background: var(--panel);
+  border: 1px solid var(--line-2); border-radius: 3px;
+  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+#findHits .hit { padding: 8px 11px; border-top: 1px solid var(--line); cursor: pointer; }
+#findHits .hit:first-child { border-top: 0; }
+#findHits .hit:hover, #findHits .hit.on { background: var(--ctl-bg); }
+#findHits .hn { font-family: var(--serif); font-size: 13px; color: var(--fg); line-height: 1.3;
+  display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#findHits .hm { font-family: var(--mono); font-size: 9.5px; color: var(--dim);
+  letter-spacing: .06em; text-transform: uppercase; margin-top: 4px; display: block; }
+#findHits .none { padding: 9px 11px; font-family: var(--mono); font-size: 11px; color: var(--dim); }
+
+/* the colour key doubles as the project menu — click a row to narrow the galaxy */
+#projects { flex: 1 1 auto; min-height: 0; overflow-y: auto; text-align: right;
+  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+#projects::-webkit-scrollbar { width: 8px; }
+#projects::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+#projects .pr { display: flex; align-items: center; justify-content: flex-end; gap: 9px; width: 100%;
+  padding: 4px 2px 4px 8px; border: 0; background: 0; border-radius: 3px; cursor: pointer;
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .03em; color: var(--dim);
+  line-height: 1.5; text-align: right; transition: color .12s, background .12s; }
+#projects .pr:hover { color: var(--fg); background: var(--panel-2); }
+#projects .pr.on { color: var(--fg); }
+#projects .pr.on .nm::after { content: ""; position: absolute; right: -8px; top: 50%;
+  width: 3px; height: 3px; margin-top: -1.5px; border-radius: 50%; background: var(--seal); }
+#projects .nm { position: relative; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#projects .ct { color: var(--fg-2); font-variant-numeric: tabular-nums; flex: none; }
+#projects .sw { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+#projects .all { border-bottom: 1px solid var(--line); margin-bottom: 5px; padding-bottom: 7px; }
+
+#legend { flex: none; font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+  text-align: right; line-height: 1.85; letter-spacing: .03em; pointer-events: none;
+  padding-top: 9px; border-top: 1px solid var(--line); }
 #legend .sw { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
   margin-left: 9px; vertical-align: 1px; }
+#legend:empty { display: none; }
 
 /* ── guided-tour card ─────────────────────────────────── */
 #script { position: fixed; left: 0; right: 0; bottom: 26px; z-index: 20;
@@ -209,3 +261,123 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .dots { display: inline-flex; gap: 7px; }
 .dots .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); }
 .dots .dot.on { background: var(--seal); }
+
+/* ── reader ───────────────────────────────────────────── */
+/* Two views, two jobs. The MAP shows the shape of the reasoning — compact
+   steps you can take in at a glance, forks visible. READ is where the words
+   are. The map used to render every body in full, which put eight essays on
+   one canvas and made the shape impossible to see.
+   No palette of its own: field is the darker --panel, a card the lighter --bg. */
+#reader { position: fixed; inset: 0; z-index: 8; background: var(--panel); }
+#rcanvas { position: absolute; inset: 0; cursor: grab; overflow: hidden;
+  background-image: radial-gradient(var(--line-2) 1.1px, transparent 1.2px);
+  background-size: 28px 28px; }
+#rcanvas.grabbing { cursor: grabbing; }
+#rworld { position: absolute; top: 0; left: 0; transform-origin: 0 0; will-change: transform; }
+#rtrack { position: absolute; top: 0; left: 0; overflow: visible; pointer-events: none; }
+
+/* the reader's own bar — it borrows nothing from the galaxy console */
+#rbar { position: absolute; top: 0; left: 0; right: 0; z-index: 12; display: flex;
+  align-items: center; gap: 18px; padding: 14px 22px;
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
+  border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
+#rbar #rPrev { border-color: var(--seal); color: var(--seal-fg); }
+#rbar .rtitle { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#rbar .rkind { font-family: var(--mono); font-size: 9px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--seal); }
+#rbar .rtitle b { font-family: var(--serif); font-weight: 500; font-size: 17px;
+  letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#rbar #rView { margin-left: auto; }
+#rhint { position: absolute; bottom: 22px; left: 24px; z-index: 9; font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .04em; color: var(--dim); pointer-events: none; }
+
+/* ── map: a step is a station, not a page ─────────────── */
+.step { position: absolute; width: 330px; background: var(--bg); border: 1px solid var(--line-2);
+  border-radius: 4px; padding: 15px 18px 14px; cursor: pointer; display: block; text-align: left;
+  font: inherit; color: inherit; transition: border-color .15s, transform .15s; }
+.step::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: var(--acc); border-radius: 4px 0 0 4px; }
+.step:hover { border-color: var(--acc); transform: translateY(-2px); }
+.step .meta { display: flex; align-items: center; gap: 8px; font-family: var(--mono);
+  font-size: 9.5px; letter-spacing: .13em; text-transform: uppercase; color: var(--dim); }
+.step .num { font-family: var(--mono); font-size: 10px; color: var(--seal); font-weight: 500; flex: none; }
+.step .meta .t { color: var(--acc); font-weight: 500; }
+.step .meta .s { opacity: .4; }
+.step h2 { margin: 9px 0 0; font-family: var(--serif); font-weight: 500; font-size: 17px;
+  line-height: 1.28; letter-spacing: -.01em; color: var(--fg); }
+.step .gist { margin: 7px 0 0; font-family: var(--serif); font-size: 13px; line-height: 1.5;
+  color: var(--dim); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; }
+.step .when { display: block; margin-top: 10px; font-family: var(--mono); font-size: 9.5px;
+  color: var(--fg-2); letter-spacing: .03em; }
+/* a step off the authored chain is quieter but the same shape */
+.step.aside { width: 300px; background: var(--ctl-bg); }
+.step.aside h2 { font-size: 15.5px; }
+
+/* what a step leans on, and what several of them share */
+.sat { position: absolute; width: 250px; background: var(--ctl-bg); border: 1px solid var(--line);
+  border-radius: 4px; padding: 11px 13px; cursor: pointer; display: block; text-align: left;
+  font: inherit; color: inherit; transition: border-color .15s, transform .15s; }
+.sat:hover { border-color: var(--acc); transform: translateY(-2px); }
+.sat .rel { display: block; font-family: var(--mono); font-size: 8.5px; letter-spacing: .15em;
+  text-transform: uppercase; color: var(--acc); margin-bottom: 6px; }
+.sat .h3 { display: block; font-family: var(--serif); font-weight: 500; font-size: 13.5px;
+  line-height: 1.3; color: var(--fg); }
+.sat .ex, .sat .tag { display: none; }
+.sat.bed { background: var(--bg); border-color: var(--line-2); }
+.sat.bed .rel { color: var(--gold); }
+.bedlabel { position: absolute; width: 640px; white-space: nowrap; font-family: var(--mono);
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--dim); }
+.lanetag { position: absolute; white-space: nowrap; font-family: var(--mono); font-size: 10px;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--dim); line-height: 18px; height: 18px; }
+.lanetag .ln { color: var(--dim); font-weight: 500; }
+.lanetag.main { color: var(--fg-2); }
+.lanetag.main .ln { color: var(--seal); }
+
+/* ── read: the trail as one continuous text, on a sheet ─ */
+#manuscript { position: absolute; inset: 0; overflow-y: auto; display: none; background: var(--panel); }
+#manuscript.on { display: block; }
+.ms { max-width: 1080px; margin: 96px auto 90px; padding: 78px 72px 96px; display: grid;
+  grid-template-columns: 1fr 250px; gap: 0 42px; background: var(--bg);
+  border: 1px solid var(--line-2); border-radius: 4px; }
+.ms > * { grid-column: 1; }
+.ms .kind { font-family: var(--mono); font-size: 10px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--seal); }
+.ms h1 { margin: 14px 0 0; font-weight: 600; font-size: 42px; line-height: 1.1;
+  letter-spacing: -.02em; max-width: 20ch; }
+.ms .lede { margin: 20px 0 0; font-size: 19px; line-height: 1.6; color: var(--fg-2);
+  max-width: 62ch; font-style: italic; }
+.ms .byline { margin: 26px 0 0; padding-bottom: 30px; border-bottom: 1px solid var(--line-2);
+  font-family: var(--mono); font-size: 11px; color: var(--dim); letter-spacing: .04em; }
+.ms section { margin-top: 46px; scroll-margin-top: 96px; }
+.ms section.here .snum { color: var(--seal); }
+.ms .snum { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; color: var(--acc); }
+.ms h2 { margin: 10px 0 0; font-weight: 500; font-size: 26px; line-height: 1.24;
+  letter-spacing: -.012em; max-width: 26ch; }
+.ms .prose { margin-top: 14px; font-size: 16.5px; line-height: 1.75; color: var(--fg-2); max-width: 64ch; }
+.ms .prose p { margin: 0 0 14px; }
+.ms .when { margin-top: 6px; font-family: var(--mono); font-size: 10.5px; color: var(--fg-2); }
+.ms .when b { color: var(--gold); font-weight: 400; }
+.marg { grid-column: 2; align-self: start; margin-top: 54px; padding-left: 18px;
+  border-left: 1px solid var(--line-2); }
+.marg .mtitle { font-family: var(--mono); font-size: 9px; letter-spacing: .15em;
+  text-transform: uppercase; color: var(--dim); margin-bottom: 10px; }
+.marg .mlink { display: block; width: 100%; margin-bottom: 12px; padding: 0; border: 0;
+  background: 0; text-align: left; font: inherit; color: var(--fg-2); cursor: pointer; }
+.marg .mlink:hover { color: var(--fg); }
+.marg .mlink:hover .n { text-decoration: underline; text-underline-offset: 2px; }
+.marg .r { font-family: var(--mono); font-size: 9px; letter-spacing: .08em; color: var(--acc);
+  display: block; margin-bottom: 2px; }
+.marg .n { font-family: var(--serif); font-size: 13.5px; line-height: 1.4; display: block; }
+
+.rmark { background: color-mix(in srgb, var(--gold) 22%, transparent); border-radius: 2px; padding: 0 3px; }
+#reader code { font-family: var(--mono); font-size: .88em; background: var(--ctl-bg);
+  border: 1px solid var(--line); border-radius: 2px; padding: 0 4px; }
+
+/* ── motion, only for those who want it ────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important; scroll-behavior: auto !important;
+  }
+}

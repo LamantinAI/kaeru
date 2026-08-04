@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { createReader } from './reader.js'
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
@@ -55,6 +56,8 @@ const THEMES = {
     hotLerp: new THREE.Color(0x1a120a), chainCur: 0x17171b, chainVisited: 0x8a5a10, chainLerp: 0.28,
   },
 }
+let reader = null          // the reader view; built once the graph is in (see below)
+const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)')
 let themePref = (() => { try { return localStorage.getItem('kaeru-viz-theme') || 'auto' } catch (_) { return 'auto' } })()
 const mql = matchMedia('(prefers-color-scheme: light)')
 const resolvedTheme = () => (themePref === 'auto' ? (mql.matches ? 'light' : 'dark') : themePref)
@@ -362,6 +365,7 @@ function showReadout(n, step, total) {
       <div class="tags">${meta}</div>
       <p>${esc(n.body || (n.redacted ? '⟨body redacted⟩' : (n.isHub ? 'A project cluster — hover its nodes to explore.' : '—')))}</p>
       ${n.isHub ? '' : `<div class="ts">asserted <b>${asserted}</b></div>`}
+      ${n.isHub ? '' : `<button class="btn go rd" data-read="${esc(n.id)}">read this trail →</button>`}
     </div>`
   readout.classList.add('show')
 }
@@ -487,6 +491,7 @@ $('timePlay').addEventListener('click', () => (timeAnim ? stopTimeLapse() : star
 // ── focus ───────────────────────────────────────────────────────────────────
 function setFocus(name) {
   focusInit = name || null; $('focus').value = name || ''; $('focus')._sync && $('focus')._sync()
+  markActiveProject()
   pinned = -1; pinnedNb = new Set()
   applyVisuals()
   if (focusInit) frameCluster(focusInit, 1400); else frame(1200)
@@ -504,6 +509,59 @@ const chainPick = $('chainPick')
 data.chains.forEach((c, i) => { const o = document.createElement('option'); o.value = i; o.textContent = `${c.name} (${(c.members || []).length})`; chainPick.appendChild(o) })
 $('chainPlay').addEventListener('click', () => { const c = data.chains[+chainPick.value || 0]; if (c) startReplay(c) })
 $('chainReset').addEventListener('click', resetChain)
+
+// ── reader: the same chain, read instead of surveyed ────────────────────────
+reader = createReader(data, { fmtDateTime })
+let readerOpen = false
+const readBtn = $('chainRead')
+async function setReader(on, nodeId) {
+  if (on) {
+    readBtn.textContent = '…'
+    // Unhide BEFORE laying out: the reader measures card heights to stack its
+    // lanes, and a `display:none` subtree measures zero.
+    $('reader').hidden = false
+    const ok = nodeId
+      ? await reader.showNode(nodeId)
+      : await reader.show((data.chains[+chainPick.value || 0] || {}).id)
+    readBtn.textContent = ok ? 'galaxy' : 'read'
+    if (!ok) { $('reader').hidden = true; return }
+    // if the node sat on a saved chain, let the picker follow the reader
+    const cid = reader.chainId()
+    if (cid) {
+      const i = data.chains.findIndex((c) => c.id === cid)
+      if (i >= 0 && +chainPick.value !== i) { chainPick.value = i; chainPick._sync && chainPick._sync() }
+    }
+  }
+  readerOpen = on
+  $('reader').hidden = !on
+  if (on) { setHover(-1); chip.style.display = 'none' }   // drop the galaxy's hover chip
+  readBtn.classList.toggle('go', on)
+  readBtn.textContent = on ? 'galaxy' : 'read'
+  // the panel stays; the rest of the galaxy's chrome belongs to the galaxy
+  // Reading is its own room. Colour-by, focus, time-lapse, node search and the
+  // project list are all instruments for surveying the galaxy; none of them
+  // mean anything while you are reading a trail, so the whole chrome steps out.
+  $('panel').hidden = on
+  $('rail').hidden = on
+  $('readout').hidden = on
+  $('hud').hidden = on
+}
+readBtn.addEventListener('click', () => setReader(!readerOpen))
+$('rBack').addEventListener('click', () => setReader(false))
+// Escape leaves the reader — the reader covers the whole page, and every other
+// overlay here already closes that way. (Backspace steps back inside it.)
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !readerOpen) return
+  if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return
+  e.preventDefault(); setReader(false)
+})
+// the readout is rebuilt on every hover, so delegate rather than re-bind
+$('readout').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-read]')
+  if (b) setReader(true, b.dataset.read)
+})
+// picking another chain while reading re-reads it
+chainPick.addEventListener('change', () => { if (readerOpen) setReader(true) })
 
 // custom archive-styled dropdowns over the (hidden) native selects
 function makeDropdown(sel) {
@@ -549,18 +607,46 @@ $('stats').innerHTML =
   `<div class="cell"><div class="n">${m.chain_count ?? data.chains.length}</div><div class="l">chains</div></div>` +
   `<div class="cell span">${fmtDate(T0)} — ${fmtDate(T1)}<span class="sub">one agent · ${Math.round((T1 - T0) / 86400)} days</span></div>`
 function hex(c) { return '#' + c.getHexString() }
+// The project list is the colour key AND the way to narrow the galaxy: the
+// swatch tells you what a cluster's colour means, the row focuses it.
+function markActiveProject() {
+  const el = $('projects'); if (!el) return
+  for (const row of el.children) {
+    const on = (row.dataset.init || null) === focusInit
+    row.classList.toggle('on', on); row.setAttribute('aria-pressed', String(on))
+  }
+}
+function buildProjects() {
+  const el = $('projects')
+  const rows = [...data.initiatives].sort((a, b) => (b.node_count || 0) - (a.node_count || 0))
+  el.innerHTML =
+    `<button type="button" class="pr all${focusInit ? '' : ' on'}" data-init=""
+       aria-pressed="${focusInit ? 'false' : 'true'}">
+       <span class="nm">all projects</span><span class="ct">${rawNodes.length}</span>
+       <span class="sw" style="background:transparent"></span></button>` +
+    rows.map((i) => `<button type="button" class="pr${focusInit === i.name ? ' on' : ''}"
+       data-init="${esc(i.name)}" aria-pressed="${focusInit === i.name ? 'true' : 'false'}">
+       <span class="nm">${esc(i.name)}</span><span class="ct">${i.node_count || 0}</span>
+       <span class="sw" style="background:${hex(initSwatch(i.name))}"></span></button>`).join('')
+  for (const row of el.children) {
+    row.addEventListener('click', () => {
+      const name = row.dataset.init || null
+      setFocus(focusInit === name ? null : name)   // clicking the active one clears it
+    })
+  }
+}
+
 function buildLegend() {
   const el = $('legend')
   if (colorMode === 'initiative') {
-    el.innerHTML = data.initiatives.slice(0, 8).map((i) => `${esc(i.name)} <span class="sw" style="background:${hex(initSwatch(i.name))}"></span>`).join('<br>') +
-      `<br><span style="opacity:.6">+ ${Math.max(0, data.initiatives.length - 8)} more</span>`
+    el.innerHTML = ''            // the project list above already carries the swatches
   } else if (colorMode === 'tier') {
     el.innerHTML = `operational (hippocampus) <span class="sw" style="background:${hex(modeColor(TIER_C, 'operational'))}"></span><br>archival (cortex) <span class="sw" style="background:${hex(modeColor(TIER_C, 'archival'))}"></span>`
   } else {
     el.innerHTML = ['core', 'hot', 'warm', 'cold', 'frozen'].map((l) => `${l} <span class="sw" style="background:${hex(modeColor(LAYER_C, l))}"></span>`).join('<br>')
   }
 }
-buildLegend()
+buildLegend(); buildProjects()
 
 // ── camera framing ───────────────────────────────────────────────────────────
 function boundsOf(filter) {
@@ -627,7 +713,7 @@ $('talkBtn').addEventListener('click', enterScript)
 $('scriptNext').addEventListener('click', nextScene)
 $('scriptPrev').addEventListener('click', prevScene)
 $('scriptExit').addEventListener('click', exitScript)
-addEventListener('keydown', (e) => { if ($('script').hidden) return; if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextScene() } else if (e.key === 'ArrowLeft') { e.preventDefault(); prevScene() } else if (e.key === 'Escape') exitScript() })
+addEventListener('keydown', (e) => { if ($('script').hidden) return; if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return; if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nextScene() } else if (e.key === 'ArrowLeft') { e.preventDefault(); prevScene() } else if (e.key === 'Escape') exitScript() })
 
 // ── theme (dark / light / auto) ──────────────────────────────────────────────
 function applyThemeToScene() {
@@ -638,7 +724,8 @@ function applyThemeToScene() {
   bpPoints.material.color.set(TH.particle)
   starMat.color.set(TH.star); starMat.opacity = TH.starOp
   ring.material.color.set(TH.ring)
-  buildLegend(); applyVisuals()
+  buildLegend(); buildProjects(); applyVisuals()
+  if (reader) reader.redraw()
 }
 function setTheme(pref) {
   themePref = pref
@@ -651,6 +738,88 @@ function setTheme(pref) {
 }
 for (const b of $('themeSeg').children) b.addEventListener('click', () => setTheme(b.dataset.t))
 mql.addEventListener('change', () => { if (themePref === 'auto') { TH = THEMES[resolvedTheme()]; applyThemeToScene() } })
+
+// ── find a node by name, instead of hunting for it in the galaxy ────────────
+const findInput = $('findInput'), findHits = $('findHits')
+let hits = [], hitAt = -1
+// nodes only: hubs are reachable from the project list above
+const searchable = nodes.filter((n) => !n.isHub)
+
+function goToNode(i) {
+  const n = nodes[i]; if (!n) return
+  // a hit must not stay invisible: lift the time filter and any project focus
+  if (!visible(n)) { timeFilter = Infinity; timeEl.value = 100; timeLabel('— full graph —') }
+  if (focusInit && n.init !== focusInit) setFocus(null)
+  if (readerOpen) setReader(false)
+  chain.clear(); nodes.forEach((x) => { x.__visited = false; x.__cur = false })
+  pinNode(i); flyTo(n.pos, reducedMotion.matches ? 0 : 1100)
+  say(`Showing ${n.name}`)
+}
+function closeHits() {
+  findHits.hidden = true; hits = []; hitAt = -1
+  findInput.setAttribute('aria-expanded', 'false')
+  findInput.removeAttribute('aria-activedescendant')
+}
+function say(msg) { $('findStatus').textContent = msg }
+function renderHits() {
+  findInput.setAttribute('aria-expanded', 'true')
+  if (!hits.length) {
+    findHits.innerHTML = '<div class="none">nothing found</div>'
+    findHits.hidden = false
+    findInput.removeAttribute('aria-activedescendant')
+    say('No nodes found')
+    return
+  }
+  findHits.innerHTML = hits.map((i, k) => {
+    const n = nodes[i]
+    return `<div class="hit${k === hitAt ? ' on' : ''}" id="hit-${i}" role="option"
+      aria-selected="${k === hitAt}" data-i="${i}">
+      <span class="hn">${esc(n.name)}</span>
+      <span class="hm">${esc(n.type)} · ${esc(n.init)}</span></div>`
+  }).join('')
+  findHits.hidden = false
+  if (hitAt >= 0) findInput.setAttribute('aria-activedescendant', `hit-${hits[hitAt]}`)
+  say(`${hits.length} node${hits.length === 1 ? '' : 's'} found`)
+  for (const row of findHits.children) {
+    if (!row.dataset.i) continue
+    row.addEventListener('mousedown', (e) => { e.preventDefault(); goToNode(+row.dataset.i); closeHits(); findInput.blur() })
+  }
+}
+function runFind() {
+  const q = findInput.value.trim().toLowerCase()
+  if (q.length < 2) { closeHits(); return }
+  const starts = [], has = []
+  for (let i = 0; i < searchable.length && starts.length + has.length < 200; i++) {
+    const nm = searchable[i].name.toLowerCase()
+    const at = nm.indexOf(q)
+    if (at === 0) starts.push(idx.get(searchable[i].id))
+    else if (at > 0) has.push(idx.get(searchable[i].id))
+  }
+  hits = [...starts, ...has].slice(0, 40)
+  hitAt = hits.length ? 0 : -1
+  renderHits()
+}
+findInput.addEventListener('input', runFind)
+findInput.addEventListener('focus', () => { if (findInput.value.trim().length >= 2) runFind() })
+findInput.addEventListener('blur', () => setTimeout(closeHits, 120))
+findInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { findInput.value = ''; closeHits(); findInput.blur(); return }
+  if (!hits.length) return
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    hitAt = (hitAt + (e.key === 'ArrowDown' ? 1 : hits.length - 1)) % hits.length
+    renderHits()
+    findHits.children[hitAt]?.scrollIntoView({ block: 'nearest' })
+  } else if (e.key === 'Enter' && hitAt >= 0) {
+    e.preventDefault(); goToNode(hits[hitAt]); closeHits(); findInput.blur()
+  }
+})
+// "/" focuses the search, the way every other tool does it
+addEventListener('keydown', (e) => {
+  // the rail is gone while reading, so focusing its input would be a no-op
+  if (e.key !== '/' || e.target.tagName === 'INPUT' || !$('script').hidden || readerOpen) return
+  e.preventDefault(); findInput.focus(); findInput.select()
+})
 
 // ── loop ─────────────────────────────────────────────────────────────────────
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })
@@ -671,9 +840,10 @@ function loop() {
   bpGeo.attributes.position.needsUpdate = true
   if (tween) tween()
   // auto-rotate only when idle — stop on hover, chain, focus, tour, camera tween
-  controls.autoRotate = !(window.__rec && window.__rec.active) &&
+  controls.autoRotate = !reducedMotion.matches && !(window.__rec && window.__rec.active) &&
     hovered < 0 && !chain.size && !focusInit && $('script').hidden && !tween
-  controls.update(); renderer.render(scene, camera)
+  controls.update()
+  if (!readerOpen) renderer.render(scene, camera)   // the reader covers the canvas
 }
 
 // recording hook — only present with ?rec, drives a deterministic seamless orbit

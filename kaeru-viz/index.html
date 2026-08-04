@@ -11,6 +11,22 @@
   <body>
     <div id="graph"></div>
 
+    <!-- the reader: the same graph, read instead of surveyed -->
+    <section id="reader" hidden>
+      <div id="rcanvas"><div id="rworld"><svg id="rtrack"></svg></div></div>
+      <div id="manuscript"></div>
+      <header id="rbar">
+        <button id="rPrev" class="btn" hidden>← back</button>
+        <button id="rBack" class="btn">galaxy</button>
+        <div class="rtitle"><span class="rkind">reasoning chain</span><b id="rname">—</b></div>
+        <div class="themeseg" id="rView" role="group" aria-label="reader view">
+          <button type="button" id="rTrail" class="on">map</button>
+          <button type="button" id="rMs">read</button>
+        </div>
+      </header>
+      <div id="rhint">click a step to read it</div>
+    </section>
+
     <header id="hud">
       <div class="seal" title="蛙 — kaeru, &quot;frog&quot;">蛙</div>
       <div class="wordmark">
@@ -27,6 +43,7 @@
           <select id="chainPick" class="ctl"></select>
         </div>
         <button id="chainPlay" class="btn go">replay</button>
+        <button id="chainRead" class="btn">read</button>
         <button id="chainReset" class="btn">reset</button>
       </div>
       <div class="seg">
@@ -70,7 +87,20 @@
     </section>
 
     <aside id="readout"></aside>
-    <div id="legend"></div>
+
+    <!-- right rail: find a node by name, or narrow the galaxy to one project -->
+    <aside id="rail">
+      <div id="find">
+        <label class="sr-only" for="findInput">Find a node by name</label>
+        <input id="findInput" type="search" placeholder="find a node…" autocomplete="off" spellcheck="false"
+               role="combobox" aria-expanded="false" aria-controls="findHits"
+               aria-autocomplete="list" aria-haspopup="listbox" />
+        <div id="findHits" role="listbox" aria-label="Search results" hidden></div>
+      </div>
+      <p id="findStatus" class="sr-only" role="status" aria-live="polite"></p>
+      <div id="projects" role="group" aria-label="Projects"></div>
+      <div id="legend"></div>
+    </aside>
 
     <section id="script" hidden>
       <div class="scriptcard">
