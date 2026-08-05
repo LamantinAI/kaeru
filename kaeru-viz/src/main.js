@@ -538,6 +538,8 @@ async function setReader(on, nodeId) {
   if (on) { setHover(-1); chip.style.display = 'none' }   // drop the galaxy's hover chip
   readBtn.classList.toggle('go', on)
   readBtn.textContent = on ? 'galaxy' : 'read'
+  const out = $('rBack')
+  if (out) out.textContent = on && readerCameFromBoard ? '← board' : 'galaxy'
   // the panel stays; the rest of the galaxy's chrome belongs to the galaxy
   // Reading is its own room. Colour-by, focus, time-lapse, node search and the
   // project list are all instruments for surveying the galaxy; none of them
@@ -547,19 +549,29 @@ async function setReader(on, nodeId) {
   $('readout').hidden = on
   $('hud').hidden = on
 }
-readBtn.addEventListener('click', () => setReader(!readerOpen))
-$('rBack').addEventListener('click', () => setReader(false))
+readBtn.addEventListener('click', () => { readerCameFromBoard = false; setReader(!readerOpen) })
+$('rBack').addEventListener('click', () => {
+  const toBoard = readerCameFromBoard
+  setReader(false)
+  if (toBoard) setBoard(true, board.initiative())
+})
 // Escape leaves the reader — the reader covers the whole page, and every other
 // overlay here already closes that way. (Backspace steps back inside it.)
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !readerOpen) return
   if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return
-  e.preventDefault(); setReader(false)
+  e.preventDefault()
+  // the board's own Escape handler is registered after this one; without
+  // stopping here it would close the board this press just re-opened.
+  e.stopImmediatePropagation()
+  const toBoard = readerCameFromBoard
+  setReader(false)
+  if (toBoard) setBoard(true, board.initiative())
 })
 // the readout is rebuilt on every hover, so delegate rather than re-bind
 $('readout').addEventListener('click', (e) => {
   const b = e.target.closest('[data-read]')
-  if (b) setReader(true, b.dataset.read)
+  if (b) { readerCameFromBoard = false; setReader(true, b.dataset.read) }
 })
 // picking another chain while reading re-reads it
 chainPick.addEventListener('change', () => { if (readerOpen) setReader(true) })
@@ -570,11 +582,13 @@ chainPick.addEventListener('change', () => { if (readerOpen) setReader(true) })
 // endpoint does not have. So the board shows the command instead of running it.
 const boardBtn = $('boardBtn')
 let boardOpen = false
+// where the reader was opened from, so its way out leads back there
+let readerCameFromBoard = false
 const board = createBoard(data, {
-  onOpenNode: (id) => { setBoard(false); setReader(true, id) },
+  onOpenNode: (id) => { setBoard(false); readerCameFromBoard = true; setReader(true, id) },
 })
 function setBoard(on, initiative) {
-  if (on && !board.show(initiative || focusEl.value || null)) return
+  if (on && !board.show(initiative || focusEl.value || '*')) return
   boardOpen = on
   $('board').hidden = !on
   if (on) { setHover(-1); chip.style.display = 'none' }
@@ -594,7 +608,7 @@ addEventListener('keydown', (e) => {
   e.preventDefault(); setBoard(false)
 })
 // the galaxy's project focus and the board's initiative are the same choice
-focusEl.addEventListener('change', () => { if (boardOpen) setBoard(true, focusEl.value || null) })
+focusEl.addEventListener('change', () => { if (boardOpen) setBoard(true, focusEl.value || '*') })
 
 // custom archive-styled dropdowns over the (hidden) native selects
 function makeDropdown(sel) {

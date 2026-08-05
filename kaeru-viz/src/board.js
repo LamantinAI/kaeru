@@ -67,7 +67,8 @@ export function createBoard(data, { onOpenNode }) {
   const OWNERS = [...CARDS.reduce((m, c) => m.set(c.init, (m.get(c.init) || 0) + (c.key === 'done' ? 0 : 1)), new Map())]
     .filter(([k]) => k).sort((a, b) => b[1] - a[1])
 
-  let init = OWNERS.length ? OWNERS[0][0] : null
+  const ALL = '*'          // every initiative at once
+  let init = ALL
   let picked = null
   let copyTimer = null
 
@@ -85,11 +86,11 @@ export function createBoard(data, { onOpenNode }) {
     return `<button type="button" class="card${c.overdue ? ' overdue' : ''}${picked === c.id ? ' picked' : ''}"
         data-card="${esc(c.id)}" aria-pressed="${picked === c.id}">
       <span class="what">${esc(first(c.text))}</span>
-      <span class="meta"><span class="age">${c.age == null ? '—' : days(c.age)}</span>${flags ? `<span class="sep">·</span>${flags}` : ''}</span>
+      <span class="meta">${init === ALL && c.init ? `<span class="owner">${esc(c.init)}</span>` : ''}<span class="age">${c.age == null ? '—' : days(c.age)}</span>${flags ? `<span class="sep">·</span>${flags}` : ''}</span>
     </button>`
   }
   function drawColumns() {
-    const mine = CARDS.filter((c) => c.init === init)
+    const mine = init === ALL ? CARDS : CARDS.filter((c) => c.init === init)
     $('bcols').innerHTML = COLUMNS.map((col) => {
       const rows = mine.filter((c) => c.key === col.key)
         // rot orders what is still owed; a finished card is just newest-first
@@ -105,8 +106,8 @@ export function createBoard(data, { onOpenNode }) {
     $('bcount').textContent = mine.length
       ? `${owed} owed${over ? `, ${over} past due` : ''} · sorted by rot — deadline, then age, then isolation`
       : ''
-    $('bname').textContent = init
-    $('bsay').textContent = `${init}: ${owed} open, ${mine.length} cards total`
+    $('bname').textContent = init === ALL ? 'all initiatives' : init
+    $('bsay').textContent = `${init === ALL ? 'all initiatives' : init}: ${owed} open, ${mine.length} cards total`
   }
 
   // ── the card drawer ───────────────────────────────────────────────────────
@@ -122,7 +123,7 @@ export function createBoard(data, { onOpenNode }) {
     const col = COLUMNS.find((x) => x.key === c.key)
     const from = c.island
       ? `<span class="isle">nothing links to this card yet</span>`
-      : `${esc(deslug(N[c.src] ? N[c.src].name : ''))}`
+      : `<button type="button" class="nodelink" data-open="${esc(c.src)}">${esc(deslug(N[c.src] ? N[c.src].name : ''))}</button>`
     strip.tabIndex = -1
     strip.innerHTML = `
       <header id="bdhead">
@@ -132,11 +133,11 @@ export function createBoard(data, { onOpenNode }) {
       <div id="bdbody">
         <p class="dbody">${esc(c.text)}</p>
         <dl>
-          <dt>initiative</dt><dd><span class="mono">${esc(c.init || '—')}</span></dd>
-          <dt>open for</dt><dd><span class="mono">${c.age == null ? '—' : days(c.age)}</span></dd>
+          <dt>initiative</dt><dd>${esc(c.init || '—')}</dd>
+          <dt>open for</dt><dd>${c.age == null ? '—' : days(c.age)}</dd>
           ${c.due ? `<dt>due</dt><dd>${c.overdue
             ? `<span class="due">${esc(c.due)} · past due</span>`
-            : `<span class="mono soft">${esc(c.due)}</span>`}</dd>` : ''}
+            : `<span class="soft">${esc(c.due)}</span>`}</dd>` : ''}
           <dt>came out of</dt><dd>${from}</dd>
         </dl>
       </div>
@@ -187,13 +188,15 @@ export function createBoard(data, { onOpenNode }) {
   })
 
   const pickInit = $('bInit')
-  pickInit.innerHTML = OWNERS.map(([k, n]) => `<option value="${esc(k)}">${esc(k)} — ${n} open</option>`).join('')
+  const owedAll = CARDS.filter((c) => c.key !== 'done').length
+  pickInit.innerHTML = `<option value="${ALL}">all initiatives — ${owedAll} open</option>` +
+    OWNERS.map(([k, n]) => `<option value="${esc(k)}">${esc(k)} — ${n} open</option>`).join('')
   pickInit.addEventListener('change', () => { init = pickInit.value; picked = null; drawColumns(); drawDetail() })
 
   return {
     /** Open the board, optionally on a named initiative. */
     show(name) {
-      if (name && OWNERS.some(([k]) => k === name)) init = name
+      if (name === ALL || (name && OWNERS.some(([k]) => k === name))) init = name
       if (!init) return false
       pickInit.value = init
       picked = null
