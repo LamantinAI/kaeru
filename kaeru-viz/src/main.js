@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { createReader } from './reader.js'
+import { createBoard } from './board.js'
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
@@ -563,6 +564,38 @@ $('readout').addEventListener('click', (e) => {
 // picking another chain while reading re-reads it
 chainPick.addEventListener('change', () => { if (readerOpen) setReader(true) })
 
+// ── board: the same tasks, owed instead of surveyed ─────────────────────────
+// Read-only by design: `/graph.json` carries the `status:*` tags a card's
+// column is made of, but moving a card is `set_status` — a write the viz
+// endpoint does not have. So the board shows the command instead of running it.
+const boardBtn = $('boardBtn')
+let boardOpen = false
+const board = createBoard(data, {
+  onOpenNode: (id) => { setBoard(false); setReader(true, id) },
+})
+function setBoard(on, initiative) {
+  if (on && !board.show(initiative || focusEl.value || null)) return
+  boardOpen = on
+  $('board').hidden = !on
+  if (on) { setHover(-1); chip.style.display = 'none' }
+  boardBtn.classList.toggle('go', on)
+  boardBtn.textContent = on ? 'galaxy' : 'board'
+  // the board is its own room, same as the reader
+  $('panel').hidden = on
+  $('rail').hidden = on
+  $('readout').hidden = on
+  $('hud').hidden = on
+}
+boardBtn.addEventListener('click', () => setBoard(!boardOpen))
+$('bBack').addEventListener('click', () => setBoard(false))
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !boardOpen) return
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return
+  e.preventDefault(); setBoard(false)
+})
+// the galaxy's project focus and the board's initiative are the same choice
+focusEl.addEventListener('change', () => { if (boardOpen) setBoard(true, focusEl.value || null) })
+
 // custom archive-styled dropdowns over the (hidden) native selects
 function makeDropdown(sel) {
   sel.style.display = 'none'
@@ -751,6 +784,7 @@ function goToNode(i) {
   if (!visible(n)) { timeFilter = Infinity; timeEl.value = 100; timeLabel('— full graph —') }
   if (focusInit && n.init !== focusInit) setFocus(null)
   if (readerOpen) setReader(false)
+  if (boardOpen) setBoard(false)
   chain.clear(); nodes.forEach((x) => { x.__visited = false; x.__cur = false })
   pinNode(i); flyTo(n.pos, reducedMotion.matches ? 0 : 1100)
   say(`Showing ${n.name}`)
@@ -817,7 +851,7 @@ findInput.addEventListener('keydown', (e) => {
 // "/" focuses the search, the way every other tool does it
 addEventListener('keydown', (e) => {
   // the rail is gone while reading, so focusing its input would be a no-op
-  if (e.key !== '/' || e.target.tagName === 'INPUT' || !$('script').hidden || readerOpen) return
+  if (e.key !== '/' || e.target.tagName === 'INPUT' || !$('script').hidden || readerOpen || boardOpen) return
   e.preventDefault(); findInput.focus(); findInput.select()
 })
 
@@ -843,7 +877,7 @@ function loop() {
   controls.autoRotate = !reducedMotion.matches && !(window.__rec && window.__rec.active) &&
     hovered < 0 && !chain.size && !focusInit && $('script').hidden && !tween
   controls.update()
-  if (!readerOpen) renderer.render(scene, camera)   // the reader covers the canvas
+  if (!readerOpen && !boardOpen) renderer.render(scene, camera)   // a room covers the canvas
 }
 
 // recording hook — only present with ?rec, drives a deterministic seamless orbit

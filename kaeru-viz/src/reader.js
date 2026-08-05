@@ -9,6 +9,8 @@
 // a one-lane DAG, so a linear trail and a branching deep-research share one
 // layout instead of two.
 
+import { loadFullBodies } from './bodies.js'
+
 // same layer ramp the galaxy's readout bar uses
 const LAYER_ACCENT = { core: '#caa24a', hot: '#c8402e', warm: '#7e96cf', cold: '#6f7da0', frozen: '#8a8578' }
 const REL = {
@@ -57,7 +59,6 @@ export function createReader(data, { fmtDateTime }) {
   let chain = null, steps = [], POS = {}, lanes = 0, shared = new Map(), research = new Set()
   let hist = []                 // trail of what was read before this
   let tx = 60, ty = 40, scale = 0.62, view = 'trail'
-  let bodiesLoaded = false
 
   // ── text ────────────────────────────────────────────────────────────────
   const inline = (t) => esc(t)
@@ -72,20 +73,10 @@ export function createReader(data, { fmtDateTime }) {
   const when = (n) => (n.created_secs ? fmtDateTime(n.created_secs) : '—')
   const h = (s) => { const d = document.createElement('div'); d.innerHTML = s.trim(); return d.firstChild }
 
-  // The galaxy only needs excerpts; a reader needs the whole body. Pay for the
-  // heavier payload once, the first time the reader is actually opened.
+  // The galaxy only needs excerpts; a reader needs the whole body.
   async function loadBodies() {
-    if (bodiesLoaded) return
-    for (const url of ['/graph.json?bodies=true', './graph.json?bodies=true']) {
-      try {
-        const r = await fetch(url)
-        if (!r.ok) continue
-        const g = await r.json()
-        for (const n of g.nodes) if (N[n.id] && n.body) N[n.id].body = n.body
-        bodiesLoaded = true   // only once it actually arrived: a transient
-        return                // failure must leave the next open free to retry
-      } catch (_) { /* fall through to the baked snapshot */ }
-    }
+    const full = await loadFullBodies()
+    for (const id in full) if (N[id]) N[id].body = full[id]
   }
 
   // ── layout: derivation DAG, lanes by path decomposition ─────────────────

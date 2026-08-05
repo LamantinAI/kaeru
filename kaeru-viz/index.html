@@ -27,6 +27,24 @@
       <div id="rhint">click a step to read it</div>
     </section>
 
+    <!-- the board: the same tasks, owed instead of surveyed -->
+    <section id="board" hidden>
+      <header id="bbar">
+        <button id="bBack" class="btn">galaxy</button>
+        <div class="rtitle"><span class="rkind">task board</span><b>what is owed</b></div>
+        <div class="field bpick">
+          <label for="bInit">initiative</label>
+          <select id="bInit" class="ctl"></select>
+        </div>
+      </header>
+      <a class="skip" href="#bend">Skip the cards</a>
+      <div id="bcols"></div>
+      <span id="bend" tabindex="-1"></span>
+      <p id="bcount"></p>
+      <aside id="bdetail" aria-label="Card details" hidden></aside>
+      <p id="bsay" class="sr-only" role="status" aria-live="polite"></p>
+    </section>
+
     <header id="hud">
       <div class="seal" title="蛙 — kaeru, &quot;frog&quot;">蛙</div>
       <div class="wordmark">
@@ -62,6 +80,7 @@
           <label for="focus">focus</label>
           <select id="focus" class="ctl"><option value="">all projects</option></select>
         </div>
+        <button id="boardBtn" class="btn">board</button>
         <button id="talkBtn" class="btn">guided tour</button>
       </div>
       <div class="seg">
