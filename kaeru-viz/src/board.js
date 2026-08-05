@@ -54,11 +54,13 @@ export function createBoard(data, { onOpenNode }) {
     // than disappearing — same rule the `board` verb applies (board.md).
     const raw = (tagged(n, 'status:') || '').slice(7)
     const key = COLUMNS.some((c) => c.key === raw) ? raw : COLUMNS[0].key
+    const text = (n.body || '').trim() || deslug(n.name)
     return {
       id: n.id, name: n.name, key, age, due, overdue, src,
       island: near.length === 0,
       init: (n.initiatives || [])[0] || null,
-      text: (n.body || '').trim() || deslug(n.name),
+      text,
+      hay: (text + ' ' + deslug(n.name)).toLowerCase(),
       rot: (age || 0) + (near.length === 0 ? 45 : 0) + (overdue ? 400 : 0),
     }
   })
@@ -71,6 +73,56 @@ export function createBoard(data, { onOpenNode }) {
   let init = ALL
   let picked = null
   let copyTimer = null
+  // Filters stack: scope AND text AND every active sieve.
+  let query = ''
+  const sieveOn = new Set()
+
+  // `status:` and `due:` are the only tags a person sets, and both are already
+  // on the board as columns and badges. `topic:` is derived word-frequency —
+  // its busiest values here are "блок", "новый", "документ" — so a topic picker
+  // would mostly offer noise that free text finds better anyway.
+  const SIEVES = [
+    { key: 'overdue', label: 'past due', f: (c) => c.overdue },
+    { key: 'island', label: 'no provenance', f: (c) => c.island },
+    { key: 'old', label: 'over a month', f: (c) => c.age > 30 },
+    { key: 'owed', label: 'not done', f: (c) => c.key !== 'done' },
+  ]
+  const inScope = () => (init === ALL ? CARDS : CARDS.filter((c) => c.init === init))
+  const passes = (c) =>
+    (!query || c.hay.includes(query)) &&
+    [...sieveOn].every((k) => SIEVES.find((s) => s.key === k).f(c))
+  const filtering = () => !!(query || sieveOn.size)
+
+  // ── the filter bar ────────────────────────────────────────────────────────
+  // Built once and updated in place: rebuilding the controls on every
+  // keystroke would throw away focus mid-typing.
+  function buildSieves() {
+    $('bsieves').innerHTML = SIEVES.map((s) =>
+      `<button type="button" class="sieve" data-sieve="${s.key}" aria-pressed="false">
+         ${s.label} <span class="c"></span></button>`).join('')
+  }
+  function drawFilterBar(scoped) {
+    SIEVES.forEach((s) => {
+      const b = $('bsieves').querySelector(`[data-sieve="${s.key}"]`)
+      if (!b) return
+      const on = sieveOn.has(s.key)
+      b.setAttribute('aria-pressed', String(on))
+      b.classList.toggle('on', on)
+      b.querySelector('.c').textContent = scoped.filter(s.f).length
+    })
+    $('bClear').hidden = !filtering()
+  }
+  function describeFilters() {
+    const bits = []
+    if (query) bits.push(`“${query}”`)
+    sieveOn.forEach((k) => bits.push(SIEVES.find((s) => s.key === k).label))
+    return bits.join(' + ')
+  }
+  function clearFilters() {
+    query = ''; sieveOn.clear()
+    $('bFind').value = ''
+    drawColumns(); drawDetail()
+  }
 
   // ── the columns ───────────────────────────────────────────────────────────
   const first = (t) => {
@@ -90,7 +142,8 @@ export function createBoard(data, { onOpenNode }) {
     </button>`
   }
   function drawColumns() {
-    const mine = init === ALL ? CARDS : CARDS.filter((c) => c.init === init)
+    const scoped = inScope()
+    const mine = scoped.filter(passes)
     $('bcols').innerHTML = COLUMNS.map((col) => {
       const rows = mine.filter((c) => c.key === col.key)
         // rot orders what is still owed; a finished card is just newest-first
@@ -101,11 +154,17 @@ export function createBoard(data, { onOpenNode }) {
           : `<p class="none">${col.label} is empty.</p>`}</div>
       </section>`
     }).join('')
+    if (!mine.length && filtering()) {
+      $('bcols').innerHTML = `<p class="nohits">No cards match ${esc(describeFilters())}.
+        <button type="button" class="btn" id="bClear2">Clear filters</button></p>`
+    }
     const owed = mine.filter((c) => c.key !== 'done').length
     const over = mine.filter((c) => c.overdue && c.key !== 'done').length
+    const shown = filtering() ? `${mine.length} of ${scoped.length} cards · ` : ''
     $('bcount').textContent = mine.length
-      ? `${owed} owed${over ? `, ${over} past due` : ''} · sorted by rot — deadline, then age, then isolation`
+      ? `${shown}${owed} owed${over ? `, ${over} past due` : ''} · sorted by rot — deadline, then age, then isolation`
       : ''
+    drawFilterBar(scoped)
     $('bname').textContent = init === ALL ? 'all initiatives' : init
     $('bsay').textContent = `${init === ALL ? 'all initiatives' : init}: ${owed} open, ${mine.length} cards total`
   }
@@ -187,11 +246,34 @@ export function createBoard(data, { onOpenNode }) {
     closeDetail()
   })
 
+  $('bsieves').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sieve]'); if (!b) return
+    const k = b.dataset.sieve
+    if (sieveOn.has(k)) sieveOn.delete(k); else sieveOn.add(k)
+    drawColumns(); drawDetail()
+  })
+  $('bFind').addEventListener('input', (e) => {
+    query = e.target.value.trim().toLowerCase()
+    drawColumns(); drawDetail()
+  })
+  $('bFind').addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || !e.target.value) return
+    e.stopPropagation(); e.target.value = ''; query = ''; drawColumns(); drawDetail()
+  })
+  $('bClear').addEventListener('click', clearFilters)
+  $('bcols').addEventListener('click', (e) => {
+    if (e.target.id === 'bClear2') clearFilters()
+  })
+
   const pickInit = $('bInit')
+  buildSieves()
   const owedAll = CARDS.filter((c) => c.key !== 'done').length
-  pickInit.innerHTML = `<option value="${ALL}">all initiatives — ${owedAll} open</option>` +
-    OWNERS.map(([k, n]) => `<option value="${esc(k)}">${esc(k)} — ${n} open</option>`).join('')
-  pickInit.addEventListener('change', () => { init = pickInit.value; picked = null; drawColumns(); drawDetail() })
+  pickInit.innerHTML = `<option value="${ALL}">all initiatives (${owedAll} open)</option>` +
+    OWNERS.map(([k, n]) => `<option value="${esc(k)}">${esc(k)} (${n} open)</option>`).join('')
+  pickInit.addEventListener('change', () => {
+    init = pickInit.value; picked = null
+    drawColumns(); drawDetail()
+  })
 
   return {
     /** Open the board, optionally on a named initiative. */
@@ -199,6 +281,7 @@ export function createBoard(data, { onOpenNode }) {
       if (name === ALL || (name && OWNERS.some(([k]) => k === name))) init = name
       if (!init) return false
       pickInit.value = init
+      if (pickInit._sync) pickInit._sync()
       picked = null
       drawColumns(); drawDetail()
       // The cards read fine on excerpts; the detail strip is where the whole

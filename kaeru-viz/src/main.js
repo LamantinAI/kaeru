@@ -615,21 +615,37 @@ function makeDropdown(sel) {
   sel.style.display = 'none'
   const dd = document.createElement('div'); dd.className = 'dd'
   const trig = document.createElement('div'); trig.className = 'dd-trigger'; trig.tabIndex = 0
+  // the native <select> is display:none, so its <label for> names nothing a
+  // screen reader can reach — carry the name onto the visible control.
+  trig.setAttribute('role', 'combobox')
+  trig.setAttribute('aria-haspopup', 'listbox')
+  trig.setAttribute('aria-expanded', 'false')
+  const lbl = sel.id && document.querySelector(`label[for="${sel.id}"]`)
+  if (lbl) trig.setAttribute('aria-label', lbl.textContent.trim())
   const lab = document.createElement('span'); lab.className = 'dd-label'
   const car = document.createElement('span'); car.className = 'dd-caret'
   trig.append(lab, car)
   const menu = document.createElement('div'); menu.className = 'dd-menu'; menu.hidden = true
+  menu.setAttribute('role', 'listbox')
   dd.append(trig, menu); sel.after(dd)
-  const close = () => { menu.hidden = true; trig.classList.remove('open'); document.removeEventListener('pointerdown', outside, true) }
+  const close = () => { menu.hidden = true; trig.classList.remove('open')
+    trig.setAttribute('aria-expanded', 'false')
+    document.removeEventListener('pointerdown', outside, true) }
   const outside = (e) => { if (!dd.contains(e.target)) close() }
   function sync() {
     const o = sel.selectedOptions[0]; lab.textContent = o ? o.textContent : ''
-    ;[...menu.children].forEach((c) => c.classList.toggle('sel', c.dataset.value === sel.value))
+    ;[...menu.children].forEach((c) => {
+      const on = c.dataset.value === sel.value
+      c.classList.toggle('sel', on)
+      c.setAttribute('aria-selected', String(on))
+    })
   }
   function rebuild() {
     menu.innerHTML = ''
     for (const o of sel.options) {
       const it = document.createElement('div'); it.className = 'dd-opt'; it.dataset.value = o.value
+      it.setAttribute('role', 'option')
+      it.setAttribute('aria-selected', String(o.value === sel.value))
       const m = o.textContent.match(/^(.*?)\s*\(([^)]+)\)\s*$/)   // split trailing "(count)" → dim, right-aligned
       const l = document.createElement('span'); l.className = 'dd-optlabel'; l.textContent = m ? m[1] : o.textContent
       it.append(l)
@@ -639,11 +655,22 @@ function makeDropdown(sel) {
     }
     sync()
   }
-  trig.addEventListener('click', () => { if (menu.hidden) { rebuild(); menu.hidden = false; trig.classList.add('open'); document.addEventListener('pointerdown', outside, true) } else close() })
+  const open = () => { rebuild(); menu.hidden = false; trig.classList.add('open')
+    trig.setAttribute('aria-expanded', 'true')
+    document.addEventListener('pointerdown', outside, true) }
+  trig.addEventListener('click', () => { if (menu.hidden) open(); else close() })
+  // a focusable control has to answer the keyboard too
+  trig.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); menu.hidden ? open() : close() }
+    else if (e.key === 'Escape' && !menu.hidden) { e.stopPropagation(); close() }
+  })
   sel._sync = sync; rebuild()
   return sync
 }
+// the board's picker lives in a TOP bar, so its menu drops down instead of up
 ;['chainPick', 'colorMode', 'focus'].forEach((id) => makeDropdown($(id)))
+makeDropdown($('bInit')).call && 0
+$('bInit').nextElementSibling.classList.add('down')
 
 // ── HUD + legend ─────────────────────────────────────────────────────────────
 const m = data.meta

@@ -96,6 +96,7 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
 .dd-caret { flex: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
   border-top: 5px solid var(--dim); }
 .dd-trigger.open .dd-caret { border-top: 0; border-bottom: 5px solid var(--seal); }
+.dd.down .dd-menu { top: calc(100% + 5px); bottom: auto; }
 .dd-menu { position: absolute; left: 0; bottom: calc(100% + 5px); z-index: 30; min-width: 100%; width: max-content;
   max-width: 440px; max-height: 300px; overflow-y: auto; overflow-x: hidden; background: var(--panel);
   border: 1px solid var(--line-2); border-radius: 4px;
@@ -108,7 +109,7 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
   font-family: var(--mono); font-size: 12px; color: var(--fg); cursor: pointer; }
 .dd-opt:first-child { border-top: 0; }
 .dd-optlabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dd-meta { flex: none; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dd-meta { flex: none; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
 .dd-opt:hover { background: var(--ctl-bg); }
 .dd-opt.sel { background: rgba(200, 64, 46, .12); }
 .dd-opt.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--seal); }
@@ -393,6 +394,30 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   padding: 8px 14px; text-decoration: none; }
 .skip:focus { transform: translate(-50%, 0); }
 #bend { position: absolute; width: 1px; height: 1px; }
+
+/* ── the filter bar ───────────────────────────────────── */
+/* Only `status:` and `due:` are tags a person sets, so the useful filters are
+   the derived ones — text, the three rot signals, and `topic:`. */
+#bfilter { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 10px 22px; background: var(--bg); border-bottom: 1px solid var(--line); }
+#bFind { font-family: var(--mono); font-size: 12px; color: var(--fg); background: var(--ctl-bg);
+  border: 1px solid var(--line-2); border-radius: 3px; height: 30px; width: 232px;
+  padding: 0 10px; }
+#bFind::placeholder { color: var(--fg-2); }
+#bsieves { display: flex; flex-wrap: wrap; gap: 6px; }
+.sieve { font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; color: var(--fg-2);
+  background: var(--ctl-bg); border: 1px solid var(--line-2); border-radius: 13px;
+  height: 30px; padding: 0 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+  transition: border-color .15s, color .15s, background .15s; }
+.sieve:hover { color: var(--fg); }
+.sieve .c { font-variant-numeric: tabular-nums; color: var(--dim); }
+.sieve[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+/* no opacity on the count — a faded foreground is a contrast hole */
+.sieve[aria-pressed="true"] .c { color: var(--bg); }
+#bfilter #bClear { flex: none; }
+.nohits { margin: 40px auto; max-width: 46ch; text-align: center; font-family: var(--serif);
+  font-size: 15px; line-height: 1.6; color: var(--fg); }
+.nohits .btn { display: inline-flex; margin-top: 14px; }
 
 #bcols { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch;
   padding: 18px 22px 6px; overflow-x: auto; }
