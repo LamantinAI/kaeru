@@ -31,7 +31,7 @@
     <section id="board" hidden>
       <header id="bbar">
         <button id="bBack" class="btn">galaxy</button>
-        <div class="rtitle"><span class="rkind">task board</span><b>what is owed</b></div>
+        <div class="rtitle"><span class="rkind">task board</span><b id="bname">—</b></div>
         <div class="field bpick">
           <label for="bInit">initiative</label>
           <select id="bInit" class="ctl"></select>
@@ -41,7 +41,8 @@
       <div id="bcols"></div>
       <span id="bend" tabindex="-1"></span>
       <p id="bcount"></p>
-      <aside id="bdetail" aria-label="Card details" hidden></aside>
+      <!-- the card, over the board rather than squeezing it (Jira's drawer) -->
+      <aside id="bdetail" aria-labelledby="bdhead" hidden></aside>
       <p id="bsay" class="sr-only" role="status" aria-live="polite"></p>
     </section>
 

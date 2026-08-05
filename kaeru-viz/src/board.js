@@ -105,45 +105,68 @@ export function createBoard(data, { onOpenNode }) {
     $('bcount').textContent = mine.length
       ? `${owed} owed${over ? `, ${over} past due` : ''} · sorted by rot — deadline, then age, then isolation`
       : ''
+    $('bname').textContent = init
     $('bsay').textContent = `${init}: ${owed} open, ${mine.length} cards total`
   }
 
-  // ── the detail strip ──────────────────────────────────────────────────────
-  // A read-only board still has to let you act. Rather than a copy button on
-  // every card — which would put 200+ controls in the tab order — the picked
-  // card opens one strip that holds the full text and the two commands.
+  // ── the card drawer ───────────────────────────────────────────────────────
+  // Over the board, never squeezing it — the same move Jira makes. One drawer
+  // rather than controls on every card: per-card buttons would have put 200+
+  // stops between the lanes and anything below them.
+  let returnFocusTo = null
   function drawDetail() {
     const c = CARDS.find((x) => x.id === picked)
     const strip = $('bdetail')
     strip.hidden = !c
     if (!c) return
+    const col = COLUMNS.find((x) => x.key === c.key)
     const from = c.island
       ? `<span class="isle">nothing links to this card yet</span>`
-      : `out of <b>${esc(deslug(N[c.src] ? N[c.src].name : ''))}</b>`
+      : `${esc(deslug(N[c.src] ? N[c.src].name : ''))}`
+    strip.tabIndex = -1
     strip.innerHTML = `
-      <div class="dtext">
+      <header id="bdhead">
+        <span class="k">card</span><span class="colname">${col ? col.label : c.key}</span>
+        <button type="button" class="btn x" data-close="1" aria-label="Close card">✕</button>
+      </header>
+      <div id="bdbody">
         <p class="dbody">${esc(c.text)}</p>
-        <p class="dmeta">${esc(c.init || '—')}<span class="sep">·</span>${c.age == null ? '—' : days(c.age)}
-          ${c.due ? `<span class="sep">·</span><span class="${c.overdue ? 'due' : 'soft'}">due ${esc(c.due)}</span>` : ''}
-          <span class="sep">·</span>${from}</p>
+        <dl>
+          <dt>initiative</dt><dd><span class="mono">${esc(c.init || '—')}</span></dd>
+          <dt>open for</dt><dd><span class="mono">${c.age == null ? '—' : days(c.age)}</span></dd>
+          ${c.due ? `<dt>due</dt><dd>${c.overdue
+            ? `<span class="due">${esc(c.due)} · past due</span>`
+            : `<span class="mono soft">${esc(c.due)}</span>`}</dd>` : ''}
+          <dt>came out of</dt><dd>${from}</dd>
+        </dl>
       </div>
-      <div class="dacts">
+      <div id="bdacts">
         <button type="button" class="btn" data-open="${esc(c.id)}">Open in reader</button>
         <button type="button" class="btn cp" data-copy="set_status ${esc(c.name)} in-progress">Copy “set_status”</button>
         <button type="button" class="btn cp" data-copy="done ${esc(c.name)}">Copy “done”</button>
-        <button type="button" class="btn" data-close="1" aria-label="Close card details">✕</button>
       </div>`
   }
+  function closeDetail() {
+    picked = null
+    drawColumns(); drawDetail()
+    if (returnFocusTo && document.contains(returnFocusTo)) returnFocusTo.focus()
+    returnFocusTo = null
+  }
 
-  function pick(id) { picked = picked === id ? null : id; drawColumns(); drawDetail() }
+  function pick(id, el) {
+    if (picked === id) { closeDetail(); return }
+    picked = id; returnFocusTo = el || null
+    drawColumns(); drawDetail()
+    $('bdetail').focus()
+  }
 
   // ── wiring ────────────────────────────────────────────────────────────────
   $('bcols').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-card]'); if (b) pick(b.dataset.card)
+    const b = e.target.closest('[data-card]'); if (b) pick(b.dataset.card, b)
   })
   $('bdetail').addEventListener('click', (e) => {
     const b = e.target.closest('button'); if (!b) return
-    if (b.dataset.close) { picked = null; drawColumns(); drawDetail(); return }
+    if (b.dataset.close) { closeDetail(); return }
     if (b.dataset.open) { onOpenNode(b.dataset.open); return }
     if (!b.dataset.copy) return
     navigator.clipboard?.writeText(b.dataset.copy)
@@ -155,6 +178,14 @@ export function createBoard(data, { onOpenNode }) {
     $('bsay').textContent = `Copied: ${b.dataset.copy}`
     copyTimer = setTimeout(() => b.classList.remove('ok'), 1400)
   })
+  // Escape closes the drawer first; the room's own handler only gets it once
+  // there is no drawer left to close.
+  addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape' || $('board').hidden || !picked) return
+    e.stopImmediatePropagation(); e.preventDefault()
+    closeDetail()
+  })
+
   const pickInit = $('bInit')
   pickInit.innerHTML = OWNERS.map(([k, n]) => `<option value="${esc(k)}">${esc(k)} — ${n} open</option>`).join('')
   pickInit.addEventListener('change', () => { init = pickInit.value; picked = null; drawColumns(); drawDetail() })
