@@ -141,6 +141,18 @@ export function createBoard(data, { onOpenNode }) {
       <span class="meta">${init === ALL && c.init ? `<span class="owner">${esc(c.init)}</span>` : ''}<span class="age">${c.age == null ? '—' : days(c.age)}</span>${flags ? `<span class="sep">·</span>${flags}` : ''}</span>
     </button>`
   }
+  // A column nothing has ever reached is not "empty", it is unused — and since
+  // this room cannot move a card, saying so is more use than saying nothing.
+  const everUsed = new Set(CARDS.map((c) => c.key))
+  function emptyCol(col) {
+    if (everUsed.has(col.key) || col.key === COLUMNS[0].key) {
+      return `<p class="none">${col.label} is empty.</p>`
+    }
+    return `<p class="none">Nothing has ever been in ${col.label}.
+      A card gets here with <code>set_status &lt;task&gt; ${esc(col.key)}</code> —
+      the board reads, the vault writes.</p>`
+  }
+
   function drawColumns() {
     const scoped = inScope()
     const mine = scoped.filter(passes)
@@ -150,8 +162,7 @@ export function createBoard(data, { onOpenNode }) {
         .sort((a, b) => (col.key === 'done' ? (b.age == null) - (a.age == null) || a.age - b.age : b.rot - a.rot))
       return `<section class="col" aria-labelledby="col-${col.key}">
         <header class="colhead"><h2 id="col-${col.key}">${col.label}</h2><span class="n">${rows.length}</span></header>
-        <div class="stack">${rows.length ? rows.map(card).join('')
-          : `<p class="none">${col.label} is empty.</p>`}</div>
+        <div class="stack">${rows.length ? rows.map(card).join('') : emptyCol(col)}</div>
       </section>`
     }).join('')
     if (!mine.length && filtering()) {
