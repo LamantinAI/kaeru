@@ -34,6 +34,8 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 - **Per-initiative scoping + layered re-entry** — one substrate, many projects. `awake` restores a project's working set by memory layer (Core → Hot → Warm) and surfaces the archival **cortex** (settled knowledge) alongside it, so durable facts re-enter every session; `surface` reaches the archived Cold / Frozen on demand.
 - **Reasoning chains** — `chain` saves the load-bearing weighted path between two nodes as a recallable trail with an agent-authored summary; `chains` triages by name + summary, duplicates are folded at creation, and `rechain` refreshes a trail after the graph changes (re-links, re-weights).
 - **Self-maintenance** — `reflect` computes a tidy-up work-list: orphan nodes to link, chains gone stale, settled work to promote into cortex, and shared/cloud items whose rebalancing is escalated to the user. Built for a periodic (cron) pass.
+- **Role slots** — `slot` gives an initiative a role held by exactly one live node (`handoff`, `entrypoint`, `queue`). Filling it archives the previous holder to Cold and links `supersedes`, so a project cannot drift into three "current" handoffs. Nothing is deleted; the predecessor stays reachable through `at` / `surface`.
+- **Automatic hygiene** — a background pass keeps a project's layers honest: old unreferenced journal entries move to Cold, untouched unreferenced Core nodes drop one step, heavily-referenced nodes rise one step. It triggers on accumulation (writes, Core growth, elapsed time) rather than on a schedule, runs off the reactor in batches so it never stalls a tool call, and only ever changes a node's layer — every move reverses with one `layer` call. `hygiene` shows what the next pass would do; `KAERU_MCP_HYGIENE_DISABLE=1` turns it off.
 - **Cross-agent sharing** — local-first by default; an optional `kaeru-cloud` tier lets a trusted team share settled knowledge through two safety gates (initiative policy + a deterministic secret guard). See [Local & cloud](#local--cloud--sharing-memory-across-a-team).
 - **Structural recall** — exact name lookup, typed `walk` / `drill` / `trace`, `between`, FTS fuzzy fallback. Every read also carries when each node was asserted. Recall is structural + full-text; there is no vector/embedding layer today.
 - **Initiative management** — `rename` / `delete` an initiative (locally or team-wide), or `attach` a node to another initiative to repair fragmentation after the fact.
@@ -103,6 +105,13 @@ history (initiative: "auth-rewrite", name: "<name>")
 # (link the load-bearing edges with strong: true first):
 path (initiative: "auth-rewrite", from: "<a>", to: "<b>")    # preview the trail
 chain (initiative: "auth-rewrite", from: "<a>", to: "<b>")   # save it as a recallable chain
+
+# Roles — one live node each. Writing the next handoff archives the last one:
+slot (initiative: "auth-rewrite", slot: "handoff", name: "handoff-tuesday")
+slots (initiative: "auth-rewrite")
+
+# What the next hygiene pass would move, and why:
+hygiene (initiative: "auth-rewrite")
 
 # Snapshot to an Obsidian-friendly markdown vault:
 export (initiative: "auth-rewrite", path: "/tmp/auth-snapshot")

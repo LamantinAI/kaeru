@@ -47,6 +47,7 @@ kaeru-core/src/
 ├── errors.rs
 ├── store.rs                ← Store: in-memory + disk constructors
 ├── session.rs              ← pin / unpin / active_window / awake
+├── hygiene.rs              ← the automatic layer-tidying pass (due / collect / apply)
 ├── export.rs               ← Obsidian-friendly markdown snapshot
 ├── graph/                  ← schema layer
 │   ├── mod.rs
