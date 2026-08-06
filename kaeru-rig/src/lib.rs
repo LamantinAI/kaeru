@@ -45,6 +45,17 @@
 //! (and the same two sharing gates) the `kaeru-mcp` daemon exposes. The host
 //! app owns the endpoint/token config; [`KaeruMemory::install_with_cloud`]
 //! installs those tools on top of the local set.
+//!
+//! **Hygiene (optional).** [`KaeruMemory::with_hygiene`] turns on the
+//! background pass that keeps layers honest — old unreferenced journal entries
+//! drift to `cold`, untouched `core` nodes drop a step, heavily-referenced ones
+//! rise a step; only layers move, and every move reverses with one `layer`
+//! call. It runs on the host's runtime, so stop it with
+//! [`KaeruMemory::shutdown_hygiene`]. Off unless asked for: an embedded vault
+//! belongs to the host, and its first sweep re-layers the whole graph at once.
+//! The `kaeru_hygiene` tool reports what a pass *would* move without running
+//! one, and a pass that did run leaves a one-line `memory_shifted` cue on the
+//! next tool response — the only channel an embedded adapter has.
 
 use std::sync::Arc;
 
@@ -61,6 +72,7 @@ mod chains;
 mod cloud;
 mod cloud_client;
 mod evolve;
+mod hygiene;
 mod lookup;
 mod manage;
 mod reason;
@@ -71,6 +83,8 @@ pub use chains::*;
 pub use cloud::*;
 pub use cloud_client::{CloudClient, CloudRegistry};
 pub use evolve::*;
+use hygiene::HygieneScheduler;
+pub use hygiene::{Hygiene, HygieneArgs};
 pub use lookup::*;
 pub use manage::*;
 pub use reason::*;
@@ -83,25 +97,32 @@ pub struct KaeruMemory {
     store: Arc<Store>,
     initiative: Option<Arc<str>>,
     clouds: CloudRegistry,
+    /// Decides when a hygiene pass is due and runs it off the reactor. Off
+    /// unless the host asked for it — see [`with_hygiene`](Self::with_hygiene).
+    hygiene: HygieneScheduler,
 }
 
 impl KaeruMemory {
     /// Cross-initiative memory (no active initiative; reads span every project).
     pub fn new(store: Arc<Store>) -> Self {
+        let hygiene = HygieneScheduler::new(Arc::clone(&store), false);
         Self {
             store,
             initiative: None,
             clouds: CloudRegistry::default(),
+            hygiene,
         }
     }
 
     /// Memory scoped to one initiative — captures attach to it and reads
     /// default-filter to it, mirroring `kaeru --initiative <name>`.
     pub fn with_initiative(store: Arc<Store>, initiative: impl Into<String>) -> Self {
+        let hygiene = HygieneScheduler::new(Arc::clone(&store), false);
         Self {
             store,
             initiative: Some(Arc::from(initiative.into())),
             clouds: CloudRegistry::default(),
+            hygiene,
         }
     }
 
@@ -115,11 +136,96 @@ impl KaeruMemory {
         initiative: impl Into<String>,
         clouds: CloudRegistry,
     ) -> Self {
+        let hygiene = HygieneScheduler::new(Arc::clone(&store), false);
         Self {
             store,
             initiative: Some(Arc::from(initiative.into())),
             clouds,
+            hygiene,
         }
+    }
+
+    /// Turns on the background **hygiene** pass for this memory: old
+    /// unreferenced journal entries drift to `cold`, untouched unreferenced
+    /// `core` nodes drop one step, heavily-referenced nodes rise one step. Only
+    /// layers move — nothing is deleted or rewritten, and every move reverses
+    /// with one `layer` call.
+    ///
+    /// Opt-in on purpose. An embedded vault belongs to the host application,
+    /// and its first sweep re-layers the whole graph in one go; kaeru does not
+    /// do that uninvited. Look before you leap: the `kaeru_hygiene` tool shows
+    /// exactly what a pass would move without running one.
+    ///
+    /// Passes trigger on accumulation (writes since the last pass, `core`
+    /// growth, elapsed time) and run on the blocking pool, so a tool call is
+    /// never held up. This also starts a sweep ticker, which needs a tokio
+    /// reactor — **call it from inside the host's runtime**, and call
+    /// [`shutdown_hygiene`](Self::shutdown_hygiene) when the host winds down.
+    ///
+    /// ```ignore
+    /// let mem = KaeruMemory::with_initiative(store, "albert").with_hygiene();
+    /// ```
+    #[must_use]
+    pub fn with_hygiene(mut self) -> Self {
+        self.hygiene = HygieneScheduler::new(Arc::clone(&self.store), true);
+        self.hygiene.spawn_sweeper();
+        self
+    }
+
+    /// Stops the hygiene sweeper; a pass already running stops at its next
+    /// batch boundary. Every further trigger is a no-op.
+    ///
+    /// Explicit rather than `Drop`: a `KaeruMemory` is `Clone` and shared, so
+    /// dropping one clone must not silently stop the memory's housekeeping.
+    pub fn shutdown_hygiene(&self) {
+        self.hygiene.shutdown();
+    }
+
+    /// Post-processes a tool result: attaches any hygiene cue waiting for this
+    /// initiative, then nudges the scheduler.
+    ///
+    /// The cue rides on the tool response because a background pass has no
+    /// other way to reach the agent — an embedded adapter has no notification
+    /// channel at all. It lands as a `memory_shifted` field rather than being
+    /// spliced into the payload, so a caller that doesn't care can ignore it
+    /// and one that does can surface it verbatim.
+    ///
+    /// Costs nothing when hygiene is off: no store round-trip, no scheduler
+    /// work — the early return is the common case for an embedder that never
+    /// opted in.
+    pub(crate) async fn after_tool(&self, initiative: Option<String>, mut value: Value) -> Value {
+        if !self.hygiene.is_enabled() {
+            return value;
+        }
+        let Some(init) = initiative.or_else(|| self.initiative.as_deref().map(str::to_owned))
+        else {
+            return value;
+        };
+
+        let store = Arc::clone(&self.store);
+        let for_read = init.clone();
+        let cue = tokio::task::spawn_blocking(move || {
+            kaeru_core::hygiene::take_pending_report(&store, &for_read)
+                .ok()
+                .flatten()
+        })
+        .await
+        .ok()
+        .flatten();
+
+        if let Some(cue) = cue
+            && let Value::Object(map) = &mut value
+        {
+            map.insert("memory_shifted".to_string(), Value::String(cue));
+        }
+        self.hygiene.consider(Some(&init));
+        value
+    }
+
+    /// The hygiene scheduler — read by the `kaeru_hygiene` tool for status and
+    /// for the forced pass.
+    pub(crate) fn hygiene_scheduler(&self) -> &HygieneScheduler {
+        &self.hygiene
     }
 
     /// The cloud a tool call targets: an explicit name, else the registry
@@ -246,6 +352,11 @@ impl KaeruMemory {
     }
     pub fn board_status(&self) -> BoardStatusEdit {
         BoardStatusEdit(self.clone())
+    }
+    /// Hygiene status / forced pass. Useful even with hygiene off: it reports
+    /// what a pass *would* move without applying anything.
+    pub fn hygiene(&self) -> Hygiene {
+        Hygiene(self.clone())
     }
     // lookup
     pub fn recall(&self) -> Recall {
@@ -468,6 +579,7 @@ impl KaeruMemory {
                 resolve,
                 reopen,
                 // maintain
+                hygiene,
                 reflect,
                 lint,
                 forget,
@@ -597,7 +709,8 @@ macro_rules! mem_tool {
                 &self,
                 $a: $args_ty,
             ) -> ::core::result::Result<::serde_json::Value, ::std::convert::Infallible> {
-                ::core::result::Result::Ok(self.0.run(move |$store| $body).await)
+                let __out = self.0.run(move |$store| $body).await;
+                ::core::result::Result::Ok(self.0.after_tool(None, __out).await)
             }
         }
     };
@@ -641,9 +754,8 @@ macro_rules! mem_tool_in {
                 $a: $args_ty,
             ) -> ::core::result::Result<::serde_json::Value, ::std::convert::Infallible> {
                 let __initiative = $a.initiative.clone();
-                ::core::result::Result::Ok(
-                    self.0.run_in(__initiative, move |$store| $body).await,
-                )
+                let __out = self.0.run_in(__initiative.clone(), move |$store| $body).await;
+                ::core::result::Result::Ok(self.0.after_tool(__initiative, __out).await)
             }
         }
     };
@@ -686,8 +798,10 @@ macro_rules! mem_tool_cloud {
                 &self,
                 $a: $args_ty,
             ) -> ::core::result::Result<::serde_json::Value, ::std::convert::Infallible> {
+                let __initiative = $a.initiative.clone();
                 let $mem = &self.0;
-                ::core::result::Result::Ok(async move { $body }.await)
+                let __out = async move { $body }.await;
+                ::core::result::Result::Ok(self.0.after_tool(__initiative, __out).await)
             }
         }
     };
