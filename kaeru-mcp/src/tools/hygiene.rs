@@ -23,7 +23,7 @@ pub fn hygiene(
         let report = scheduler.run_now(initiative).map_err(to_mcp)?;
         let body = match report {
             Some(report) => {
-                let mut out = report.headline();
+                let mut out = report.summary();
                 if report.stopped_early {
                     out.push_str("\n(stopped early — the daemon is shutting down)");
                 }
@@ -75,7 +75,7 @@ pub fn hygiene(
         None => "  due: no\n".to_string(),
     });
     if scheduler.is_disabled() {
-        out.push_str("  ⚠ disabled by KAERU_MCP_HYGIENE_DISABLE — nothing will run\n");
+        out.push_str("  ⚠ off — set KAERU_MCP_HYGIENE_ENABLE=1 to let passes run\n");
     } else {
         out.push_str(&format!(
             "  passes since this daemon started: {}\n",

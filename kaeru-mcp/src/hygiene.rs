@@ -44,22 +44,22 @@ pub struct HygieneScheduler {
     /// module docs.
     in_flight: Arc<Mutex<HashSet<String>>>,
     cancel: CancellationToken,
-    /// Set from `KAERU_MCP_HYGIENE_DISABLE`; when true, every trigger is a
-    /// no-op. An escape hatch for someone who wants the graph left exactly as
-    /// written.
-    disabled: bool,
+    /// Set from `KAERU_MCP_HYGIENE_ENABLE`; when false, every trigger is a
+    /// no-op. Opt-in: a vault gets its first sweep only once its owner has
+    /// asked for one, so an upgrade never re-layers a live graph unannounced.
+    enabled: bool,
     /// Passes actually started since the daemon came up. Surfaced by the
     /// `hygiene` tool, and the assertion target for the double-start test.
     passes_started: Arc<AtomicUsize>,
 }
 
 impl HygieneScheduler {
-    pub fn new(store: Arc<Store>, cancel: CancellationToken, disabled: bool) -> Self {
+    pub fn new(store: Arc<Store>, cancel: CancellationToken, enabled: bool) -> Self {
         Self {
             store,
             in_flight: Arc::new(Mutex::new(HashSet::new())),
             cancel,
-            disabled,
+            enabled,
             passes_started: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -71,7 +71,7 @@ impl HygieneScheduler {
     /// Safe to call on every read and every write: `due` is a couple of
     /// indexed counts, and a pass already in flight makes this a no-op.
     pub fn consider(&self, initiative: Option<&str>) {
-        if self.disabled || self.cancel.is_cancelled() {
+        if !self.enabled || self.cancel.is_cancelled() {
             return;
         }
         let Some(initiative) = initiative.map(str::to_string) else {
@@ -134,8 +134,8 @@ impl HygieneScheduler {
     /// trigger is dead for any initiative nobody opens: that condition is only
     /// ever evaluated when something touches the initiative.
     pub fn spawn_sweeper(&self) {
-        if self.disabled {
-            tracing::info!("hygiene disabled (KAERU_MCP_HYGIENE_DISABLE)");
+        if !self.enabled {
+            tracing::info!("hygiene off (set KAERU_MCP_HYGIENE_ENABLE=1 to turn it on)");
             return;
         }
         let interval_secs = self.store.config().hygiene_sweep_interval_secs;
@@ -175,7 +175,7 @@ impl HygieneScheduler {
     }
 
     pub fn is_disabled(&self) -> bool {
-        self.disabled
+        !self.enabled
     }
 
     /// Passes started since this daemon came up.
@@ -220,7 +220,7 @@ fn run_and_record(
     // initiative; `run_pass` has already released the guard by now.
     let body = format!(
         "{}\n\n{}",
-        report.headline(),
+        report.summary(),
         report
             .lines
             .iter()
@@ -252,8 +252,9 @@ fn run_and_record(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use kaeru_core::{EpisodeKind, KaeruConfig, Significance, Store, write_episode};
+
+    use super::*;
 
     /// A store whose thresholds fire on a handful of nodes.
     fn eager_store() -> Arc<Store> {
@@ -297,7 +298,7 @@ mod tests {
         let store = eager_store();
         seed(&store, "proj", 6);
 
-        let scheduler = HygieneScheduler::new(Arc::clone(&store), CancellationToken::new(), false);
+        let scheduler = HygieneScheduler::new(Arc::clone(&store), CancellationToken::new(), true);
         for _ in 0..8 {
             scheduler.consider(Some("proj"));
         }
@@ -320,18 +321,18 @@ mod tests {
 
     /// The disable switch is absolute: no pass, no record, whatever happens.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-    async fn a_disabled_scheduler_never_runs() {
+    async fn hygiene_off_by_default_never_runs() {
         let store = eager_store();
         seed(&store, "proj", 6);
 
-        let scheduler = HygieneScheduler::new(Arc::clone(&store), CancellationToken::new(), true);
+        let scheduler = HygieneScheduler::new(Arc::clone(&store), CancellationToken::new(), false);
         scheduler.consider(Some("proj"));
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         assert_eq!(
             scheduler.passes_started(),
             0,
-            "a disabled scheduler stayed idle"
+            "an opt-out scheduler stayed idle"
         );
         assert_eq!(pass_records(&store), 0);
         assert!(scheduler.is_disabled());
@@ -344,7 +345,7 @@ mod tests {
         let store = eager_store();
         seed(&store, "proj", 6);
 
-        let scheduler = HygieneScheduler::new(Arc::clone(&store), CancellationToken::new(), false);
+        let scheduler = HygieneScheduler::new(Arc::clone(&store), CancellationToken::new(), true);
         scheduler.consider(None);
         tokio::time::sleep(Duration::from_millis(200)).await;
 

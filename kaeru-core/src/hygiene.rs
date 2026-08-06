@@ -101,8 +101,31 @@ impl HygieneReport {
         self.archived + self.demoted + self.promoted
     }
 
-    /// The one-line summary that rides along on the next tool response.
+    /// The one-line cue that rides along on the next tool response.
+    ///
+    /// Deliberately **not** a work report. The agent never asked for the pass
+    /// and doesn't know the nodes it touched, so a tally of
+    /// archived/demoted/promoted is accounting it can't act on. What it needs
+    /// to know is that the ground moved under an open session — and what to do
+    /// about it. Same `↳` shape as the other in-result hints: state the
+    /// consequence, point at the next step, keep the detail one call away
+    /// (`hygiene <initiative>`, plus the durable episode).
     pub fn headline(&self) -> String {
+        let n = self.applied();
+        let nodes = if n == 1 { "node" } else { "nodes" };
+        let init = &self.initiative;
+        format!(
+            "↳ memory shifted under you — {n} {nodes} re-layered in `{init}`.\n  \
+             Re-run `awake {init}` if you're mid-session; `hygiene {init}` for what moved."
+        )
+    }
+
+    /// The tally, for whoever **asked** for the pass (`hygiene force=true`).
+    ///
+    /// The counterpart to [`headline`](Self::headline): same pass, different
+    /// reader. Someone who ran it on purpose wants to know what it did; an
+    /// agent who didn't ask wants to know only that the ground moved.
+    pub fn summary(&self) -> String {
         let mut parts = Vec::new();
         if self.archived > 0 {
             parts.push(format!("{} archived", self.archived));
@@ -465,11 +488,9 @@ pub fn record_run(
     Ok(())
 }
 
-/// Takes the pending headline for `initiative`, clearing it. Called on the
-/// next tool response — the one delivery channel that reliably reaches both
-/// Claude Code and Codex (MCP notifications are received but not surfaced by
-/// either client).
-pub fn take_pending_report(store: &Store, initiative: &str) -> Result<Option<String>> {
+/// Reads the pending cue **without** clearing it, so an empty pass can carry an
+/// undelivered one forward instead of overwriting it.
+fn read_pending_report(store: &Store, initiative: &str) -> Result<Option<String>> {
     let mut read = BTreeMap::new();
     read.insert("init".to_string(), DataValue::Str(initiative.into()));
     let script = r#"
@@ -479,12 +500,20 @@ pub fn take_pending_report(store: &Store, initiative: &str) -> Result<Option<Str
     let rows = store
         .db_ref()
         .run_script(script, read, ScriptMutability::Immutable)?;
-    let pending = rows
+    Ok(rows
         .rows
         .first()
         .and_then(|r| r.first())
         .and_then(|v| v.get_str())
-        .map(String::from);
+        .map(String::from))
+}
+
+/// Takes the pending headline for `initiative`, clearing it. Called on the
+/// next tool response — the one delivery channel that reliably reaches both
+/// Claude Code and Codex (MCP notifications are received but not surfaced by
+/// either client).
+pub fn take_pending_report(store: &Store, initiative: &str) -> Result<Option<String>> {
+    let pending = read_pending_report(store, initiative)?;
 
     if pending.is_some() {
         // Clear ONLY the report. Reading it is not a pass: rewriting
@@ -596,7 +625,14 @@ fn run_pass_inner(
     store.scoped(Some(initiative), |s| -> Result<()> {
         report.core_after = core_count(s, initiative)?;
         let nodes_seen = node_count(s, initiative)?;
-        record_run(s, initiative, nodes_seen, Some(&report.headline()))
+        // A pass that moved nothing has nothing to announce — and must not
+        // clear a cue an earlier pass left that the agent hasn't collected yet.
+        let cue = if report.applied() > 0 {
+            Some(report.headline())
+        } else {
+            read_pending_report(s, initiative)?
+        };
+        record_run(s, initiative, nodes_seen, cue.as_deref())
     })?;
     Ok(Some(report))
 }
@@ -882,14 +918,50 @@ mod tests {
             .expect("due");
 
         let first = take_pending_report(&store, "proj").expect("take");
+        let cue = first.as_deref().expect("a cue is waiting");
+        // A re-orientation cue, not a work report: it states the consequence
+        // and points at the next step. A tally of archived/demoted/promoted is
+        // accounting the agent never asked for and can't act on.
+        assert!(cue.contains("shifted"), "states the consequence: {cue}");
+        assert!(cue.contains("awake proj"), "points at the next step: {cue}");
         assert!(
-            first.as_deref().is_some_and(|s| s.contains("hygiene")),
-            "the headline is waiting: {first:?}"
+            !cue.contains("archived") && !cue.contains("demoted"),
+            "no bookkeeping in the cue: {cue}"
         );
         assert_eq!(
             take_pending_report(&store, "proj").expect("take again"),
             None,
             "delivered once, then cleared"
+        );
+    }
+
+    /// A pass that moves nothing must not clear a cue an earlier pass left —
+    /// the sweep timer fires every few hours, and would otherwise swallow the
+    /// notice before the agent ever came back to collect it.
+    #[test]
+    fn an_empty_pass_does_not_swallow_an_undelivered_cue() {
+        let store = eager_store();
+        let old = episode_in(&store, "proj", "old-note");
+        backdate(&store, &old, 30);
+        episode_in(&store, "proj", "filler");
+        run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
+
+        // A second pass over the now-clean graph — forced, since the trigger
+        // reset, which is exactly what the sweep timer or `hygiene force=true`
+        // does. It finds nothing to move.
+        let second = force_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("forced");
+        assert_eq!(second.applied(), 0, "nothing left to do");
+
+        let cue = take_pending_report(&store, "proj").expect("take");
+        // Specifically the FIRST pass's cue (it moved one node) — not the empty
+        // pass's own "0 nodes", which would mean it overwrote the notice.
+        assert!(
+            cue.as_deref().is_some_and(|s| s.contains("1 node ")),
+            "the first pass's cue survived the empty one: {cue:?}"
         );
     }
 

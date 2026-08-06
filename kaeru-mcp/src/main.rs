@@ -151,15 +151,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // hygiene scheduler can hold a child of it and stop cleanly on shutdown.
     let cancel = CancellationToken::new();
 
-    // Hygiene keeps memory from silting up; `KAERU_MCP_HYGIENE_DISABLE=1`
-    // turns it off entirely for anyone who wants the graph left exactly as
-    // written.
-    let hygiene_disabled = matches!(
-        std::env::var("KAERU_MCP_HYGIENE_DISABLE").ok().as_deref(),
+    // Hygiene keeps memory from silting up. Opt-in via
+    // `KAERU_MCP_HYGIENE_ENABLE=1`: the first pass re-layers a live graph in
+    // one go, so that should be a deliberate act rather than a side effect of
+    // upgrading. `hygiene <initiative>` shows what a pass would move before
+    // you turn it on.
+    let hygiene_enabled = matches!(
+        std::env::var("KAERU_MCP_HYGIENE_ENABLE").ok().as_deref(),
         Some("1") | Some("true") | Some("TRUE")
     );
 
-    let server = KaeruServer::new(store, clouds, cancel.child_token(), hygiene_disabled);
+    let server = KaeruServer::new(store, clouds, cancel.child_token(), hygiene_enabled);
     server.hygiene_scheduler().spawn_sweeper();
 
     // Read-only `/graph.json` export for the kaeru-viz visualizer — OFF unless

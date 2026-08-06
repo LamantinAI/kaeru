@@ -48,10 +48,10 @@ impl KaeruServer {
         store: Store,
         clouds: CloudRegistry,
         cancel: CancellationToken,
-        hygiene_disabled: bool,
+        hygiene_enabled: bool,
     ) -> Self {
         let store = Arc::new(store);
-        let hygiene = HygieneScheduler::new(Arc::clone(&store), cancel, hygiene_disabled);
+        let hygiene = HygieneScheduler::new(Arc::clone(&store), cancel, hygiene_enabled);
         Self {
             store,
             clouds,
