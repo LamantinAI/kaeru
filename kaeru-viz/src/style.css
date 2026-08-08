@@ -436,9 +436,12 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .stack { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; }
 .none { margin: 10px 3px; font-family: var(--serif); font-style: italic;
   font-size: 13px; line-height: 1.55; color: var(--fg-2); }
-.none code { font-family: var(--mono); font-style: normal; font-size: 11px;
-  color: var(--fg); background: var(--panel); border: 1px solid var(--line);
-  border-radius: 3px; padding: 1px 5px; }
+/* the command is a block, not an inline chip: in a 274px lane an inline
+   <code> wraps mid-token and draws its box twice */
+.stack .cmd { display: block; margin: 10px 3px 0; font-family: var(--mono);
+  font-size: 11px; line-height: 1.5; color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px;
+  white-space: nowrap; overflow-x: auto; }
 
 /* the card — an object lying on the lane */
 .card { display: block; width: 100%; text-align: left; font: inherit; color: inherit;

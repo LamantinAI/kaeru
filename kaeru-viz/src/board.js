@@ -148,9 +148,9 @@ export function createBoard(data, { onOpenNode }) {
     if (everUsed.has(col.key) || col.key === COLUMNS[0].key) {
       return `<p class="none">${col.label} is empty.</p>`
     }
-    return `<p class="none">Nothing has ever been in ${col.label}.
-      A card gets here with <code>set_status &lt;task&gt; ${esc(col.key)}</code> —
-      the board reads, the vault writes.</p>`
+    return `<p class="none">Nothing has ever been in ${col.label}. The board reads;
+      the vault writes — a card gets here from the chat:</p>
+      <code class="cmd">set_status &lt;task&gt; ${esc(col.key)}</code>`
   }
 
   function drawColumns() {
