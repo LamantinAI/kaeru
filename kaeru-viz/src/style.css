@@ -76,7 +76,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 #panel { position: fixed; left: 22px; right: 22px; bottom: 20px; z-index: 10;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px;
   display: flex; flex-wrap: nowrap; align-items: stretch; overflow-x: auto; }
-.seg { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px;
+.seg { display: flex; align-items: flex-end; gap: 9px; padding: 11px 14px;
   border-right: 1px solid var(--line); }
 .seg:last-child { border-right: 0; flex: 1; }
 .seg.scrub { min-width: 120px; }
@@ -95,7 +95,13 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 #panel .btn, #panel .themeseg, #panel .toggle { flex: none; }
 /* The pickers are the only elastic thing here, so they carry the trim: the
    full name is one click away in the menu, a clipped button label is not. */
-#panel .dd-trigger, #panel select.ctl { max-width: 130px; }
+#panel .dd-trigger, #panel select.ctl { max-width: 190px; }
+/* on a narrow window the pickers give up the last 90px instead of pushing
+   the time-lapse off the edge — the full name is one click away in the menu */
+@media (max-width: 1500px) {
+  #panel .dd-trigger, #panel select.ctl { max-width: 126px; }
+  .seg { padding-inline: 11px; gap: 8px; }
+}
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em;
   text-transform: uppercase; color: var(--dim); height: 11px; line-height: 11px; white-space: nowrap; }
@@ -145,9 +151,12 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
 .btn:hover { background: var(--ctl-bg); }
 .btn.go { border-color: var(--seal); color: var(--seal-fg); }
 .btn.go:hover { background: rgba(200,64,46,.14); }
-.btn.go::before { content: ""; display: inline-block; width: 0; height: 0; margin-right: 7px;
-  border-left: 7px solid var(--seal); border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent; vertical-align: 1px; }
+.btn.go::before { content: ""; display: inline-block; width: 0; height: 0; margin-right: 5px;
+  border-left: 6px solid var(--seal); border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent; vertical-align: 1px; }
+/* replay is the widest button in the console — the marker already says "go",
+   so it carries the trim rather than the labels around it */
+#chainPlay { padding-inline: 9px 11px; }
 .btn.mini { width: 30px; padding: 0; justify-content: center; }
 .btn.mini::before { content: ""; width: 0; height: 0;
   border-left: 7px solid var(--fg); border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
@@ -167,7 +176,7 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
   border-radius: 3px; overflow: hidden; }
 .themeseg button { font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
   text-transform: uppercase; background: var(--ctl-bg); color: var(--dim); border: 0;
-  border-left: 1px solid var(--line-2); padding: 0 8px; cursor: pointer;
+  border-left: 1px solid var(--line-2); padding: 0 10px; cursor: pointer;
   transition: background .15s, color .15s; }
 .themeseg button:first-child { border-left: 0; }
 .themeseg button:hover { color: var(--fg); }
