@@ -67,12 +67,19 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 .stats .span .sub { color: var(--faint); margin-top: 3px; }
 
 /* ── console (bottom toolbar) ─────────────────────────── */
+/* The console has to wrap. Its content is 1683px wide and a 1280px window
+   gives it 1234 — without wrapping the theme switch and the whole time-lapse
+   segment were simply clipped off the right edge, unreachable. */
 #panel { position: fixed; left: 22px; right: 22px; bottom: 20px; z-index: 10;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px;
-  display: flex; align-items: stretch; }
+  display: flex; flex-wrap: wrap; align-items: stretch; }
 .seg { display: flex; align-items: flex-end; gap: 10px; padding: 11px 18px;
   border-right: 1px solid var(--line); }
+/* a wrapped row needs a rule above it, or the two rows read as one soup */
+.seg { border-top: 1px solid transparent; }
+#panel.wrapped .seg { border-top-color: var(--line); }
 .seg:last-child { border-right: 0; flex: 1; }
+.seg.scrub { min-width: 340px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em;
   text-transform: uppercase; color: var(--dim); height: 11px; line-height: 11px; white-space: nowrap; }
@@ -117,6 +124,7 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
 .btn { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
   border: 1px solid var(--line-2); background: transparent; color: var(--fg); height: 30px;
   display: inline-flex; align-items: center; border-radius: 3px; padding: 0 13px; cursor: pointer;
+  white-space: nowrap;   /* "guided tour" was breaking across two lines */
   transition: border-color .15s, background .15s; }
 .btn:hover { background: var(--ctl-bg); }
 .btn.go { border-color: var(--seal); color: var(--seal-fg); }
