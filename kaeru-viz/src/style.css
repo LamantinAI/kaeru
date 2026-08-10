@@ -67,19 +67,35 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 .stats .span .sub { color: var(--faint); margin-top: 3px; }
 
 /* ── console (bottom toolbar) ─────────────────────────── */
-/* The console has to wrap. Its content is 1683px wide and a 1280px window
-   gives it 1234 — without wrapping the theme switch and the whole time-lapse
-   segment were simply clipped off the right edge, unreachable. */
+/* One row, always. The console used to need 1683px in the 1234 a 1280px
+   window gives it, so the theme switch and the whole time-lapse segment sat
+   past the right edge — not cramped, unreachable. It stays one row and the
+   pickers absorb the pressure instead: `nowrap` is what lets flex shrink
+   them at all (with `wrap` the browser moves items to a second line rather
+   than narrowing them). `overflow-x` is the last resort, not the plan. */
 #panel { position: fixed; left: 22px; right: 22px; bottom: 20px; z-index: 10;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px;
-  display: flex; flex-wrap: wrap; align-items: stretch; }
-.seg { display: flex; align-items: flex-end; gap: 10px; padding: 11px 18px;
+  display: flex; flex-wrap: nowrap; align-items: stretch; overflow-x: auto; }
+.seg { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px;
   border-right: 1px solid var(--line); }
-/* a wrapped row needs a rule above it, or the two rows read as one soup */
-.seg { border-top: 1px solid transparent; }
-#panel.wrapped .seg { border-top-color: var(--line); }
 .seg:last-child { border-right: 0; flex: 1; }
-.seg.scrub { min-width: 340px; }
+.seg.scrub { min-width: 120px; }
+/* the time-lapse caption yields first when the console is tight. Every
+   ancestor needs min-width:0 or a flex item refuses to shrink past its
+   content, and the row overflows its segment instead. */
+.seg.scrub .field, .seg.scrub .trackrow { min-width: 0; }
+.seg.scrub .val { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Below this the caption cannot be read anyway — drop it whole rather than
+   leave a three-character stub, and give the slider the width back. */
+@media (max-width: 1360px) { .seg.scrub .val { display: none; } }
+/* The console's pickers absorb the pressure: full width when the row has
+   room, ellipsised only when it doesn't. Buttons never squash — a label
+   clipped mid-word is worse than a truncated chain name. */
+#panel .seg, #panel .field, #panel .dd { min-width: 0; }
+#panel .btn, #panel .themeseg, #panel .toggle { flex: none; }
+/* The pickers are the only elastic thing here, so they carry the trim: the
+   full name is one click away in the menu, a clipped button label is not. */
+#panel .dd-trigger, #panel select.ctl { max-width: 130px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em;
   text-transform: uppercase; color: var(--dim); height: 11px; line-height: 11px; white-space: nowrap; }
@@ -121,10 +137,10 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
 .dd-opt.sel { background: rgba(200, 64, 46, .12); }
 .dd-opt.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--seal); }
 
-.btn { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+.btn { font-family: var(--mono); font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
   border: 1px solid var(--line-2); background: transparent; color: var(--fg); height: 30px;
-  display: inline-flex; align-items: center; border-radius: 3px; padding: 0 13px; cursor: pointer;
-  white-space: nowrap;   /* "guided tour" was breaking across two lines */
+  display: inline-flex; align-items: center; border-radius: 3px; padding: 0 11px; cursor: pointer;
+  white-space: nowrap;   /* labels must never break across two lines */
   transition: border-color .15s, background .15s; }
 .btn:hover { background: var(--ctl-bg); }
 .btn.go { border-color: var(--seal); color: var(--seal-fg); }
@@ -151,7 +167,7 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
   border-radius: 3px; overflow: hidden; }
 .themeseg button { font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
   text-transform: uppercase; background: var(--ctl-bg); color: var(--dim); border: 0;
-  border-left: 1px solid var(--line-2); padding: 0 11px; cursor: pointer;
+  border-left: 1px solid var(--line-2); padding: 0 8px; cursor: pointer;
   transition: background .15s, color .15s; }
 .themeseg button:first-child { border-left: 0; }
 .themeseg button:hover { color: var(--fg); }
@@ -159,10 +175,10 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
 
 /* time-lapse */
 .scrub { flex: 1; }
-.trackrow { display: flex; align-items: center; gap: 13px; height: 30px; }
+.trackrow { display: flex; align-items: center; gap: 10px; height: 30px; min-width: 0; }
 .val { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap;
   font-variant-numeric: tabular-nums; }
-input[type=range] { flex: 1; min-width: 160px; -webkit-appearance: none; appearance: none;
+input[type=range] { flex: 1; min-width: 60px; -webkit-appearance: none; appearance: none;
   height: 2px; background: var(--line-2); border-radius: 2px; cursor: pointer; }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px;
   border-radius: 50%; background: var(--gold); border: none; }

@@ -897,22 +897,7 @@ addEventListener('keydown', (e) => {
 })
 
 // ── loop ─────────────────────────────────────────────────────────────────────
-// The console's rule between rows only makes sense once it actually wraps.
-// Watched rather than measured on `resize`: the panel also reflows when a
-// dropdown label changes width, and a resize handler reads the old layout.
-function markPanelWrap() {
-  const segs = [...$('panel').querySelectorAll('.seg')]
-  if (!segs.length) return
-  const tops = new Set(segs.map((s) => Math.round(s.getBoundingClientRect().top)))
-  $('panel').classList.toggle('wrapped', tops.size > 1)
-}
-new ResizeObserver(markPanelWrap).observe($('panel'))
-markPanelWrap()
-addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight)
-  // after the frame, so the reflow the resize caused has actually happened
-  requestAnimationFrame(markPanelWrap)
-})
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight) })
 let t = 0
 function loop() {
   requestAnimationFrame(loop); t += 1
