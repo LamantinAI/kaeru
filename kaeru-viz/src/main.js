@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { createReader } from './reader.js'
+import { createBoard } from './board.js'
 
 // ── helpers ───────────────────────────────────────────────────────────────
 const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
@@ -537,6 +538,8 @@ async function setReader(on, nodeId) {
   if (on) { setHover(-1); chip.style.display = 'none' }   // drop the galaxy's hover chip
   readBtn.classList.toggle('go', on)
   readBtn.textContent = on ? 'galaxy' : 'read'
+  const out = $('rBack')
+  if (out) out.textContent = on && readerCameFromBoard ? '← board' : 'galaxy'
   // the panel stays; the rest of the galaxy's chrome belongs to the galaxy
   // Reading is its own room. Colour-by, focus, time-lapse, node search and the
   // project list are all instruments for surveying the galaxy; none of them
@@ -546,43 +549,103 @@ async function setReader(on, nodeId) {
   $('readout').hidden = on
   $('hud').hidden = on
 }
-readBtn.addEventListener('click', () => setReader(!readerOpen))
-$('rBack').addEventListener('click', () => setReader(false))
+readBtn.addEventListener('click', () => { readerCameFromBoard = false; setReader(!readerOpen) })
+$('rBack').addEventListener('click', () => {
+  const toBoard = readerCameFromBoard
+  setReader(false)
+  if (toBoard) setBoard(true, board.initiative())
+})
 // Escape leaves the reader — the reader covers the whole page, and every other
 // overlay here already closes that way. (Backspace steps back inside it.)
 addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || !readerOpen) return
   if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return
-  e.preventDefault(); setReader(false)
+  e.preventDefault()
+  // the board's own Escape handler is registered after this one; without
+  // stopping here it would close the board this press just re-opened.
+  e.stopImmediatePropagation()
+  const toBoard = readerCameFromBoard
+  setReader(false)
+  if (toBoard) setBoard(true, board.initiative())
 })
 // the readout is rebuilt on every hover, so delegate rather than re-bind
 $('readout').addEventListener('click', (e) => {
   const b = e.target.closest('[data-read]')
-  if (b) setReader(true, b.dataset.read)
+  if (b) { readerCameFromBoard = false; setReader(true, b.dataset.read) }
 })
 // picking another chain while reading re-reads it
 chainPick.addEventListener('change', () => { if (readerOpen) setReader(true) })
+
+// ── board: the same tasks, owed instead of surveyed ─────────────────────────
+// Read-only by design: `/graph.json` carries the `status:*` tags a card's
+// column is made of, but moving a card is `set_status` — a write the viz
+// endpoint does not have. So the board shows the command instead of running it.
+const boardBtn = $('boardBtn')
+let boardOpen = false
+// where the reader was opened from, so its way out leads back there
+let readerCameFromBoard = false
+const board = createBoard(data, {
+  onOpenNode: (id) => { setBoard(false); readerCameFromBoard = true; setReader(true, id) },
+})
+function setBoard(on, initiative) {
+  if (on && !board.show(initiative || focusEl.value || '*')) return
+  boardOpen = on
+  $('board').hidden = !on
+  if (on) { setHover(-1); chip.style.display = 'none' }
+  boardBtn.classList.toggle('go', on)
+  boardBtn.textContent = on ? 'galaxy' : 'board'
+  // the board is its own room, same as the reader
+  $('panel').hidden = on
+  $('rail').hidden = on
+  $('readout').hidden = on
+  $('hud').hidden = on
+}
+boardBtn.addEventListener('click', () => setBoard(!boardOpen))
+$('bBack').addEventListener('click', () => setBoard(false))
+addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || !boardOpen) return
+  if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return
+  e.preventDefault(); setBoard(false)
+})
+// the galaxy's project focus and the board's initiative are the same choice
+focusEl.addEventListener('change', () => { if (boardOpen) setBoard(true, focusEl.value || '*') })
 
 // custom archive-styled dropdowns over the (hidden) native selects
 function makeDropdown(sel) {
   sel.style.display = 'none'
   const dd = document.createElement('div'); dd.className = 'dd'
   const trig = document.createElement('div'); trig.className = 'dd-trigger'; trig.tabIndex = 0
+  // the native <select> is display:none, so its <label for> names nothing a
+  // screen reader can reach — carry the name onto the visible control.
+  trig.setAttribute('role', 'combobox')
+  trig.setAttribute('aria-haspopup', 'listbox')
+  trig.setAttribute('aria-expanded', 'false')
+  const lbl = sel.id && document.querySelector(`label[for="${sel.id}"]`)
+  if (lbl) trig.setAttribute('aria-label', lbl.textContent.trim())
   const lab = document.createElement('span'); lab.className = 'dd-label'
   const car = document.createElement('span'); car.className = 'dd-caret'
   trig.append(lab, car)
   const menu = document.createElement('div'); menu.className = 'dd-menu'; menu.hidden = true
+  menu.setAttribute('role', 'listbox')
   dd.append(trig, menu); sel.after(dd)
-  const close = () => { menu.hidden = true; trig.classList.remove('open'); document.removeEventListener('pointerdown', outside, true) }
+  const close = () => { menu.hidden = true; trig.classList.remove('open')
+    trig.setAttribute('aria-expanded', 'false')
+    document.removeEventListener('pointerdown', outside, true) }
   const outside = (e) => { if (!dd.contains(e.target)) close() }
   function sync() {
     const o = sel.selectedOptions[0]; lab.textContent = o ? o.textContent : ''
-    ;[...menu.children].forEach((c) => c.classList.toggle('sel', c.dataset.value === sel.value))
+    ;[...menu.children].forEach((c) => {
+      const on = c.dataset.value === sel.value
+      c.classList.toggle('sel', on)
+      c.setAttribute('aria-selected', String(on))
+    })
   }
   function rebuild() {
     menu.innerHTML = ''
     for (const o of sel.options) {
       const it = document.createElement('div'); it.className = 'dd-opt'; it.dataset.value = o.value
+      it.setAttribute('role', 'option')
+      it.setAttribute('aria-selected', String(o.value === sel.value))
       const m = o.textContent.match(/^(.*?)\s*\(([^)]+)\)\s*$/)   // split trailing "(count)" → dim, right-aligned
       const l = document.createElement('span'); l.className = 'dd-optlabel'; l.textContent = m ? m[1] : o.textContent
       it.append(l)
@@ -592,11 +655,22 @@ function makeDropdown(sel) {
     }
     sync()
   }
-  trig.addEventListener('click', () => { if (menu.hidden) { rebuild(); menu.hidden = false; trig.classList.add('open'); document.addEventListener('pointerdown', outside, true) } else close() })
+  const open = () => { rebuild(); menu.hidden = false; trig.classList.add('open')
+    trig.setAttribute('aria-expanded', 'true')
+    document.addEventListener('pointerdown', outside, true) }
+  trig.addEventListener('click', () => { if (menu.hidden) open(); else close() })
+  // a focusable control has to answer the keyboard too
+  trig.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') { e.preventDefault(); menu.hidden ? open() : close() }
+    else if (e.key === 'Escape' && !menu.hidden) { e.stopPropagation(); close() }
+  })
   sel._sync = sync; rebuild()
   return sync
 }
+// the board's picker lives in a TOP bar, so its menu drops down instead of up
 ;['chainPick', 'colorMode', 'focus'].forEach((id) => makeDropdown($(id)))
+makeDropdown($('bInit')).call && 0
+$('bInit').nextElementSibling.classList.add('down')
 
 // ── HUD + legend ─────────────────────────────────────────────────────────────
 const m = data.meta
@@ -751,6 +825,7 @@ function goToNode(i) {
   if (!visible(n)) { timeFilter = Infinity; timeEl.value = 100; timeLabel('— full graph —') }
   if (focusInit && n.init !== focusInit) setFocus(null)
   if (readerOpen) setReader(false)
+  if (boardOpen) setBoard(false)
   chain.clear(); nodes.forEach((x) => { x.__visited = false; x.__cur = false })
   pinNode(i); flyTo(n.pos, reducedMotion.matches ? 0 : 1100)
   say(`Showing ${n.name}`)
@@ -817,7 +892,7 @@ findInput.addEventListener('keydown', (e) => {
 // "/" focuses the search, the way every other tool does it
 addEventListener('keydown', (e) => {
   // the rail is gone while reading, so focusing its input would be a no-op
-  if (e.key !== '/' || e.target.tagName === 'INPUT' || !$('script').hidden || readerOpen) return
+  if (e.key !== '/' || e.target.tagName === 'INPUT' || !$('script').hidden || readerOpen || boardOpen) return
   e.preventDefault(); findInput.focus(); findInput.select()
 })
 
@@ -843,7 +918,7 @@ function loop() {
   controls.autoRotate = !reducedMotion.matches && !(window.__rec && window.__rec.active) &&
     hovered < 0 && !chain.size && !focusInit && $('script').hidden && !tween
   controls.update()
-  if (!readerOpen) renderer.render(scene, camera)   // the reader covers the canvas
+  if (!readerOpen && !boardOpen) renderer.render(scene, camera)   // a room covers the canvas
 }
 
 // recording hook — only present with ?rec, drives a deterministic seamless orbit

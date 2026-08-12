@@ -16,6 +16,8 @@
   --panel-2: rgba(23, 23, 27, 0.72);
   --ctl-bg: #1f1f24;
   --gold: #caa24a;
+  --warn: #caa24a;      /* gold reads on the dark ground */
+  --kind: #e8836f;      /* the kind label — seal itself is 2.88:1 here */
   --seal-fg: #f0d9d3;
 }
 /* light theme — "aged paper" (brandbook v2 face palette) */
@@ -24,14 +26,14 @@
     --bg: #fcfbf8; --fg: #35312a; --fg-2: #544d42; --dim: #6e6557; --faint: #a99e8c;
     --line: rgba(53, 49, 42, 0.14); --line-2: rgba(53, 49, 42, 0.20);
     --panel: #eee9d8; --panel-2: rgba(238, 233, 216, 0.86); --ctl-bg: #f4efe6;
-    --gold: #caa24a; --seal-fg: #8a2a1a;
+    --gold: #caa24a; --warn: #8a6b24; --kind: #a8331f; --seal-fg: #8a2a1a;
   }
 }
 :root[data-theme="light"] {
   --bg: #fcfbf8; --fg: #35312a; --fg-2: #544d42; --dim: #6e6557; --faint: #a99e8c;
   --line: rgba(53, 49, 42, 0.14); --line-2: rgba(53, 49, 42, 0.20);
   --panel: #eee9d8; --panel-2: rgba(238, 233, 216, 0.86); --ctl-bg: #f4efe6;
-  --gold: #caa24a; --seal-fg: #8a2a1a;
+  --gold: #caa24a; --warn: #8a6b24; --kind: #a8331f; --seal-fg: #8a2a1a;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
@@ -65,12 +67,41 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
 .stats .span .sub { color: var(--faint); margin-top: 3px; }
 
 /* ── console (bottom toolbar) ─────────────────────────── */
+/* One row, always. The console used to need 1683px in the 1234 a 1280px
+   window gives it, so the theme switch and the whole time-lapse segment sat
+   past the right edge — not cramped, unreachable. It stays one row and the
+   pickers absorb the pressure instead: `nowrap` is what lets flex shrink
+   them at all (with `wrap` the browser moves items to a second line rather
+   than narrowing them). `overflow-x` is the last resort, not the plan. */
 #panel { position: fixed; left: 22px; right: 22px; bottom: 20px; z-index: 10;
   background: var(--panel); border: 1px solid var(--line-2); border-radius: 6px;
-  display: flex; align-items: stretch; }
-.seg { display: flex; align-items: flex-end; gap: 10px; padding: 11px 18px;
+  display: flex; flex-wrap: nowrap; align-items: stretch; overflow-x: auto; }
+.seg { display: flex; align-items: flex-end; gap: 9px; padding: 11px 14px;
   border-right: 1px solid var(--line); }
 .seg:last-child { border-right: 0; flex: 1; }
+.seg.scrub { min-width: 120px; }
+/* the time-lapse caption yields first when the console is tight. Every
+   ancestor needs min-width:0 or a flex item refuses to shrink past its
+   content, and the row overflows its segment instead. */
+.seg.scrub .field, .seg.scrub .trackrow { min-width: 0; }
+.seg.scrub .val { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* Below this the caption cannot be read anyway — drop it whole rather than
+   leave a three-character stub, and give the slider the width back. */
+@media (max-width: 1360px) { .seg.scrub .val { display: none; } }
+/* The console's pickers absorb the pressure: full width when the row has
+   room, ellipsised only when it doesn't. Buttons never squash — a label
+   clipped mid-word is worse than a truncated chain name. */
+#panel .seg, #panel .field, #panel .dd { min-width: 0; }
+#panel .btn, #panel .themeseg, #panel .toggle { flex: none; }
+/* The pickers are the only elastic thing here, so they carry the trim: the
+   full name is one click away in the menu, a clipped button label is not. */
+#panel .dd-trigger, #panel select.ctl { max-width: 190px; }
+/* on a narrow window the pickers give up the last 90px instead of pushing
+   the time-lapse off the edge — the full name is one click away in the menu */
+@media (max-width: 1500px) {
+  #panel .dd-trigger, #panel select.ctl { max-width: 126px; }
+  .seg { padding-inline: 11px; gap: 8px; }
+}
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-family: var(--mono); font-size: 9.5px; letter-spacing: .18em;
   text-transform: uppercase; color: var(--dim); height: 11px; line-height: 11px; white-space: nowrap; }
@@ -94,6 +125,7 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
 .dd-caret { flex: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
   border-top: 5px solid var(--dim); }
 .dd-trigger.open .dd-caret { border-top: 0; border-bottom: 5px solid var(--seal); }
+.dd.down .dd-menu { top: calc(100% + 5px); bottom: auto; }
 .dd-menu { position: absolute; left: 0; bottom: calc(100% + 5px); z-index: 30; min-width: 100%; width: max-content;
   max-width: 440px; max-height: 300px; overflow-y: auto; overflow-x: hidden; background: var(--panel);
   border: 1px solid var(--line-2); border-radius: 4px;
@@ -106,21 +138,25 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
   font-family: var(--mono); font-size: 12px; color: var(--fg); cursor: pointer; }
 .dd-opt:first-child { border-top: 0; }
 .dd-optlabel { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.dd-meta { flex: none; color: var(--faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dd-meta { flex: none; color: var(--dim); font-size: 11px; font-variant-numeric: tabular-nums; }
 .dd-opt:hover { background: var(--ctl-bg); }
 .dd-opt.sel { background: rgba(200, 64, 46, .12); }
 .dd-opt.sel::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--seal); }
 
-.btn { font-family: var(--mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+.btn { font-family: var(--mono); font-size: 11px; letter-spacing: .09em; text-transform: uppercase;
   border: 1px solid var(--line-2); background: transparent; color: var(--fg); height: 30px;
-  display: inline-flex; align-items: center; border-radius: 3px; padding: 0 13px; cursor: pointer;
+  display: inline-flex; align-items: center; border-radius: 3px; padding: 0 11px; cursor: pointer;
+  white-space: nowrap;   /* labels must never break across two lines */
   transition: border-color .15s, background .15s; }
 .btn:hover { background: var(--ctl-bg); }
 .btn.go { border-color: var(--seal); color: var(--seal-fg); }
 .btn.go:hover { background: rgba(200,64,46,.14); }
-.btn.go::before { content: ""; display: inline-block; width: 0; height: 0; margin-right: 7px;
-  border-left: 7px solid var(--seal); border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent; vertical-align: 1px; }
+.btn.go::before { content: ""; display: inline-block; width: 0; height: 0; margin-right: 5px;
+  border-left: 6px solid var(--seal); border-top: 3.5px solid transparent;
+  border-bottom: 3.5px solid transparent; vertical-align: 1px; }
+/* replay is the widest button in the console — the marker already says "go",
+   so it carries the trim rather than the labels around it */
+#chainPlay { padding-inline: 9px 11px; }
 .btn.mini { width: 30px; padding: 0; justify-content: center; }
 .btn.mini::before { content: ""; width: 0; height: 0;
   border-left: 7px solid var(--fg); border-top: 4px solid transparent; border-bottom: 4px solid transparent; }
@@ -140,7 +176,7 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
   border-radius: 3px; overflow: hidden; }
 .themeseg button { font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
   text-transform: uppercase; background: var(--ctl-bg); color: var(--dim); border: 0;
-  border-left: 1px solid var(--line-2); padding: 0 11px; cursor: pointer;
+  border-left: 1px solid var(--line-2); padding: 0 10px; cursor: pointer;
   transition: background .15s, color .15s; }
 .themeseg button:first-child { border-left: 0; }
 .themeseg button:hover { color: var(--fg); }
@@ -148,10 +184,10 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
 
 /* time-lapse */
 .scrub { flex: 1; }
-.trackrow { display: flex; align-items: center; gap: 13px; height: 30px; }
+.trackrow { display: flex; align-items: center; gap: 10px; height: 30px; min-width: 0; }
 .val { font-family: var(--mono); font-size: 11px; color: var(--dim); white-space: nowrap;
   font-variant-numeric: tabular-nums; }
-input[type=range] { flex: 1; min-width: 160px; -webkit-appearance: none; appearance: none;
+input[type=range] { flex: 1; min-width: 60px; -webkit-appearance: none; appearance: none;
   height: 2px; background: var(--line-2); border-radius: 2px; cursor: pointer; }
 input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px;
   border-radius: 50%; background: var(--gold); border: none; }
@@ -282,10 +318,10 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   background: color-mix(in srgb, var(--panel) 92%, transparent);
   border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
 #rbar #rPrev { border-color: var(--seal); color: var(--seal-fg); }
-#rbar .rtitle { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-#rbar .rkind { font-family: var(--mono); font-size: 9px; letter-spacing: .2em;
-  text-transform: uppercase; color: var(--seal); }
-#rbar .rtitle b { font-family: var(--serif); font-weight: 500; font-size: 17px;
+#rbar .rtitle, #bbar .rtitle { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+#rbar .rkind, #bbar .rkind { font-family: var(--mono); font-size: 9px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--kind); }
+#rbar .rtitle b, #bbar .rtitle b { font-family: var(--serif); font-weight: 500; font-size: 17px;
   letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #rbar #rView { margin-left: auto; }
 #rhint { position: absolute; bottom: 22px; left: 24px; z-index: 9; font-family: var(--mono);
@@ -373,6 +409,155 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 .rmark { background: color-mix(in srgb, var(--gold) 22%, transparent); border-radius: 2px; padding: 0 3px; }
 #reader code { font-family: var(--mono); font-size: .88em; background: var(--ctl-bg);
   border: 1px solid var(--line); border-radius: 2px; padding: 0 4px; }
+
+/* ── board ────────────────────────────────────────────── */
+/* What makes a board read as a board is not the cards, it is the LANES: a
+   column has to be a container with its own surface, so the eye sees three
+   trays rather than three lists on one field. Three steps of recession —
+   field (--panel) < lane (--ctl-bg) < card (--bg) — in both themes.
+   Vermilion means ONE thing here: past due. */
+#board { position: fixed; inset: 0; z-index: 8; background: var(--panel);
+  display: flex; flex-direction: column; }
+#bbar { flex: none; display: flex; align-items: center; gap: 18px; padding: 14px 22px;
+  background: var(--bg); border-bottom: 1px solid var(--line-2); flex-wrap: wrap; }
+#bbar .bpick { margin-left: auto; }
+.skip { position: absolute; top: 8px; left: 50%; transform: translate(-50%, -200%);
+  z-index: 20; font-family: var(--mono); font-size: 11px; color: var(--fg);
+  background: var(--ctl-bg); border: 1px solid var(--line-2); border-radius: 3px;
+  padding: 8px 14px; text-decoration: none; }
+.skip:focus { transform: translate(-50%, 0); }
+#bend { position: absolute; width: 1px; height: 1px; }
+
+/* ── the filter bar ───────────────────────────────────── */
+/* Only `status:` and `due:` are tags a person sets, so the useful filters are
+   the derived ones — text, the three rot signals, and `topic:`. */
+#bfilter { flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  padding: 10px 22px; background: var(--bg); border-bottom: 1px solid var(--line); }
+#bFind { font-family: var(--mono); font-size: 12px; color: var(--fg); background: var(--ctl-bg);
+  border: 1px solid var(--line-2); border-radius: 3px; height: 30px; width: 232px;
+  padding: 0 10px; }
+#bFind::placeholder { color: var(--fg-2); }
+#bsieves { display: flex; flex-wrap: wrap; gap: 6px; }
+.sieve { font-family: var(--mono); font-size: 10.5px; letter-spacing: .06em; color: var(--fg-2);
+  background: var(--ctl-bg); border: 1px solid var(--line-2); border-radius: 13px;
+  height: 30px; padding: 0 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+  transition: border-color .15s, color .15s, background .15s; }
+.sieve:hover { color: var(--fg); }
+.sieve .c { font-variant-numeric: tabular-nums; color: var(--dim); }
+.sieve[aria-pressed="true"] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
+/* no opacity on the count — a faded foreground is a contrast hole */
+.sieve[aria-pressed="true"] .c { color: var(--bg); }
+#bfilter #bClear { flex: none; }
+.nohits { margin: 40px auto; max-width: 46ch; text-align: center; font-family: var(--serif);
+  font-size: 15px; line-height: 1.6; color: var(--fg); }
+.nohits .btn { display: inline-flex; margin-top: 14px; }
+
+#bcols { flex: 1; min-height: 0; display: flex; gap: 16px; align-items: stretch;
+  padding: 18px 22px 6px; overflow-x: auto; }
+
+/* the lane — a tray, not a heading with a rule under it */
+.col { flex: 1 1 0; min-width: 286px; display: flex; flex-direction: column; min-height: 0;
+  background: var(--ctl-bg); border: 1px solid var(--line); border-radius: 7px; }
+.colhead { flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px 10px; border-bottom: 1px solid var(--line); }
+.colhead h2 { margin: 0; font-family: var(--mono); font-size: 10px; font-weight: 400;
+  letter-spacing: .2em; text-transform: uppercase; color: var(--fg-2); }
+.colhead .n { margin-left: auto; min-width: 22px; text-align: center;
+  font-family: var(--mono); font-size: 11px; color: var(--fg-2);
+  font-variant-numeric: tabular-nums; background: var(--panel);
+  border-radius: 10px; padding: 2px 8px; }
+.stack { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; }
+.none { margin: 10px 3px; font-family: var(--serif); font-style: italic;
+  font-size: 13px; line-height: 1.55; color: var(--fg-2); }
+/* the command is a block, not an inline chip: in a 274px lane an inline
+   <code> wraps mid-token and draws its box twice */
+.stack .cmd { display: block; margin: 10px 3px 0; font-family: var(--mono);
+  font-size: 11px; line-height: 1.5; color: var(--fg); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px;
+  white-space: nowrap; overflow-x: auto; }
+
+/* the card — an object lying on the lane */
+.card { display: block; width: 100%; text-align: left; font: inherit; color: inherit;
+  background: var(--bg); border: 1px solid var(--line-2); border-radius: 5px;
+  padding: 10px 12px; margin-bottom: 8px; cursor: pointer;
+  box-shadow: 0 1px 2px rgba(0,0,0,.16), 0 1px 1px rgba(0,0,0,.10);
+  transition: border-color .15s, box-shadow .15s, transform .15s; }
+.card:last-child { margin-bottom: 0; }
+.card:hover { border-color: var(--fg-2); transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0,0,0,.20), 0 1px 2px rgba(0,0,0,.12); }
+.card.picked { border-color: var(--fg); box-shadow: 0 0 0 1px var(--fg); }
+/* the overdue stripe rides the card's leading edge, like a label in Jira */
+.card.overdue { border-left: 3px solid var(--seal); padding-left: 10px; }
+.card .what { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; font-family: var(--serif); font-size: 14px; line-height: 1.4;
+  color: var(--fg); text-wrap: pretty; }
+.card .meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 6px; margin-top: 9px;
+  font-family: var(--mono); font-size: 10px; color: var(--fg-2); }
+.card .age { font-variant-numeric: tabular-nums; }
+/* chips, the way a tracker labels a card */
+.card .due, .card .isle { border-radius: 3px; padding: 2px 6px; letter-spacing: .02em; }
+.card .due { color: #fff; background: var(--seal); }
+.card .isle { color: var(--warn); border: 1px solid currentColor; }
+#bdetail .isle { color: var(--warn); }
+#bdetail .soft, .card .soft { color: var(--fg-2); }
+
+#bcount { flex: none; margin: 0; padding: 8px 22px 14px; font-family: var(--mono);
+  font-size: 10.5px; letter-spacing: .04em; color: var(--fg-2); }
+
+/* ── the card drawer — over the board, never squeezing it ── */
+#bdetail { position: absolute; top: 0; right: 0; bottom: 0; width: min(430px, 92vw);
+  z-index: 14; display: flex; flex-direction: column;
+  background: var(--bg); border-left: 1px solid var(--line-2);
+  box-shadow: -18px 0 40px rgba(0,0,0,.28); }
+#bdhead { flex: none; display: flex; align-items: center; gap: 12px;
+  padding: 15px 18px; border-bottom: 1px solid var(--line); }
+#bdhead .k { font-family: var(--mono); font-size: 9px; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--kind); }
+#bdhead .colname { font-family: var(--mono); font-size: 10px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--fg-2); background: var(--ctl-bg);
+  border: 1px solid var(--line-2); border-radius: 10px; padding: 3px 9px; }
+#bdhead .x { margin-left: auto; width: 30px; padding: 0; justify-content: center; }
+#bdbody { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px 20px; }
+#bdbody .dbody { margin: 0; font-family: var(--serif); font-size: 15px; line-height: 1.55;
+  color: var(--fg); white-space: pre-wrap; }
+/* One gutter, one baseline. Labels share a right edge and every value sits
+   on the same line, so the block reads as a table rather than a ragged list. */
+/* Top-aligned, not baseline-aligned: the provenance value is a <button>, and
+   an inline-block's baseline is its LAST line — so a value that wraps used to
+   drag its label down beside the second line. */
+#bdbody dl { display: grid; grid-template-columns: max-content 1fr; gap: 11px 18px;
+  align-items: start; margin: 20px 0 0; padding-top: 16px;
+  border-top: 1px solid var(--line); }
+#bdbody dt { font-family: var(--mono); font-size: 9.5px; letter-spacing: .16em;
+  text-transform: uppercase; color: var(--fg-2); text-align: right; padding-top: .34em; }
+#bdbody dd { margin: 0; font-family: var(--mono); font-size: 12px; line-height: 1.45;
+  color: var(--fg); }
+#bdbody dd .name { font-family: var(--serif); font-size: 13.5px; }
+#bdbody dd .due { color: #fff; background: var(--seal); border-radius: 3px; padding: 2px 6px;
+  font-family: var(--mono); font-size: 11px; }
+/* the provenance is a way in, not a caption */
+.nodelink { font-family: var(--serif); font-size: 13.5px; line-height: 1.45; text-align: left;
+  color: var(--fg); background: none; border: 0; padding: 0; cursor: pointer;
+  text-decoration: underline; text-decoration-color: var(--line-2);
+  text-underline-offset: 3px; text-decoration-thickness: from-font; }
+.nodelink:hover { text-decoration-color: currentColor; }
+/* whose card this is, shown only when the board spans every initiative */
+.card .owner { color: var(--fg); background: var(--ctl-bg); border: 1px solid var(--line-2);
+  border-radius: 3px; padding: 2px 6px; }
+/* deliberate rows rather than a ragged wrap: the way in on top, the two
+   commands you copy underneath */
+#bdacts { flex: none; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  padding: 14px 18px; border-top: 1px solid var(--line); background: var(--ctl-bg); }
+#bdacts .btn { justify-content: center; }
+#bdacts .btn:first-child { grid-column: 1 / -1; }
+#bdacts .cp.ok { border-color: var(--warn); color: var(--warn); }
+
+@media (max-width: 720px) {
+  #bbar { gap: 12px; }
+  #bbar .bpick { margin-left: 0; width: 100%; }
+  /* on a phone the drawer is the whole sheet — Jira does the same */
+  #bdetail { width: 100%; border-left: 0; }
+}
 
 /* ── motion, only for those who want it ────────────────── */
 @media (prefers-reduced-motion: reduce) {
