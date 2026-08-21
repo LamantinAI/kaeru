@@ -272,6 +272,26 @@ pub fn resolve_name_or_id(store: &Store, input: &str) -> Result<NodeId, McpError
     resolve_name(store, input)
 }
 
+/// Builds a one-line note when any capture field carried leaked tool-call
+/// wire-format that the core write path scrubbed. `fields` pairs a label with
+/// the raw input; the note names only the fields that were actually dirty, so
+/// a clean call gets `None` and no noise. The stripping itself happens in
+/// `kaeru-core`; this only mirrors the detection to tell the caller.
+pub fn markup_strip_note(fields: &[(&str, &str)]) -> Option<String> {
+    let dirty: Vec<&str> = fields
+        .iter()
+        .filter(|(_, raw)| kaeru_core::strip_tool_call_markup(raw).1)
+        .map(|(label, _)| *label)
+        .collect();
+    if dirty.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "\n(note: stripped leaked tool-call markup from {})",
+        dirty.join(" and ")
+    ))
+}
+
 /// Resolves an edge endpoint for `link` / `unlink` / `reweight`: accepts a raw
 /// id, else resolves the name in the active initiative first and falls back to
 /// a cross-initiative lookup. An edge often joins nodes living under different

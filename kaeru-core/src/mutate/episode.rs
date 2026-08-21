@@ -8,6 +8,7 @@ use super::{attach_node_to_initiative, build_body_tags, now_validity_seconds, ta
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{EpisodeKind, Layer, NodeId, Significance, new_node_id};
+use crate::sanitize::strip_tool_call_markup;
 use crate::store::Store;
 
 /// Writes an episode node and an audit_event for the operation.
@@ -32,6 +33,11 @@ pub fn write_episode_with_layer(
     body: &str,
     layer: Layer,
 ) -> Result<NodeId> {
+    // Scrub any leaked tool-call wire-format before it reaches the graph.
+    let name_owned = strip_tool_call_markup(name).0;
+    let body_owned = strip_tool_call_markup(body).0;
+    let (name, body) = (name_owned.as_str(), body_owned.as_str());
+
     let id = new_node_id();
 
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
@@ -81,6 +87,11 @@ pub fn jot(store: &Store, body: &str) -> Result<NodeId> {
 
 /// Low-friction episode write with an explicit memory layer.
 pub fn jot_with_layer(store: &Store, body: &str, layer: Layer) -> Result<NodeId> {
+    // Scrub leaked tool-call wire-format; the auto-name derives from the
+    // cleaned body so garbage can't seep in through the name either.
+    let body_owned = strip_tool_call_markup(body).0;
+    let body = body_owned.as_str();
+
     let id = new_node_id();
     let name = derive_jot_name(body, &id);
 

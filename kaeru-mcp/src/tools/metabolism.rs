@@ -6,7 +6,7 @@ use kaeru_core::{Error, Layer, Store, Visibility, get_visibility, set_layer as c
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
+use crate::utils::{markup_strip_note, resolve_name_or_id, text, to_mcp, with_initiative};
 
 pub fn forget(
     store: &Store,
@@ -67,6 +67,18 @@ pub fn revise(
         let new_body = body.unwrap_or(&preserved_body);
         kaeru_core::improve(store, &id, new_name, new_body).map_err(to_mcp)?;
         let mut msg = format!("revised: {name} → {new_name}");
+        // Only the caller-supplied fields can carry leaked markup; the
+        // preserved body was read back from an already-clean node.
+        let mut supplied: Vec<(&str, &str)> = Vec::new();
+        if let Some(r) = rename {
+            supplied.push(("name", r));
+        }
+        if let Some(b) = body {
+            supplied.push(("body", b));
+        }
+        if let Some(note) = markup_strip_note(&supplied) {
+            msg.push_str(&note);
+        }
         if get_visibility(store, &id).map_err(to_mcp)? == Visibility::Shared {
             msg.push_str(
                 "\n⚠ cloud copy is stale — run `share` on this node to push the new version.",

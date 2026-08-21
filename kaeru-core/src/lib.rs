@@ -18,6 +18,7 @@ pub mod hygiene;
 mod migrate;
 pub mod mutate;
 pub mod recall;
+pub mod sanitize;
 pub mod session;
 pub mod store;
 
@@ -56,6 +57,7 @@ pub use recall::{
     recollect_outcome, recollect_provenance, reflect, shortest_path, suggest_initiative,
     summary_view, tagged, under_review_pinned, walk,
 };
+pub use sanitize::strip_tool_call_markup;
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};
 pub use store::Store;
 
