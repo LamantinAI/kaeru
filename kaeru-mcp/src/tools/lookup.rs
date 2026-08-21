@@ -7,8 +7,7 @@ use rmcp::model::CallToolResult;
 
 use crate::utils::{
     AT_FULLTEXT_HINT_MANY, at_fulltext_hint, body_truncated, history_hint, recall_read_hint,
-    render_briefs, render_summary, resolve_name_or_id, text, to_mcp, was_revised,
-    with_initiative,
+    render_briefs, render_summary, resolve_name_or_id, text, to_mcp, was_revised, with_initiative,
 };
 
 pub fn recall(
