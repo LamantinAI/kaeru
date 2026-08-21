@@ -258,13 +258,42 @@ pub fn resolve_name(store: &Store, name: &str) -> Result<NodeId, McpError> {
         .ok_or_else(|| to_mcp(Error::NotFound(format!("no node named {name:?} at NOW"))))
 }
 
-/// UUIDv7 has 36 chars with dashes at fixed positions; cheap heuristic
-/// avoids a roundtrip when the caller already has an id.
+/// A UUIDv7 id is 36 chars with a `-` at index 8; this cheap shape check
+/// lets a resolver skip the name lookup when the caller already holds an id.
+pub fn looks_like_id(input: &str) -> bool {
+    input.len() == 36 && input.chars().nth(8) == Some('-')
+}
+
+/// Resolves a name at NOW, or passes a raw id straight through.
 pub fn resolve_name_or_id(store: &Store, input: &str) -> Result<NodeId, McpError> {
-    if input.len() == 36 && input.chars().nth(8) == Some('-') {
+    if looks_like_id(input) {
         return Ok(input.to_string());
     }
     resolve_name(store, input)
+}
+
+/// Resolves an edge endpoint for `link` / `unlink` / `reweight`: accepts a raw
+/// id, else resolves the name in the active initiative first and falls back to
+/// a cross-initiative lookup. An edge often joins nodes living under different
+/// initiatives — the scoped resolvers used by the read verbs would miss an
+/// endpoint outside the active scope, which is exactly the friction that made
+/// a cross-initiative `link` fail until the scope was dropped. Mirrors the
+/// global resolution `attach` already relies on. On a name collision the newest
+/// node wins, and a scoped match is preferred over the global fallback.
+pub fn resolve_link_endpoint(store: &Store, input: &str) -> Result<NodeId, McpError> {
+    if looks_like_id(input) {
+        return Ok(input.to_string());
+    }
+    if let Some(id) = kaeru_core::recall_id_by_name(store, input).map_err(to_mcp)? {
+        return Ok(id);
+    }
+    kaeru_core::recall_id_by_name_global(store, input)
+        .map_err(to_mcp)?
+        .ok_or_else(|| {
+            to_mcp(Error::NotFound(format!(
+                "no node named {input:?} at NOW (searched the active initiative, then all initiatives)"
+            )))
+        })
 }
 
 /// Like [`resolve_name_or_id`] but resolves a **name** as of `at_seconds`
@@ -276,7 +305,7 @@ pub fn resolve_name_or_id_at(
     input: &str,
     at_seconds: f64,
 ) -> Result<NodeId, McpError> {
-    if input.len() == 36 && input.chars().nth(8) == Some('-') {
+    if looks_like_id(input) {
         return Ok(input.to_string());
     }
     kaeru_core::recall_id_by_name_at(store, input, at_seconds)

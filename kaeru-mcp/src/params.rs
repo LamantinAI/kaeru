@@ -230,9 +230,11 @@ pub struct JotParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct LinkParams {
-    /// Source node name.
+    /// Source node name or id — resolved in the active initiative first,
+    /// then across all initiatives, so an edge may span initiatives.
     pub from: String,
-    /// Destination node name.
+    /// Destination node name or id — resolved in the active initiative
+    /// first, then across all initiatives.
     pub to: String,
     /// Edge type. Common values: `refers_to` (default), `causal`,
     /// `derived_from`, `contradicts`, `part_of`, `blocks`, `targets`,
@@ -258,9 +260,11 @@ fn default_edge_type() -> String {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ReweightParams {
-    /// Source node name or id.
+    /// Source node name or id — resolved in the active initiative first,
+    /// then across all initiatives.
     pub from: String,
-    /// Destination node name or id.
+    /// Destination node name or id — resolved in the active initiative
+    /// first, then across all initiatives.
     pub to: String,
     /// Edge type (default `refers_to`).
     #[serde(default = "default_edge_type")]
