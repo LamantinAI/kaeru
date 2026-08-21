@@ -80,7 +80,10 @@ mod tests {
         let dirty = "…max savings need a custom board, not a firmware toggle.</body>\n<parameter name=\"initiative\">rack";
         let (clean, stripped) = strip_tool_call_markup(dirty);
         assert!(stripped);
-        assert_eq!(clean, "…max savings need a custom board, not a firmware toggle.");
+        assert_eq!(
+            clean,
+            "…max savings need a custom board, not a firmware toggle."
+        );
     }
 
     /// A bare closing param tag with no orphan open tag before it.
