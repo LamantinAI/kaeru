@@ -123,6 +123,82 @@ pub fn history_read_version_hint(name: &str) -> String {
     format!("\n↳ read any version in full: `at {name} when=<t>` (`5m`/`2h` ago, or unix secs).")
 }
 
+// ---- Read-side nudges --------------------------------------------------
+//
+// The nudge economy used to run one way: every capture verb pushed the agent
+// to write more (`CAPTURE_NUDGE`), and nothing ever pushed it to read. A hint
+// in a tool's output is the strongest discovery channel this product has —
+// it made `link` the most-used verb in the whole graph — so the read verbs
+// that had no such channel simply stayed unused. These are the return edges:
+// a pointer in the output of a verb the agent already calls, naming the read
+// verb that goes further. Hints, never gates.
+
+/// Footer for a `search` hit list: the two ways to go deeper on a result.
+/// Names the top hit so both are ready-to-run calls.
+pub fn search_deepen_hint(top: &str) -> String {
+    format!(
+        "\n↳ go deeper on a hit: `drill {top}` (its neighbours) · `trace {top}` (where it came from)."
+    )
+}
+
+/// Footer for a `search` that matched nothing. A miss is the moment the agent
+/// is most likely to conclude "memory is empty" and stop — so it gets the
+/// three widenings, cheapest first, instead of a bare `(no matches)`.
+pub fn search_empty_hint(query: &str) -> String {
+    format!(
+        "\n↳ widen it: `search \"{query}*\"` (prefix match) · `tagged topic:<theme>` \
+         (browse by tag) · `recent 7d` (what's fresh)."
+    )
+}
+
+/// `↳ part of a saved trail: …` — the return edge from a single-node read to
+/// `why`. A chain is authored for a future session and then read by nobody;
+/// this is how the node itself says it belongs to one. Empty when the node is
+/// in no chain, so the hint only ever appears where it teaches. Best-effort:
+/// a read error suppresses it rather than failing the caller.
+pub fn chain_membership_hint(store: &Store, id: &NodeId) -> String {
+    let Ok(memberships) = kaeru_core::chain_membership(store, id) else {
+        return String::new();
+    };
+    let steps: Vec<String> = memberships
+        .iter()
+        .map(|m| format!("`{}` (step {}/{})", m.chain_name, m.position, m.length))
+        .collect();
+    match steps.len() {
+        0 => String::new(),
+        1 => format!(
+            "\n↳ part of a saved trail: {} — read it: `why {}`.",
+            steps[0], memberships[0].chain_name
+        ),
+        n => format!(
+            "\n↳ part of {n} saved trails: {} — read one: `why <name>`.",
+            steps.join(", ")
+        ),
+    }
+}
+
+/// `↳ …` for a demotion into an archived layer. `cold` / `frozen` are exactly
+/// the layers `awake` does not load, so a node moved there leaves the
+/// re-entry view — the agent should know the one verb that reaches it again.
+pub fn archived_layer_hint(layer: Layer) -> &'static str {
+    match layer {
+        Layer::Cold | Layer::Frozen => {
+            "\n↳ out of the re-entry view now — `surface layers=cold,frozen` reads it back."
+        }
+        _ => "",
+    }
+}
+
+/// `↳ when the verdict lands: …` — a claim is a promise to settle it later,
+/// and the settling verbs live nowhere else in the agent's path. Also names
+/// how to list the claims still waiting.
+pub fn claim_verdict_hint(name: &str) -> String {
+    format!(
+        "\n↳ when the verdict lands: `confirm {name} --by <evidence>` or `refute {name} --by <evidence>`; \
+         still-open ones show in `awake`, or `tagged \"status:open\"`."
+    )
+}
+
 pub fn to_mcp(e: Error) -> McpError {
     McpError::internal_error(e.to_string(), None)
 }

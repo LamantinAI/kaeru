@@ -42,7 +42,8 @@ kaeru-core/src/
 ├── recall/               ← READ side
 │   ├── by_name.rs        ← recall_id_by_name (+ _global), node_brief_by_id, read_node_full
 │   ├── layered.rs        ← recall_by_layer / _in_tier  (the layer + tier split awake uses)
-│   ├── path.rs           ← shortest_path, chains_of, read_chain
+│   ├── path.rs           ← shortest_path, chains_of, read_chain, chain_membership
+│   ├── open_work.rs      ← open_tasks (overdue-aware) + open_claims  (awake's read-back)
 │   ├── reflect.rs        ← reflect → ReflectionReport (the maintenance work-list)
 │   ├── lint.rs           ← orphans + unresolved reviews
 │   ├── overview.rs       ← terminal-readable subgraph map

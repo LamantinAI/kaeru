@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, NamedRows, ScriptMutability};
 
 use super::lint;
+use super::open_work::open_tasks;
 use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::graph::temporal::validity_seconds;
@@ -36,6 +37,10 @@ pub struct ReflectionReport {
     /// Shared nodes in scope. Touching the cloud (re-share, edge rebalance) is
     /// the user's call — escalate, don't auto-rewrite.
     pub shared: Vec<NodeId>,
+    /// Open tasks whose `due:` date has already passed — `done` them, move
+    /// them, or push the deadline. A maintenance item like any other: the
+    /// graph knows the date passed, so the work-list should say so.
+    pub overdue_tasks: Vec<NodeId>,
 }
 
 /// Builds the reflection work-list for the active initiative (cross-initiative
@@ -48,6 +53,11 @@ pub fn reflect(store: &Store) -> Result<ReflectionReport> {
         stale_chains: stale_chains(store)?,
         cortex_candidates: cortex_candidates(store)?,
         shared: shared_nodes(store)?,
+        overdue_tasks: open_tasks(store)?
+            .into_iter()
+            .filter(|t| t.overdue)
+            .map(|t| t.id)
+            .collect(),
     })
 }
 

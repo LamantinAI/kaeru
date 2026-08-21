@@ -8,7 +8,7 @@ use kaeru_core::{
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{brief, briefs, mem_tool, mem_tool_in, resolve};
+use crate::{brief, briefs, in_chains, mem_tool, mem_tool_in, resolve};
 
 #[derive(Debug, Deserialize)]
 pub struct RecallArgs {
@@ -34,6 +34,16 @@ mem_tool_in!(
         "initiative": { "type": "string", "description": "optional initiative (project) to search; omit for your default" }
     }, "required": ["query"] },
     |store, args| match fuzzy_recall(store, &args.query, args.limit.unwrap_or(5)) {
+        // A miss is where an agent concludes "memory is empty" and stops, so
+        // it gets the widenings rather than a bare empty list.
+        Ok(hits) if hits.is_empty() => json!({
+            "results": [],
+            "hint": format!(
+                "no matches — widen it: query \"{}*\" (prefix match), kaeru_tagged with \
+                 topic:<theme>, or kaeru_recent for what's fresh.",
+                args.query
+            ),
+        }),
         Ok(hits) => json!({ "results": briefs(&hits) }),
         Err(e) => json!({ "error": e.to_string() }),
     }
@@ -63,7 +73,8 @@ mem_tool_in!(
         match read_node_full(store, &id) {
             Ok(Some(n)) => json!({
                 "id": n.id, "name": n.name, "type": n.node_type, "tier": n.tier,
-                "body": n.body, "tags": n.tags, "layer": n.layer, "visibility": n.visibility
+                "body": n.body, "tags": n.tags, "layer": n.layer, "visibility": n.visibility,
+                "in_chains": in_chains(store, &id)
             }),
             Ok(None) => json!({ "found": false, "query": args.name_or_id }),
             Err(e) => json!({ "error": e.to_string() }),
@@ -89,7 +100,11 @@ mem_tool!(
     |store, args| {
         let id = resolve(store, &args.name_or_id);
         match summary_view(store, &id) {
-            Ok(view) => json!({ "root": brief(&view.root), "children": briefs(&view.children) }),
+            Ok(view) => json!({
+                "root": brief(&view.root),
+                "children": briefs(&view.children),
+                "in_chains": in_chains(store, &id)
+            }),
             Err(e) => json!({ "error": e.to_string() }),
         }
     }

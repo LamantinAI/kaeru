@@ -7,8 +7,8 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
 use crate::utils::{
-    fmt_ts, history_hint, history_read_version_hint, parse_when, resolve_name_or_id,
-    resolve_name_or_id_at, text, to_mcp, was_revised, with_initiative,
+    chain_membership_hint, fmt_ts, history_hint, history_read_version_hint, parse_when,
+    resolve_name_or_id, resolve_name_or_id_at, text, to_mcp, was_revised, with_initiative,
 };
 
 /// Reads a node **in full** — every field plus the complete, untruncated
@@ -37,6 +37,7 @@ pub fn at(
                 if was_revised(store, &id) {
                     out.push_str(&history_hint(&snap.name));
                 }
+                out.push_str(&chain_membership_hint(store, &id));
                 Ok(text(&out))
             }
             None => Ok(text("(no version valid at that moment)")),

@@ -203,6 +203,103 @@ pub fn read_chain(store: &Store, chain_id: &NodeId) -> Result<Vec<NodeBrief>> {
     Ok(briefs)
 }
 
+/// Where a node sits inside a saved reasoning trail — one entry per chain it
+/// belongs to. Position is **1-based**, ready to render as `step 3/7`
+/// (`chain_member` stores it 0-based).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChainMembership {
+    pub chain_id: NodeId,
+    pub chain_name: String,
+    pub position: usize,
+    pub length: usize,
+}
+
+/// The chains `node_id` is a member of, with its step number in each.
+///
+/// The read-path counterpart to [`chains_of`]: cheap enough to call on every
+/// single-node read, so a node that belongs to a trail can *say so* instead of
+/// waiting for the agent to think of asking. Ordered by chain name for a
+/// stable rendering.
+pub fn chain_membership(store: &Store, node_id: &NodeId) -> Result<Vec<ChainMembership>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
+    let rows = store.db_ref().run_script(
+        "?[chain_id, position] := *chain_member{chain_id, position, node_id}, node_id = $nid",
+        params,
+        ScriptMutability::Immutable,
+    )?;
+
+    let mut out = Vec::new();
+    for r in &rows.rows {
+        let (Some(cid), Some(pos)) = (
+            r.first().and_then(|v| v.get_str()),
+            r.get(1).and_then(|v| v.get_int()),
+        ) else {
+            continue;
+        };
+        let Some(brief) = node_brief_by_id(store, &cid.to_string())? else {
+            continue;
+        };
+        out.push(ChainMembership {
+            chain_id: cid.to_string(),
+            chain_name: brief.name,
+            position: pos as usize + 1,
+            length: chain_member_count(store, &cid.to_string())?,
+        });
+    }
+    out.sort_by(|a, b| a.chain_name.cmp(&b.chain_name));
+    Ok(out)
+}
+
+/// How many members a chain holds — the denominator of `step 3/7`.
+fn chain_member_count(store: &Store, chain_id: &NodeId) -> Result<usize> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("cid".to_string(), DataValue::Str(chain_id.clone().into()));
+    let rows = store.db_ref().run_script(
+        "?[position] := *chain_member{chain_id, position}, chain_id = $cid",
+        params,
+        ScriptMutability::Immutable,
+    )?;
+    Ok(rows.rows.len())
+}
+
+/// Every chain in scope, newest-first, each with its agent-authored summary as
+/// the body excerpt.
+///
+/// A chain is written *for the next session* and then never opened — in the
+/// working set it reads as one more faceless line. This gives re-entry the
+/// trails as trails: name plus the summary their author left.
+pub fn chains_in_scope(store: &Store) -> Result<Vec<NodeBrief>> {
+    let excerpt_chars = store.config().body_excerpt_chars;
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    let script = match store.current_initiative() {
+        Some(init) => {
+            params.insert("init".to_string(), DataValue::Str(init.into()));
+            r#"
+            ?[id, type, name, body, validity] :=
+                *node_initiative{initiative, node_id: id}, initiative = $init,
+                *node{id, type, name, body, validity @ 'NOW'}, type = 'chain'
+            :order validity
+            "#
+        }
+        None => {
+            r#"
+            ?[id, type, name, body, validity] :=
+                *node{id, type, name, body, validity @ 'NOW'}, type = 'chain'
+            :order validity
+            "#
+        }
+    };
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .iter()
+        .map(|r| super::parse_brief(r, excerpt_chars))
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::shortest_path;

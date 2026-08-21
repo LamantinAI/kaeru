@@ -56,7 +56,8 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
             + r.open_reviews.len()
             + r.stale_chains.len()
             + r.cortex_candidates.len()
-            + r.shared.len();
+            + r.shared.len()
+            + r.overdue_tasks.len();
         if total == 0 {
             return Ok(text(
                 "reflection: store is tidy — nothing to tend right now.",
@@ -70,6 +71,13 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
             "orphans",
             "`search` for relatives and `link`, else `forget`",
             &r.orphans,
+        );
+        push_section(
+            &mut out,
+            store,
+            "overdue tasks",
+            "past their `due:` date — `done` when finished, else `set_status` to move them",
+            &r.overdue_tasks,
         );
         push_section(
             &mut out,

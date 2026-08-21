@@ -245,7 +245,18 @@ mem_tool!(
         let id = resolve(store, &args.name_or_id);
         match args.layer.parse::<Layer>() {
             Ok(l) => match set_layer(store, &id, l) {
-                Ok(()) => json!({ "relayered": true, "id": id, "layer": l.as_str() }),
+                Ok(()) => {
+                    let mut out = json!({ "relayered": true, "id": id, "layer": l.as_str() });
+                    // cold/frozen are exactly the layers `kaeru_awake` doesn't
+                    // load — say which verb reaches the node again.
+                    if matches!(l, Layer::Cold | Layer::Frozen) {
+                        out["hint"] = json!(
+                            "out of the re-entry view now — kaeru_surface with layers \
+                             cold,frozen reads it back"
+                        );
+                    }
+                    out
+                }
                 Err(e) => json!({ "relayered": false, "error": e.to_string() }),
             },
             Err(e) => json!({ "relayered": false, "error": e.to_string() }),

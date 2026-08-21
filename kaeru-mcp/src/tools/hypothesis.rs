@@ -5,7 +5,8 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
 use crate::utils::{
-    capture_result, derive_auto_name, parse_layer, resolve_name, text, to_mcp, with_initiative,
+    capture_result, claim_verdict_hint, derive_auto_name, parse_layer, resolve_name, text, to_mcp,
+    with_initiative,
 };
 
 pub fn claim(
@@ -28,7 +29,10 @@ pub fn claim(
             store,
             &id,
             initiative,
-            &format!("claimed: {auto_name} — {id}"),
+            &format!(
+                "claimed: {auto_name} — {id}{}",
+                claim_verdict_hint(&auto_name)
+            ),
         ))
     })
 }
@@ -88,4 +92,43 @@ pub fn refute(
         }
         Ok(text(&msg))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use kaeru_core::Store;
+    use rmcp::model::CallToolResult;
+
+    use super::claim;
+
+    fn text_of(r: CallToolResult) -> String {
+        r.content
+            .iter()
+            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    /// 15 of 21 hypotheses in the live graph are open forever, and `test` has
+    /// never been called. A claim is a promise to settle it later, so the
+    /// capture itself names the verbs that settle it.
+    #[test]
+    fn a_claim_names_the_verbs_that_settle_it() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let out =
+            text_of(claim(&store, "the cache pays for itself", None, None, Some("t")).unwrap());
+        assert!(
+            out.contains("`confirm ") && out.contains("`refute "),
+            "both verdict verbs: {out}"
+        );
+        assert!(
+            out.contains("--by <evidence>"),
+            "with the evidence arg: {out}"
+        );
+        assert!(
+            out.contains("tagged \"status:open\""),
+            "and how to list the ones still waiting: {out}"
+        );
+    }
 }

@@ -15,7 +15,7 @@ The ritual at the start of a session: process state, then epistemic state.
 | Verb | Does |
 |---|---|
 | `initiatives` | List every project the substrate knows. |
-| `awake` | Restore a project's context: layered operational working set (`core→hot→warm`), the archival **cortex** slice, session pins, recent episodes, open reviews. |
+| `awake` | Restore a project's context: layered operational working set (`core→hot→warm`), the archival **cortex** slice, session pins, recent episodes, open reviews, plus the read-back of unfinished work — open tasks (overdue first), claims awaiting a verdict, and the saved trails. |
 | `overview` | A readable map of what the project's memory knows (subgraph). |
 | `recent` | Episodes asserted within a recent window. |
 | `pin` / `unpin` | Persist / release a node in the active-window set across restarts. |

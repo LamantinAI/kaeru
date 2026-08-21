@@ -27,7 +27,17 @@ mem_tool!(
         "claim": { "type": "string", "description": "the claim, stated so it can be falsified" }
     }, "required": ["name", "claim"] },
     |store, args| match formulate_hypothesis(store, &args.name, &args.claim) {
-        Ok(id) => json!({ "created": true, "id": id }),
+        Ok(id) => json!({
+            "created": true,
+            "id": id,
+            // A claim is a promise to settle it later; the settling verbs
+            // appear nowhere else on the agent's path.
+            "hint": format!(
+                "when the verdict lands: kaeru_confirm or kaeru_refute \"{}\" with evidence; \
+                 still-open claims surface in kaeru_awake.",
+                args.name
+            ),
+        }),
         Err(e) => json!({ "created": false, "error": e.to_string() }),
     }
 );

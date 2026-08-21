@@ -6,7 +6,9 @@ use kaeru_core::{Error, Layer, Store, Visibility, get_visibility, set_layer as c
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use crate::utils::{markup_strip_note, resolve_name_or_id, text, to_mcp, with_initiative};
+use crate::utils::{
+    archived_layer_hint, markup_strip_note, resolve_name_or_id, text, to_mcp, with_initiative,
+};
 
 pub fn forget(
     store: &Store,
@@ -30,7 +32,11 @@ pub fn set_layer(
         let parsed = Layer::from_str(layer).map_err(to_mcp)?;
         let id = resolve_name_or_id(store, name_or_id)?;
         core_set_layer(store, &id, parsed).map_err(to_mcp)?;
-        Ok(text(&format!("layer: {name_or_id} → {}", parsed.as_str())))
+        Ok(text(&format!(
+            "layer: {name_or_id} → {}{}",
+            parsed.as_str(),
+            archived_layer_hint(parsed)
+        )))
     })
 }
 
@@ -91,8 +97,17 @@ pub fn revise(
 #[cfg(test)]
 mod tests {
     use kaeru_core::Store;
+    use rmcp::model::CallToolResult;
 
-    use super::revise;
+    use super::{revise, set_layer};
+
+    fn text_of(r: CallToolResult) -> String {
+        r.content
+            .iter()
+            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+            .collect::<Vec<_>>()
+            .join("")
+    }
 
     /// A rename-only revise must carry the FULL body over — it used to read
     /// the preserved body through `summary_view`, whose excerpt truncates,
@@ -116,6 +131,25 @@ mod tests {
             snap.body.as_deref(),
             Some(long_body.as_str()),
             "full body survives a rename-only revise"
+        );
+    }
+
+    /// Demoting to cold/frozen takes a node out of `awake`. Without naming
+    /// `surface`, the demotion is a one-way door as far as the agent knows —
+    /// the audit found 141+ demotions and zero reads back.
+    #[test]
+    fn demoting_to_an_archived_layer_names_the_way_back() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let id = kaeru_core::jot(&store, "an old note").expect("jot");
+
+        let cold = text_of(set_layer(&store, &id, "cold", Some("t")).unwrap());
+        assert!(cold.contains("`surface layers=cold,frozen`"), "{cold}");
+
+        let hot = text_of(set_layer(&store, &id, "hot", Some("t")).unwrap());
+        assert!(
+            !hot.contains("surface"),
+            "a node still in the re-entry view needs no way back: {hot}"
         );
     }
 }

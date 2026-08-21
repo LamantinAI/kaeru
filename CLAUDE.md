@@ -69,6 +69,7 @@ kaeru-core/src/
 │   ├── initiatives.rs      ← list_initiatives
 │   ├── between.rs          ← edges between two nodes (both directions)
 │   ├── board.rs            ← task board: status registry + bucketed view
+│   ├── open_work.rs        ← open_tasks (overdue-aware) + open_claims — awake's read-back
 │   └── tagged.rs           ← read by tag
 └── mutate/                 ← write-side primitives
     ├── mod.rs              ← shared helpers (now_validity_seconds, RMW reads, attach_node_to_initiative)

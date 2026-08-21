@@ -15,8 +15,8 @@ use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId, Tier};
 use crate::recall::{
-    LayerBucket, NodeBrief, list_initiatives, recall_by_layer_in_tier, recent_episodes,
-    under_review_pinned,
+    LayerBucket, NodeBrief, OpenTask, chains_in_scope, list_initiatives, open_claims, open_tasks,
+    recall_by_layer_in_tier, recent_episodes, under_review_pinned,
 };
 use crate::store::Store;
 
@@ -97,11 +97,25 @@ pub struct AwakenedContext {
     /// Nodes with inbound `contradicts` edges valid at NOW —
     /// the open-review queue from `mark_under_review`.
     pub under_review: Vec<NodeId>,
+    /// Tasks that haven't reached their board's terminal column, deadline
+    /// first. Re-entry's read-back of what is still *owed*: a due date the
+    /// working set never mentioned is a due date that silently passes.
+    pub open_tasks: Vec<OpenTask>,
+    /// Hypotheses still tagged `status:open` — claims written and never
+    /// settled. Without this they are reachable only by remembering to run
+    /// `tagged "status:open"`.
+    pub open_claims: Vec<NodeBrief>,
+    /// Chains in scope with their agent-authored summaries. A chain is
+    /// written *for the next session*; surfacing it as a named trail with its
+    /// summary is what makes that next session able to use it.
+    pub chains: Vec<NodeBrief>,
 }
 
 /// Composite session-restoration primitive. Single call an agent makes
 /// when re-entering a project: returns the pinned set, recently-written
-/// episodes (last 24h), and the open-review queue.
+/// episodes (last 24h), the open-review queue, and the read-back of
+/// unfinished work — open tasks (deadline first), claims awaiting a verdict,
+/// and the saved reasoning trails.
 ///
 /// Read-only by design — `awake` does not write an audit event. The
 /// agent's reaction to the returned context (e.g. pinning new nodes,
@@ -128,6 +142,9 @@ pub fn awake(store: &Store) -> Result<AwakenedContext> {
         pinned: active_window(store)?,
         recent: recent_episodes(store, window)?,
         under_review: under_review_pinned(store)?,
+        open_tasks: open_tasks(store)?,
+        open_claims: open_claims(store)?,
+        chains: chains_in_scope(store)?,
     })
 }
 

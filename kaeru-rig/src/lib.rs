@@ -60,7 +60,8 @@
 use std::sync::Arc;
 
 use kaeru_core::{
-    NodeBrief, NodeId, Store, node_brief_by_id, recall_id_by_name, recall_id_by_name_global,
+    NodeBrief, NodeId, Store, chain_membership, node_brief_by_id, recall_id_by_name,
+    recall_id_by_name_global,
 };
 use rig::agent::{AgentBuilder, NoToolConfig, WithBuilderTools};
 use rig::completion::CompletionModel;
@@ -656,6 +657,27 @@ pub(crate) fn brief(b: &NodeBrief) -> Value {
 /// A slice of briefs as a JSON array.
 pub(crate) fn briefs(v: &[NodeBrief]) -> Value {
     Value::Array(v.iter().map(brief).collect())
+}
+
+/// The saved trails a node sits in — `[{chain, step, of}]`, empty when it's in
+/// none. The rig counterpart to the MCP chain-membership hint: a chain is
+/// authored for a future session, so the node has to say it belongs to one or
+/// nobody ever opens the trail. Best-effort — a read error renders as empty.
+pub(crate) fn in_chains(store: &Store, id: &NodeId) -> Value {
+    let memberships = chain_membership(store, id).unwrap_or_default();
+    Value::Array(
+        memberships
+            .iter()
+            .map(|m| {
+                json!({
+                    "chain": m.chain_name,
+                    "step": m.position,
+                    "of": m.length,
+                    "read_with": "kaeru_why",
+                })
+            })
+            .collect(),
+    )
 }
 
 /// Resolves a slice of ids to brief JSON objects (skipping any that vanished),

@@ -110,6 +110,14 @@ set, the cortex slice, session pins, recent episodes, and the open-review queue
 in one bundle. `surface` reaches the cold/frozen material `awake` intentionally
 withholds.
 
+It also carries a **read-back** of unfinished work: open tasks (overdue first),
+claims still awaiting a verdict, and the saved reasoning trails with their
+summaries. Those three were write-only in practice — a due date, an open
+hypothesis and a chain are all reachable only by a verb the agent has to think
+of first, so nothing on the re-entry path ever mentioned them and they were
+never revisited. Restoring context means restoring what is still *owed*, not
+only what was last *touched*.
+
 ---
 
 ## 4. Edges as operational semantics

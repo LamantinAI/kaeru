@@ -107,7 +107,7 @@ impl KaeruServer {
 impl KaeruServer {
     // ----- Re-entry / session -------------------------------------------
     #[tool(
-        description = "Restore session context: pinned set, recent episodes (24h), open reviews. Run this when re-entering a project."
+        description = "Restore session context: pinned set, recent episodes (24h), open reviews, plus the read-back of unfinished work — open tasks (overdue first), claims awaiting a verdict, and the saved reasoning trails. Run this when re-entering a project."
     )]
     fn awake(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         let result = tools::session::awake(&self.store, p.initiative.as_deref());

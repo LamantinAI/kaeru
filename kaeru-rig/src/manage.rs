@@ -1,8 +1,8 @@
 //! Session re-entry, initiative management, diagnostics, and snapshot export.
 
 use kaeru_core::{
-    attach_node, awake, delete_initiative, export_vault, lint, list_initiatives, overview, pin,
-    recent_episodes, reflect, rename_initiative, suggest_initiative, unpin,
+    OpenTask, attach_node, awake, delete_initiative, export_vault, lint, list_initiatives,
+    overview, pin, recent_episodes, reflect, rename_initiative, suggest_initiative, unpin,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -14,8 +14,10 @@ mem_tool!(
     /// `kaeru_awake` — load the re-entry context for the active initiative.
     Awake,
     "kaeru_awake",
-    "Load your working memory for this project: what was pinned, what happened recently, and \
-     what's still under review. Call this first when picking up a session to recover context.",
+    "Load your working memory for this project: what was pinned, what happened recently, what's \
+     still under review, plus the unfinished work — open tasks (overdue first), claims awaiting a \
+     verdict, and the saved reasoning trails. Call this first when picking up a session to \
+     recover context.",
     NoArgs,
     { "type": "object", "properties": {} },
     |store, _args| match awake(store) {
@@ -27,6 +29,9 @@ mem_tool!(
                 "pinned": briefs_by_ids(store, &ctx.pinned),
                 "recent": briefs_by_ids(store, &ctx.recent),
                 "under_review": briefs_by_ids(store, &ctx.under_review),
+                "open_tasks": open_tasks_json(&ctx.open_tasks),
+                "open_claims": briefs(&ctx.open_claims),
+                "chains": briefs(&ctx.chains),
             });
             // Did-you-mean parity with MCP: an active scope that matches no known
             // initiative (a typo, or a fresh project) suggests the closest one.
@@ -243,10 +248,10 @@ mem_tool!(
     /// `kaeru_reflect` — computed maintenance work-list for a reflection pass.
     Reflect,
     "kaeru_reflect",
-    "Reflect on the store: a computed maintenance work-list — orphans to link, open reviews to \
-     resolve, stale chains to rechain, settled operational nodes to promote into cortex, and \
-     shared/cloud items that need the user's sign-off (never auto-rebalanced). Good for a periodic \
-     tidy pass.",
+    "Reflect on the store: a computed maintenance work-list — orphans to link, overdue tasks to \
+     close, open reviews to resolve, stale chains to rechain, settled operational nodes to promote \
+     into cortex, and shared/cloud items that need the user's sign-off (never auto-rebalanced). \
+     Good for a periodic tidy pass.",
     NoArgs,
     { "type": "object", "properties": {} },
     |store, _args| match reflect(store) {
@@ -256,6 +261,7 @@ mem_tool!(
             "stale_chains": r.stale_chains,
             "cortex_candidates": r.cortex_candidates,
             "shared_needs_user": r.shared,
+            "overdue_tasks": r.overdue_tasks,
         }),
         Err(e) => json!({ "error": e.to_string() }),
     }
@@ -286,3 +292,23 @@ mem_tool!(
         Err(e) => json!({ "exported": false, "error": e.to_string() }),
     }
 );
+
+/// Open tasks as JSON cards — the `due:` date and the overdue flag lifted out
+/// of the tag list, so a caller doesn't have to re-derive "is this late?".
+fn open_tasks_json(tasks: &[OpenTask]) -> serde_json::Value {
+    serde_json::Value::Array(
+        tasks
+            .iter()
+            .map(|t| {
+                json!({
+                    "id": t.id,
+                    "name": t.name,
+                    "excerpt": t.body_excerpt,
+                    "status": t.status,
+                    "due": t.due,
+                    "overdue": t.overdue,
+                })
+            })
+            .collect(),
+    )
+}

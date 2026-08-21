@@ -6,8 +6,9 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
 use crate::utils::{
-    AT_FULLTEXT_HINT_MANY, at_fulltext_hint, body_truncated, history_hint, recall_read_hint,
-    render_briefs, render_summary, resolve_name_or_id, text, to_mcp, was_revised, with_initiative,
+    AT_FULLTEXT_HINT_MANY, at_fulltext_hint, body_truncated, chain_membership_hint, history_hint,
+    recall_read_hint, render_briefs, render_summary, resolve_name_or_id, search_deepen_hint,
+    search_empty_hint, text, to_mcp, was_revised, with_initiative,
 };
 
 pub fn recall(
@@ -18,7 +19,10 @@ pub fn recall(
     with_initiative(store, initiative, || {
         match kaeru_core::recall_id_by_name(store, name).map_err(to_mcp)? {
             // Just an opaque id lands here — point the agent at how to read it.
-            Some(id) => Ok(text(&format!("{id}{}", recall_read_hint(name)))),
+            Some(id) => {
+                let hint = chain_membership_hint(store, &id);
+                Ok(text(&format!("{id}{}{hint}", recall_read_hint(name))))
+            }
             None => Ok(text("(not found)")),
         }
     })
@@ -45,6 +49,7 @@ pub fn drill(
         if was_revised(store, &id) {
             out.push_str(&history_hint(&view.root.name));
         }
+        out.push_str(&chain_membership_hint(store, &id));
         Ok(text(&out))
     })
 }
@@ -80,7 +85,7 @@ pub fn search(
     with_initiative(store, initiative, || {
         let hits = kaeru_core::fuzzy_recall(store, query, limit).map_err(to_mcp)?;
         if hits.is_empty() {
-            return Ok(text("(no matches)"));
+            return Ok(text(&format!("(no matches){}", search_empty_hint(query))));
         }
         let mut out = format!("matches ({}):\n", hits.len());
         let mut any_truncated = false;
@@ -93,6 +98,9 @@ pub fn search(
         }
         if any_truncated {
             out.push_str(AT_FULLTEXT_HINT_MANY);
+        }
+        if let Some(top) = hits.first() {
+            out.push_str(&search_deepen_hint(&top.name));
         }
         Ok(text(&out))
     })
@@ -154,6 +162,7 @@ mod tests {
     use rmcp::model::CallToolResult;
 
     use super::{drill, recall, search};
+    use kaeru_core::EdgeType;
 
     fn store_t() -> Store {
         let store = Store::open_in_memory().expect("open");
@@ -245,5 +254,62 @@ mod tests {
             out.contains("read one in full"),
             "truncated search points at `at`:\n{out}"
         );
+    }
+
+    /// A miss is exactly where an agent concludes the memory is empty and
+    /// stops. It has to leave holding the ways to widen the query.
+    #[test]
+    fn a_search_miss_hands_back_the_widenings() {
+        let store = store_t();
+        write(&store, "unrelated", "nothing to do with it");
+        let out = text_of(search(&store, "zzzznotthere", 10, Some("t")).unwrap());
+        assert!(out.starts_with("(no matches)"), "still says so: {out}");
+        assert!(
+            out.contains("`search \"zzzznotthere*\"`"),
+            "offers the prefix form of this very query: {out}"
+        );
+        assert!(out.contains("tagged topic:"), "and browsing by tag: {out}");
+    }
+
+    /// `search` returns excerpts; the two verbs that go further had no channel
+    /// anywhere in the agent's path, so the hit list names them.
+    #[test]
+    fn a_search_hit_points_at_drill_and_trace() {
+        let store = store_t();
+        write(&store, "alphahit", "alphaquery matters here");
+        let out = text_of(search(&store, "alphaquery", 10, Some("t")).unwrap());
+        assert!(
+            out.contains("`drill alphahit`") && out.contains("`trace alphahit`"),
+            "both deepen verbs, named on the top hit: {out}"
+        );
+    }
+
+    /// A node inside a saved trail has to say so — otherwise the trail is only
+    /// reachable by an agent that already thought to ask for it.
+    #[test]
+    fn a_node_inside_a_trail_says_so_on_drill() {
+        let store = store_t();
+        let a = write(&store, "start", "start");
+        let b = write(&store, "decision", "decision");
+        kaeru_core::link_with_weight(&store, &a, &b, EdgeType::RefersTo, 0.9).expect("link");
+        kaeru_core::create_chain(&store, &a, &b, Some("the-trail"), None)
+            .expect("chain")
+            .expect("path exists");
+
+        let out = text_of(drill(&store, "start", Some("t")).unwrap());
+        assert!(
+            out.contains("part of a saved trail: `the-trail` (step 1/2)"),
+            "names the trail and the step: {out}"
+        );
+        assert!(out.contains("`why the-trail`"), "and how to read it: {out}");
+    }
+
+    /// The hint only appears where it teaches — a node in no chain stays quiet.
+    #[test]
+    fn a_node_in_no_trail_stays_quiet() {
+        let store = store_t();
+        write(&store, "lonely", "x");
+        let out = text_of(drill(&store, "lonely", Some("t")).unwrap());
+        assert!(!out.contains("saved trail"), "no trail, no hint: {out}");
     }
 }

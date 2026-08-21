@@ -11,6 +11,22 @@ use crate::utils::{
     brief_suffix, parse_duration_secs, resolve_name_or_id, text, to_mcp, with_initiative,
 };
 
+/// How many rows each read-back section prints before deferring to the verb
+/// that owns the full list. `awake` runs on every re-entry, and an initiative
+/// can easily carry fifty open tasks — a section has to stay a *pointer* to
+/// the work, not a dump of it. The header count is always the true total and
+/// the remainder is named out loud, so nothing is silently cut.
+const READBACK_CAP: usize = 10;
+
+/// `  … and N more — <how>` for a section that ran past [`READBACK_CAP`], or
+/// `""` when it fitted.
+fn readback_overflow(total: usize, how: &str) -> String {
+    match total.saturating_sub(READBACK_CAP) {
+        0 => String::new(),
+        n => format!("  … and {n} more — {how}\n"),
+    }
+}
+
 pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let ctx = kaeru_core::awake(store).map_err(to_mcp)?;
@@ -83,6 +99,61 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
         out.push_str(&format!("under review ({}):\n", ctx.under_review.len()));
         for id in &ctx.under_review {
             out.push_str(&format!("  - {id}{}\n", brief_suffix(store, id)));
+        }
+
+        // Read-back sections. Everything above is what was *touched*; these
+        // three are what is still *owed* — the entities that were written and
+        // then never revisited, because nothing on the re-entry path
+        // mentioned them.
+        // Tasks come deadline-first, so the cap keeps whatever is most urgent.
+        out.push_str(&format!("\nopen tasks ({}):\n", ctx.open_tasks.len()));
+        for t in ctx.open_tasks.iter().take(READBACK_CAP) {
+            let when = match (&t.due, t.overdue) {
+                (Some(d), true) => format!("⚠ OVERDUE {d}"),
+                (Some(d), false) => format!("due {d}"),
+                (None, _) => "no due date".to_string(),
+            };
+            out.push_str(&format!("  - [{when}] {} — {}\n", t.name, t.id));
+        }
+        out.push_str(&readback_overflow(ctx.open_tasks.len(), "`board`"));
+        if !ctx.open_tasks.is_empty() {
+            out.push_str(
+                "↳ `done <name>` when finished, `set_status <name> <status>` to move it, \
+                 `board` for the columns.\n",
+            );
+        }
+
+        out.push_str(&format!("\nopen claims ({}):\n", ctx.open_claims.len()));
+        for b in ctx.open_claims.iter().take(READBACK_CAP) {
+            out.push_str(&format!("  - {} — {}\n", b.name, b.id));
+            if let Some(e) = &b.body_excerpt {
+                out.push_str(&format!("    {e}\n"));
+            }
+        }
+        out.push_str(&readback_overflow(
+            ctx.open_claims.len(),
+            "`tagged \"status:open\"`",
+        ));
+        if !ctx.open_claims.is_empty() {
+            out.push_str(
+                "↳ still awaiting a verdict — `confirm <name> --by <evidence>` or \
+                 `refute <name> --by <evidence>`.\n",
+            );
+        }
+
+        out.push_str(&format!("\nchains ({}):\n", ctx.chains.len()));
+        for b in ctx.chains.iter().take(READBACK_CAP) {
+            out.push_str(&format!("  - {} — {}\n", b.name, b.id));
+            if let Some(e) = &b.body_excerpt {
+                out.push_str(&format!("    {e}\n"));
+            }
+        }
+        out.push_str(&readback_overflow(
+            ctx.chains.len(),
+            "`why <name>` on any of them",
+        ));
+        if !ctx.chains.is_empty() {
+            out.push_str("↳ saved reasoning trails — read one with `why <name>`.\n");
         }
         Ok(text(&out))
     })
@@ -261,4 +332,136 @@ edges with `link`. Don't import mechanically — drop stale operational
 noise, keep settled knowledge and active work.
 "#;
     Ok(text(guide))
+}
+
+#[cfg(test)]
+mod tests {
+    use kaeru_core::{EdgeType, EpisodeKind, Significance, Store};
+    use rmcp::model::CallToolResult;
+
+    use super::awake;
+
+    fn text_of(r: CallToolResult) -> String {
+        r.content
+            .iter()
+            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    fn store_t() -> Store {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        store
+    }
+
+    /// The case the audit caught live: a task due last week, the agent working
+    /// the same initiative all along, and nothing on the re-entry path ever
+    /// saying the deadline had passed.
+    #[test]
+    fn a_past_due_task_re_enters_marked_overdue() {
+        let store = store_t();
+        kaeru_core::write_task(&store, "renew the certificate", Some("2000-01-01")).expect("task");
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(out.contains("open tasks (1)"), "section is there: {out}");
+        assert!(
+            out.contains("⚠ OVERDUE 2000-01-01"),
+            "the passed deadline is called out: {out}"
+        );
+        assert!(out.contains("`done <name>`"), "and how to close it: {out}");
+    }
+
+    /// A completed task is not open work; the section must go quiet.
+    #[test]
+    fn a_done_task_leaves_the_re_entry_view() {
+        let store = store_t();
+        let id = kaeru_core::write_task(&store, "already handled", None).expect("task");
+        kaeru_core::complete_task(&store, &id).expect("done");
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(out.contains("open tasks (0)"), "nothing owed: {out}");
+        assert!(
+            !out.contains("`done <name>`"),
+            "no how-to on an empty section: {out}"
+        );
+    }
+
+    /// A claim written and never settled is invisible without this — the only
+    /// other route is remembering `tagged "status:open"`.
+    #[test]
+    fn an_unsettled_claim_re_enters_as_open() {
+        let store = store_t();
+        kaeru_core::formulate_hypothesis(&store, "caching-wins", "the cache pays for itself")
+            .expect("claim");
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(out.contains("open claims (1)"), "section is there: {out}");
+        assert!(out.contains("caching-wins"), "named: {out}");
+        assert!(
+            out.contains("--by <evidence>"),
+            "and how to settle it: {out}"
+        );
+    }
+
+    /// A chain is authored for the next session; re-entry has to show it as a
+    /// named trail with its summary, not as one more line in the working set.
+    #[test]
+    fn a_chain_re_enters_with_its_summary_and_points_at_why() {
+        let store = store_t();
+        let mk = |n: &str| {
+            kaeru_core::write_episode(&store, EpisodeKind::Observation, Significance::Low, n, n)
+                .expect("write")
+        };
+        let (a, b) = (mk("start"), mk("decision"));
+        kaeru_core::link_with_weight(&store, &a, &b, EdgeType::RefersTo, 0.9).expect("link");
+        kaeru_core::create_chain(
+            &store,
+            &a,
+            &b,
+            Some("the-trail"),
+            Some("why we picked the second option"),
+        )
+        .expect("chain")
+        .expect("path exists");
+
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(out.contains("chains (1)"), "section is there: {out}");
+        assert!(out.contains("the-trail"), "named: {out}");
+        assert!(
+            out.contains("why we picked the second option"),
+            "the author's summary is printed, not just the name: {out}"
+        );
+        assert!(out.contains("`why <name>`"), "and how to read it: {out}");
+    }
+
+    /// `awake` runs every re-entry, so a long list has to stay a pointer to
+    /// the work rather than a dump of it — but the header count must still be
+    /// the true total, and the remainder must be named, not silently cut.
+    #[test]
+    fn a_long_task_list_is_capped_but_never_silently() {
+        let store = store_t();
+        for i in 0..14 {
+            kaeru_core::write_task(&store, &format!("chore number {i}"), None).expect("task");
+        }
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(out.contains("open tasks (14)"), "true total: {out}");
+        assert!(
+            out.contains("… and 4 more — `board`"),
+            "remainder named: {out}"
+        );
+    }
+
+    /// The most urgent survive the cap: tasks are ordered deadline-first, so
+    /// an overdue one can never be pushed out by a pile of undated chores.
+    #[test]
+    fn the_cap_keeps_the_overdue_task() {
+        let store = store_t();
+        for i in 0..14 {
+            kaeru_core::write_task(&store, &format!("chore number {i}"), None).expect("task");
+        }
+        kaeru_core::write_task(&store, "renew the certificate", Some("2000-01-01")).expect("task");
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(
+            out.contains("⚠ OVERDUE 2000-01-01"),
+            "the deadline outranks the chores: {out}"
+        );
+    }
 }
