@@ -541,9 +541,9 @@ pub struct CiteParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct BetweenParams {
-    /// First node name.
+    /// First node name (also accepts a UUIDv7 id).
     pub a: String,
-    /// Second node name.
+    /// Second node name (also accepts a UUIDv7 id).
     pub b: String,
     #[serde(default)]
     pub initiative: Option<String>,
