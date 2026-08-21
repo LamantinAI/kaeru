@@ -238,7 +238,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Create a typed edge between two named nodes. Edge type defaults to `refers_to`. Optional `weight` (0..1) or `strong=true` sets the connection strength used by knowledge chains — stronger links make shorter chain paths."
+        description = "Create a typed edge between two nodes (by name or id). Endpoints resolve in the active initiative first, then across all initiatives, so a link may span initiatives. Edge type defaults to `refers_to`. Optional `weight` (0..1) or `strong=true` sets the connection strength used by knowledge chains — stronger links make shorter chain paths."
     )]
     fn link(&self, Parameters(p): Parameters<LinkParams>) -> Result<CallToolResult, McpError> {
         tools::capture::link(
