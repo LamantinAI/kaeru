@@ -43,8 +43,7 @@ All capture verbs take `layer` (default `warm`) and `visibility: shared` (captur
 | `reweight` | Change an existing edge's weight. |
 | `path` | Preview the strongest weighted path between two nodes (no save). |
 | `chain` | Save that path as a recallable trail, with an agent-authored `summary`. Idempotent (dedups identical trails). |
-| `chains` | List the chains a node belongs to, by name + summary — triage before reading. |
-| `read_chain` | Read one chain's ordered members in full. |
+| `why` | The saved reasoning leading to a node — a chain's ordered steps, or the chain a node belongs to. Replaces the former `chains` + `read_chain`. |
 | `rechain` | Regenerate a chain between its endpoints (picks up graph changes) or extend it to a new node. |
 
 ## Recall & lookup — structural first

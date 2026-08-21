@@ -46,49 +46,52 @@ mem_tool!(
 );
 
 #[derive(Debug, Deserialize)]
-pub struct ChainsArgs {
+pub struct WhyArgs {
     pub name_or_id: String,
 }
 
 mem_tool!(
-    /// `kaeru_chains` — which chains a node belongs to.
-    Chains,
-    "kaeru_chains",
-    "List the knowledge chains a node belongs to. When a single memory is context-poor, see its \
-     chains and `kaeru_read_chain` the relevant one.",
-    ChainsArgs,
+    /// `kaeru_why` — the saved reasoning that leads to a node.
+    ///
+    /// Replaces the former `kaeru_chains` + `kaeru_read_chain` pair, which had
+    /// no organic calls between them: the only advert for reading a trail lived
+    /// in the output of listing them, and nobody called that either. One verb,
+    /// one entry point, and a name that says what a chain is for.
+    Why,
+    "kaeru_why",
+    "Why is this here? Reads the saved reasoning leading to a memory — the state → reasoning → \
+     decision trail, not an isolated record. Give it a chain to read its ordered steps, or any \
+     node to see the chain it belongs to (read directly when there is only one, listed when \
+     there are several).",
+    WhyArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "node name or id" }
+        "name_or_id": { "type": "string", "description": "a chain, or any node in one" }
     }, "required": ["name_or_id"] },
     |store, args| {
         let id = resolve(store, &args.name_or_id);
-        match chains_of(store, &id) {
-            Ok(v) => json!({ "chains": briefs(&v) }),
-            Err(e) => json!({ "error": e.to_string() }),
+        let is_chain = kaeru_core::node_brief_by_id(store, &id)
+            .ok()
+            .flatten()
+            .is_some_and(|b| b.node_type == "chain");
+        if is_chain {
+            return match read_chain(store, &id) {
+                Ok(v) => json!({ "chain": args.name_or_id, "trail": briefs(&v) }),
+                Err(e) => json!({ "error": e.to_string() }),
+            };
         }
-    }
-);
-
-#[derive(Debug, Deserialize)]
-pub struct ReadChainArgs {
-    pub name_or_id: String,
-}
-
-mem_tool!(
-    /// `kaeru_read_chain` — read a chain's ordered members.
-    ReadChain,
-    "kaeru_read_chain",
-    "Read a knowledge chain's ordered members in full — the connected reasoning trail, instead of \
-     an isolated node.",
-    ReadChainArgs,
-    { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "chain name or id" }
-    }, "required": ["name_or_id"] },
-    |store, args| {
-        let id = resolve(store, &args.name_or_id);
-        match read_chain(store, &id) {
-            Ok(v) => json!({ "trail": briefs(&v) }),
+        match chains_of(store, &id) {
             Err(e) => json!({ "error": e.to_string() }),
+            Ok(v) if v.is_empty() => json!({
+                "chains": [],
+                "hint": "no saved reasoning leads here yet — `kaeru_chain from to` saves a trail"
+            }),
+            // One chain is the answer, not a menu: read it rather than making
+            // the caller spend another turn on the only possible choice.
+            Ok(v) if v.len() == 1 => match read_chain(store, &v[0].id) {
+                Ok(t) => json!({ "chain": v[0].name, "trail": briefs(&t) }),
+                Err(e) => json!({ "error": e.to_string() }),
+            },
+            Ok(v) => json!({ "chains": briefs(&v) }),
         }
     }
 );

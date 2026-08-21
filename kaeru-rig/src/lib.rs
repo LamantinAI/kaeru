@@ -396,11 +396,8 @@ impl KaeruMemory {
     pub fn chain(&self) -> Chain {
         Chain(self.clone())
     }
-    pub fn chains(&self) -> Chains {
-        Chains(self.clone())
-    }
-    pub fn read_chain(&self) -> ReadChain {
-        ReadChain(self.clone())
+    pub fn why(&self) -> Why {
+        Why(self.clone())
     }
     pub fn rechain(&self) -> Rechain {
         Rechain(self.clone())
@@ -558,8 +555,7 @@ impl KaeruMemory {
                 reweight,
                 unlink,
                 chain,
-                chains,
-                read_chain,
+                why,
                 rechain,
                 path,
                 synthesise,

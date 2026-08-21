@@ -307,16 +307,9 @@ pub struct RechainParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct ChainsParams {
-    /// Node name or id whose chains to list.
-    pub name: String,
-    #[serde(default)]
-    pub initiative: Option<String>,
-}
-
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct ReadChainParams {
-    /// Chain name or UUIDv7 id.
+pub struct WhyParams {
+    /// A chain (read its steps) or any node (see the reasoning it belongs to).
+    /// Name or UUIDv7 id.
     pub name: String,
     #[serde(default)]
     pub initiative: Option<String>,

@@ -298,20 +298,10 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "List the knowledge chains a node belongs to. When a single node is context-poor, see its chains and `read_chain` the relevant one."
+        description = "Why is this here? Reads the saved reasoning that leads to a node — the state → reasoning → decision trail, not an isolated record. Give it a chain to read its ordered steps, or any node to see the chain it belongs to (read directly when there is only one, listed for triage when there are several). Replaces the former `chains` + `read_chain` pair."
     )]
-    fn chains(&self, Parameters(p): Parameters<ChainsParams>) -> Result<CallToolResult, McpError> {
-        tools::chain::chains(&self.store, &p.name, p.initiative.as_deref())
-    }
-
-    #[tool(
-        description = "Read a knowledge chain's ordered members in full — the connected reasoning trail, instead of an isolated node."
-    )]
-    fn read_chain(
-        &self,
-        Parameters(p): Parameters<ReadChainParams>,
-    ) -> Result<CallToolResult, McpError> {
-        tools::chain::read_chain(&self.store, &p.name, p.initiative.as_deref())
+    fn why(&self, Parameters(p): Parameters<WhyParams>) -> Result<CallToolResult, McpError> {
+        tools::chain::why(&self.store, &p.name, p.initiative.as_deref())
     }
 
     #[tool(
@@ -833,7 +823,7 @@ impl ServerHandler for KaeruServer {
              --edge_type`. Types: refers_to (default), causal, derived_from, contradicts, part_of, blocks, \
              targets, supersedes, verifies, falsifies, temporal. `strong=true` on load-bearing edges. An \
              island is found only by exact name.\n\nTHEN CHAIN: once work runs observation→decision, `chain \
-             from to --summary` saves that trail; `chains <node>` lists them, `read_chain` replays one. A \
+             from to --summary` saves that trail; `why <node>` reads the reasoning that leads there. A \
              chain is the WHY a fresh agent reads.\n\nREAD: `recall` exact name · `search q*` fuzzy (`*` \
              matches inflections) · `drill` node+children · `at <name>` FULL text — drill/search show \
              excerpts only · `at <name> when=2h` past state · `history` versions · `trace` provenance · \
@@ -897,16 +887,7 @@ mod tests {
         );
         let text = server.get_info().instructions.unwrap_or_default();
         for verb in [
-            "chain",
-            "chains",
-            "read_chain",
-            "tagged",
-            "trace",
-            "surface",
-            "between",
-            "at",
-            "history",
-            "cite",
+            "chain", "why", "tagged", "trace", "surface", "between", "at", "history", "cite",
             "task",
         ] {
             assert!(

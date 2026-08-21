@@ -167,7 +167,7 @@ bi-temporal, so a delete is recoverable via `at(<past>)`.
 2. **Typed traversal** — `walk` / `drill` / `trace` over edge types; `between`
    for the edges linking two nodes; `overview` for a readable subgraph map.
 3. **Layered re-entry** — `awake` / `surface` (§3), and `tagged` reads.
-4. **Saved reasoning chains** — `chain` / `read_chain` (§7).
+4. **Saved reasoning chains** — `chain` / `why` (§7).
 5. **Full-text fuzzy fallback** — Cozo FTS (`search`) when the exact name is
    forgotten.
 **No vector layer today.** Retrieval is structural + full-text only. Cozo
@@ -189,7 +189,7 @@ materialised as a first-class `chain` node plus an ordered `chain_member` list.
 - `path` previews the trail; `chain(from, to)` saves it. An agent-authored
   `summary` explains *why* the trail matters and becomes the chain's body.
 - `chains(node)` lists the chains a node is in **with their summaries**, so an
-  agent triages the menu instead of reading every trail; `read_chain` reads one
+  agent triages the menu instead of reading every trail; `why` reads one
   in full.
 - **Dedup at creation.** The path is deterministic, so a repeated `chain(a, b)`
   reuses the existing identical chain instead of duplicating it (a repeat with a
