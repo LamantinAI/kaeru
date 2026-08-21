@@ -14,8 +14,8 @@ use rmcp::model::CallToolResult;
 use crate::cloud_client::CloudClient;
 use crate::tools::cloud::push_to_cloud;
 use crate::utils::{
-    capture_result, parse_layer, parse_wants_shared, resolve_name, resolve_name_or_id, text,
-    to_mcp, with_initiative,
+    capture_result, markup_strip_note, parse_layer, parse_wants_shared, resolve_name,
+    resolve_name_or_id, text, to_mcp, with_initiative,
 };
 
 /// When `want_share`, attempts to push the just-created node `id` to the
@@ -74,6 +74,9 @@ pub async fn episode(
         .map_err(to_mcp)
     })?;
     let mut msg = format!("wrote episode: {name} — {id}");
+    if let Some(note) = markup_strip_note(&[("name", name), ("body", body)]) {
+        msg.push_str(&note);
+    }
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
     Ok(capture_result(store, &id, initiative, &msg))
 }
@@ -97,6 +100,9 @@ pub async fn jot(
         .map(|b| b.name)
         .unwrap_or_default();
     let mut msg = format!("jotted: {name} — {id}");
+    if let Some(note) = markup_strip_note(&[("body", body)]) {
+        msg.push_str(&note);
+    }
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
     Ok(text(&msg))
 }
@@ -192,6 +198,9 @@ pub async fn cite(
         Some(u) => format!("cited: {name} ({u}) — {id}"),
         None => format!("cited: {name} — {id}"),
     };
+    if let Some(note) = markup_strip_note(&[("name", name), ("body", body)]) {
+        msg.push_str(&note);
+    }
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
     Ok(capture_result(store, &id, initiative, &msg))
 }

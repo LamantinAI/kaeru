@@ -11,6 +11,7 @@ use super::{attach_node_to_initiative, build_body_tags, now_validity_seconds, ta
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId, new_node_id};
+use crate::sanitize::strip_tool_call_markup;
 use crate::store::Store;
 
 /// Creates an archival `Reference` node carrying `body` as its summary
@@ -35,6 +36,12 @@ pub fn cite_with_layer(
     body: &str,
     layer: Layer,
 ) -> Result<NodeId> {
+    // Scrub any leaked tool-call wire-format before it reaches the graph —
+    // a malformed caller can spill the invocation envelope into these strings.
+    let name_owned = strip_tool_call_markup(name).0;
+    let body_owned = strip_tool_call_markup(body).0;
+    let (name, body) = (name_owned.as_str(), body_owned.as_str());
+
     let id = new_node_id();
     let payload = match url {
         Some(u) => json!({ "url": u }),
@@ -65,4 +72,28 @@ pub fn cite_with_layer(
     attach_node_to_initiative(store, &id)?;
     write_audit(store.db_ref(), "cite", "system", &[id.clone()])?;
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::cite_with_layer;
+    use crate::graph::{Layer, at};
+    use crate::store::Store;
+
+    /// A cite whose body carries leaked tool-call wire-format stores the
+    /// scrubbed content — the write boundary defends the graph regardless of
+    /// how the caller (an arbitrary LLM) formatted the call.
+    #[test]
+    fn cite_scrubs_leaked_markup_from_body() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let dirty = "real content here.</body>\n<parameter name=\"initiative\">t";
+        let id =
+            cite_with_layer(&store, "clean-name", None, dirty, Layer::default()).expect("cite");
+
+        let snap = at(&store, &id, 9_999_999_999.0)
+            .expect("at")
+            .expect("snapshot");
+        assert_eq!(snap.body.as_deref(), Some("real content here."));
+    }
 }

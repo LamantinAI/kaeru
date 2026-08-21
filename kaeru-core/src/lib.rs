@@ -18,6 +18,7 @@ pub mod hygiene;
 mod migrate;
 pub mod mutate;
 pub mod recall;
+pub mod sanitize;
 pub mod session;
 pub mod store;
 
@@ -45,6 +46,7 @@ pub use mutate::{
     synthesise, unlink, update_hypothesis_status, upsert_edge, upsert_node, write_episode,
     write_episode_with_layer, write_task, write_task_with_layer,
 };
+pub use sanitize::strip_tool_call_markup;
 pub use recall::{
     BoardColumn, BoardStatus, BoardTask, BoardView, EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket,
     LintReport, NodeBrief, NodeFull, ReflectionReport, SummaryView, between, board_view,

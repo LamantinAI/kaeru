@@ -13,6 +13,7 @@ use super::{
 use crate::errors::{Error, Result};
 use crate::graph::NodeId;
 use crate::graph::audit::write_audit;
+use crate::sanitize::strip_tool_call_markup;
 use crate::store::Store;
 
 /// Bi-temporal forget: retracts a node and every edge connected to it
@@ -75,6 +76,11 @@ pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
 /// the new body, so stale topics don't accumulate across rewrites). Implemented as re-assert + retract through the bi-temporal
 /// substrate, so `history` shows both the old version and the new one.
 pub fn improve(store: &Store, node_id: &NodeId, new_name: &str, new_body: &str) -> Result<()> {
+    // Scrub leaked tool-call wire-format from the incoming revision.
+    let new_name_owned = strip_tool_call_markup(new_name).0;
+    let new_body_owned = strip_tool_call_markup(new_body).0;
+    let (new_name, new_body) = (new_name_owned.as_str(), new_body_owned.as_str());
+
     let current = read_node_now(store, node_id)?
         .ok_or_else(|| Error::NotFound(format!("node {node_id} not found at NOW")))?;
 
