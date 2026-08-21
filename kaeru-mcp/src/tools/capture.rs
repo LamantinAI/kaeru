@@ -220,7 +220,9 @@ mod tests {
     /// in the active initiative), so read it with the scope cleared.
     fn edge_count(store: &Store, a: &str, b: &str) -> usize {
         store
-            .scoped(None, |s| kaeru_core::between(s, &a.to_string(), &b.to_string()))
+            .scoped(None, |s| {
+                kaeru_core::between(s, &a.to_string(), &b.to_string())
+            })
             .expect("between")
             .len()
     }
@@ -235,8 +237,16 @@ mod tests {
         let a = seed(&store, "a", "node-a");
         let b = seed(&store, "b", "node-b");
 
-        link(&store, "node-a", "node-b", "refers_to", None, false, Some("a"))
-            .expect("cross-initiative link resolves");
+        link(
+            &store,
+            "node-a",
+            "node-b",
+            "refers_to",
+            None,
+            false,
+            Some("a"),
+        )
+        .expect("cross-initiative link resolves");
 
         assert_eq!(edge_count(&store, &a, &b), 1, "edge was created");
     }
@@ -248,8 +258,7 @@ mod tests {
         let a = seed(&store, "x", "src");
         let b = seed(&store, "x", "dst");
 
-        link(&store, &a, &b, "refers_to", None, false, Some("x"))
-            .expect("link by id resolves");
+        link(&store, &a, &b, "refers_to", None, false, Some("x")).expect("link by id resolves");
 
         assert_eq!(edge_count(&store, &a, &b), 1, "edge was created from ids");
     }
