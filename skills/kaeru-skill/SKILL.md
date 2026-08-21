@@ -179,7 +179,9 @@ something once" and "next session can find it via three different paths".
   "build X and report back" or "fix Y by tomorrow", that's literally
   what `task` was designed for: `task "<body>" --due 1h`, `done <name>`
   when finished. The task node is what survives into next session as
-  "what was being worked on" — `awake` surfaces open tasks. Findings
+  "what was being worked on" — `board` shows it in its column, and
+  `set_status` moves it as work progresses. (`awake` does *not* list
+  tasks; it carries the pinned set, recent nodes and open reviews.) Findings
   you derive *while* doing the task go into separate
   `cite` / `episode` / `claim` nodes; the task is the operational arc
   connecting them. Single-shot factual lookups don't need a task.

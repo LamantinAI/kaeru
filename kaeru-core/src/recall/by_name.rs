@@ -84,6 +84,37 @@ pub fn recall_id_by_name_global(store: &Store, name: &str) -> Result<Option<Node
         .map(String::from))
 }
 
+/// Resolves a name across the node's **whole history**, not just NOW — the
+/// last node that ever carried it wins.
+///
+/// `history` is the tool for reading a node's past, and until this existed it
+/// could not resolve a name *from* that past: once `supersede` or `revise`
+/// renamed a node, its old name stopped resolving at NOW, so exactly the nodes
+/// whose history you wanted were unreachable by the name you remembered (#51).
+///
+/// Deliberately unscoped in time rather than taking an `at`: the caller
+/// remembers a name, not the moment it was valid.
+pub fn recall_id_by_name_ever(store: &Store, name: &str) -> Result<Option<NodeId>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("name".to_string(), DataValue::Str(name.into()));
+    // No `@` modifier: every assertion of every version is in scope. Order by
+    // validity so the most recent node to carry the name wins.
+    let script = r#"
+        ?[id, validity] := *node{id, name, validity}, name = $name
+        :order -validity
+        :limit 1
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .first()
+        .and_then(|r| r.first())
+        .and_then(|v| v.get_str())
+        .map(String::from))
+}
+
 /// Like [`recall_id_by_name`] but resolves the name **as of `at_seconds`**
 /// instead of NOW, so a node that existed then but was retracted since still
 /// resolves. This is what makes time-travel reads (`at(name, when)`) work for a

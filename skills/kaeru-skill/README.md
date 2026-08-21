@@ -1,7 +1,15 @@
 # kaeru-skill
 
-A portable agent skill that teaches an LLM how to use `kaeru-cli` for
-persistent memory — capture, recall, reasoning, time-travel.
+A portable agent skill that teaches an LLM the kaeru verb taxonomy and the
+re-entry ritual — capture, recall, reasoning, time-travel.
+
+> **Status.** The body still shows the verbs in a `kaeru <verb>` shell form
+> from when kaeru shipped a CLI. There is no CLI today: kaeru is the
+> `kaeru-mcp` daemon, and MCP-aware runtimes get the verbs natively through
+> `tools/list` — the call is `awake (initiative: "x")`, not
+> `kaeru --initiative x awake`. The *taxonomy, cadence and discipline* the
+> skill teaches are current; only the invocation syntax is stale. Read it as
+> "which verb, when and why", not as literal commands.
 
 `SKILL.md` is the source of truth. The frontmatter is in Anthropic's
 Claude Code skill format; the body is platform-neutral and can be
@@ -9,8 +17,10 @@ pasted as a system-prompt rule into any agent runtime.
 
 ## Prerequisites
 
-- `kaeru-cli` installed and on `$PATH` (built from this repo:
-  `cargo install --path kaeru-cli`).
+- The `kaeru-mcp` daemon installed and running
+  (`cargo install --path kaeru-mcp`, then register it with your agent —
+  see the repo README). MCP-aware runtimes discover the verbs themselves;
+  this skill adds the *when and why* on top.
 - A vault location either at the platform default
   (`$XDG_DATA_HOME/kaeru` on Linux, `~/Library/Application Support/ai.lamantin.kaeru`
   on macOS, `%LOCALAPPDATA%\ai.lamantin.kaeru` on Windows) or set
@@ -56,12 +66,16 @@ your agent's system-prompt or "rules" section.
 Same as above — strip the frontmatter, treat the remaining markdown
 as instructional context for the agent.
 
-### MCP-based runtimes (future)
+### MCP-aware runtimes
 
-When `kaeru-mcp` lands, this skill won't be needed for MCP-aware
-agents — they'll discover the curator-API tools natively through MCP's
-`tools/list`. The skill's value persists for shell-out CLI use cases
-and for agent runtimes that don't speak MCP.
+MCP-aware agents (Claude Code, Codex, Opencode, Cursor) discover the verbs
+themselves through `tools/list`, and the daemon ships a compact ontology in
+its server instructions — so the tools work without this skill.
+
+What the skill still adds is judgement the tool list can't carry: which verb
+matches which epistemic state, the re-entry ritual, the habit of linking and
+chaining after a capture. Install it if you want that discipline taught
+explicitly; skip it if the built-in instructions are enough.
 
 ## Updating
 
@@ -72,9 +86,9 @@ field — every commit on `main` is the current canonical version.
 
 ## Why the skill exists
 
-Without it, an agent re-entering a project either ignores kaeru
-entirely (loses continuity) or has to discover the verb taxonomy via
-`kaeru --help`-style trawling each session. The skill gives the agent
-the re-entry ritual (`initiatives → awake → overview`), the verb
-mental model (capture / inquire / reason / evolve / time-travel), and
-the `--initiative` discipline up front.
+An agent that only sees the tool list knows *what exists*, not *when to
+reach for what*. The skill supplies the re-entry ritual
+(`initiatives → awake → overview`), the verb mental model
+(capture / inquire / reason / evolve / time-travel), and the `initiative`
+discipline up front — the difference between a graph that accumulates and
+one that stays navigable.

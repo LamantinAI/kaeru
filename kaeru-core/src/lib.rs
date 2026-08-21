@@ -53,9 +53,9 @@ pub use recall::{
     edges_in_initiative, edges_of, effective_statuses, effective_statuses_at, fuzzy_recall, lint,
     list_initiatives, local_nodes_for_review, node_brief_by_id, nodes_in_initiative, overview,
     read_chain, read_node_full, recall_by_layer, recall_by_layer_in_tier, recall_id_by_name,
-    recall_id_by_name_at, recall_id_by_name_global, recent_episodes, recollect_idea,
-    recollect_outcome, recollect_provenance, reflect, shortest_path, suggest_initiative,
-    summary_view, tagged, under_review_pinned, walk,
+    recall_id_by_name_at, recall_id_by_name_ever, recall_id_by_name_global, recent_episodes,
+    recollect_idea, recollect_outcome, recollect_provenance, reflect, shortest_path,
+    suggest_initiative, summary_view, tagged, under_review_pinned, walk,
 };
 pub use sanitize::strip_tool_call_markup;
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};

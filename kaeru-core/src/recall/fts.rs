@@ -37,6 +37,21 @@ pub fn fuzzy_recall(store: &Store, query: &str, limit: usize) -> Result<Vec<Node
                 .to_string(),
         ));
     }
+    // `topic:figma` / `kind:task` is field syntax the FTS grammar has no notion
+    // of — but the fields exist, just behind another verb. Name it (#49).
+    if let Some((field, _)) = query.trim().split_once(':')
+        && matches!(
+            field,
+            "topic" | "kind" | "sig" | "role" | "lang" | "status" | "due"
+        )
+    {
+        return Err(Error::Invalid(format!(
+            "`{}` is a tag, not FTS syntax — read tags with `tagged \"{}\"`. \
+             `search` matches words in names and bodies.",
+            query.trim(),
+            query.trim()
+        )));
+    }
     match run_fts(store, query, limit) {
         Ok(hits) => Ok(hits),
         // The FTS grammar rejects ordinary punctuation inside a token, and
@@ -273,5 +288,34 @@ mod tests {
             "explains the problem: {msg}"
         );
         assert!(msg.contains("token*"), "names the working idiom: {msg}");
+    }
+}
+
+#[cfg(test)]
+mod field_syntax_tests {
+    use super::fuzzy_recall;
+    use crate::store::Store;
+
+    /// Tag syntax typed into `search` used to be a parse error, then (after the
+    /// phrase fallback) a silent zero-result — both leave the agent guessing.
+    /// The fields are real, they just live behind `tagged` (#49).
+    #[test]
+    fn tag_syntax_points_at_tagged() {
+        let store = Store::open_in_memory().expect("open");
+        for q in ["topic:figma", "kind:task", "status:open"] {
+            let err = fuzzy_recall(&store, q, 5).expect_err("tag syntax is not an FTS query");
+            let msg = err.to_string();
+            assert!(msg.contains("tagged"), "`{q}` names the right verb: {msg}");
+        }
+    }
+
+    /// A colon inside ordinary text is not field syntax and must still search.
+    #[test]
+    fn an_ordinary_colon_is_not_field_syntax() {
+        let store = Store::open_in_memory().expect("open");
+        assert!(
+            fuzzy_recall(&store, "note: shipped", 5).is_ok(),
+            "prose with a colon still searches"
+        );
     }
 }

@@ -54,12 +54,28 @@ pub fn history(
         // polymorphic resolution, and `at` already honours it. Resolving
         // name-only made `history <id>` fail with a misleading "no node
         // named <id> at NOW".
-        let id = resolve_name_or_id(store, name)?;
+        // A name that no longer resolves at NOW may still be the name this node
+        // *used* to carry — `supersede` / `revise` rename in place. The tool for
+        // reading the past has to accept a name from the past, or the nodes
+        // whose history you want are exactly the ones you cannot reach (#51).
+        let (id, historical) = match resolve_name_or_id(store, name) {
+            Ok(id) => (id, false),
+            Err(e) => match kaeru_core::recall_id_by_name_ever(store, name).map_err(to_mcp)? {
+                Some(id) => (id, true),
+                None => return Err(e),
+            },
+        };
         let revs = kaeru_core::history(store, &id).map_err(to_mcp)?;
         if revs.is_empty() {
             return Ok(text("(no history)"));
         }
-        let mut out = format!("history ({}):\n", revs.len());
+        let mut out = String::new();
+        if historical {
+            out.push_str(&format!(
+                "↳ `{name}` is a former name of this node — resolved through its history.\n"
+            ));
+        }
+        out.push_str(&format!("history ({}):\n", revs.len()));
         for r in &revs {
             let mark = if r.asserted { "+" } else { "-" };
             out.push_str(&format!("  [{mark}] t={:.0}  {}\n", r.seconds, r.name));
@@ -176,6 +192,34 @@ mod tests {
         assert!(
             out.contains("by-id"),
             "history addressed by id returns the node's timeline:\n{out}"
+        );
+    }
+
+    /// `history` is the tool for reading a node's past, so it has to accept a
+    /// name *from* that past: after a rename the old name stops resolving at
+    /// NOW, which used to make exactly the interesting nodes unreachable (#51).
+    #[test]
+    fn history_resolves_a_former_name() {
+        let store = store_t();
+        let id = kaeru_core::write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "old-name",
+            "one",
+        )
+        .expect("write");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        kaeru_core::improve(&store, &id, "new-name", "two").expect("rename");
+
+        // The current name works, as before…
+        assert!(text_of(history(&store, "new-name", Some("t")).unwrap()).contains("history ("));
+        // …and so does the name it used to have.
+        let out = text_of(history(&store, "old-name", Some("t")).unwrap());
+        assert!(out.contains("history ("), "the former name resolves: {out}");
+        assert!(
+            out.contains("former name"),
+            "and says so rather than pretending it was current: {out}"
         );
     }
 

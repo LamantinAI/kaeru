@@ -25,11 +25,11 @@ Every node and edge is **bi-temporal** — the substrate stores assertion / retr
 
 Per-initiative subgraphs through a junction-relation pattern: one substrate, many initiatives, multi-membership. An agent working on project A asks "what was I doing here last time?" and gets an answer scoped to A. The same node can belong to several initiatives at once.
 
-`kaeru` is a **facilitator, not an enforcer**. The curator API exposes ~40 primitives (`awake`, `recall`, `drill`, `claim`, `synthesise`, `at`, `history`, `consolidate_out`, …) as available tools. The agent and user choose when to invoke them; the daemon hints but doesn't block.
+`kaeru` is a **facilitator, not an enforcer**. The curator API exposes ~40 primitives (`awake`, `recall`, `drill`, `claim`, `synthesise`, `at`, `history`, `settle`, …) as available tools. The agent and user choose when to invoke them; the daemon hints but doesn't block.
 
 ## Features
 
-- **Two-tier graph** — operational (cognitive / hippocampus) for active thinking; archival (recollection / cortex) for settled knowledge. `consolidate_out` promotes across the boundary, preserving provenance.
+- **Two-tier graph** — operational (cognitive / hippocampus) for active thinking; archival (recollection / cortex) for settled knowledge. `settle` promotes across the boundary, preserving provenance.
 - **Bi-temporal** — native assertion / retraction history. `at` reads a node in full as it is now or as-of any past moment; conflicts are non-destructive (the old version is invalidated, not deleted).
 - **Per-initiative scoping + layered re-entry** — one substrate, many projects. `awake` restores a project's working set by memory layer (Core → Hot → Warm) and surfaces the archival **cortex** (settled knowledge) alongside it, so durable facts re-enter every session; `surface` reaches the archived Cold / Frozen on demand.
 - **Reasoning chains** — `chain` saves the load-bearing weighted path between two nodes as a recallable trail with an agent-authored summary; `chains` triages by name + summary, duplicates are folded at creation, and `rechain` refreshes a trail after the graph changes (re-links, re-weights).
@@ -48,7 +48,7 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 - **`audit_event` is a first-class node type** — every mutation writes an audit node, so changes to memory themselves become reasoning surface for the agent. Substrate-level history (`Validity`) and operational audit (audit-event nodes) stay separate: the substrate tracks *what was*, the audit nodes track *who did it and why*.
 - **Per-initiative scope through junction relations** rather than column filtering — RocksDB prefix-scan gives O(log n + k) on the active initiative.
 - **Retrieval is structural-first** — explicit name lookup, typed graph traversal, summary views. Cozo FTS for fuzzy fallback when an exact name is forgotten. No vector/embedding layer today: Cozo supports HNSW, but kaeru wires none of it — a vector fallback is possible future work, not a current feature.
-- **Two-tier with explicit `consolidate_out`** — operational drafts get promoted to archival as a deliberate, logged operation. Provenance (`derived_from`) survives the tier boundary.
+- **Two-tier with explicit promotion** — `settle` moves an operational draft into the archival tier as a deliberate, logged operation (`reopen` mirrors it back). Provenance (`derived_from`) survives the tier boundary.
 - **Single binary, embedded substrate** — `kaeru` runs in-process with the agent. No server, no network. Vault on disk under a platform-specific default (Linux `$XDG_DATA_HOME/kaeru`, macOS `~/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`); override with `KAERU_VAULT_PATH`.
 
 ## Layout

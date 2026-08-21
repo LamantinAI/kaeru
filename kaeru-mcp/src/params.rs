@@ -59,7 +59,7 @@ pub struct LinkCloudParams {
     pub name: String,
     /// UUIDv7 id of the cloud node to link to.
     pub cloud_id: String,
-    /// Edge type for the soft link. Defaults to `refers_to`.
+    /// Edge type for the soft link — closed vocabulary, one of: `refers_to` (default), `causal`, `derived_from`, `contradicts`, `part_of`, `blocks`, `targets`, `supersedes`, `verifies`, `falsifies`, `temporal`, `consolidated_to`.
     #[serde(default)]
     pub edge_type: Option<String>,
     /// Cloud the dst lives in (multi-cloud). Omit for the default cloud — the
@@ -236,10 +236,9 @@ pub struct LinkParams {
     /// Destination node name or id — resolved in the active initiative
     /// first, then across all initiatives.
     pub to: String,
-    /// Edge type. Common values: `refers_to` (default), `causal`,
-    /// `derived_from`, `contradicts`, `part_of`, `blocks`, `targets`,
-    /// `supersedes`, `verifies`, `falsifies`, `temporal`,
-    /// `consolidated_to`. Snake_case or kebab-case both accepted.
+    /// Edge type — a CLOSED vocabulary, one of exactly these: `refers_to` (default), `causal`, `derived_from`, `contradicts`, `part_of`, `blocks`, `targets`, `supersedes`, `verifies`, `falsifies`, `temporal`, `consolidated_to`.
+    /// Nothing else is accepted (`related_to` and friends are not edge types).
+    /// Snake_case or kebab-case both accepted.
     #[serde(default = "default_edge_type")]
     pub edge_type: String,
     /// Connection strength `0..1` — drives knowledge-chain shortest-paths.
@@ -266,7 +265,7 @@ pub struct ReweightParams {
     /// Destination node name or id — resolved in the active initiative
     /// first, then across all initiatives.
     pub to: String,
-    /// Edge type (default `refers_to`).
+    /// Edge type — closed vocabulary, one of: `refers_to` (default), `causal`, `derived_from`, `contradicts`, `part_of`, `blocks`, `targets`, `supersedes`, `verifies`, `falsifies`, `temporal`, `consolidated_to`.
     #[serde(default = "default_edge_type")]
     pub edge_type: String,
     /// New connection strength in `0..1` (1 = strong → shorter chain paths).

@@ -74,9 +74,10 @@ the hippocampus / cortex split:
   references, persona/entity records. Mostly read; this is what survives.
 
 Promotion across the boundary is a deliberate, logged operation
-(`synthesise` → `settle`, or `consolidate_out`), and provenance (`derived_from`)
-is preserved across the tier boundary rather than lost. `consolidate_in` mirrors
-it back when settled knowledge needs reworking.
+(`synthesise` → `settle`), and provenance (`derived_from`) is preserved across
+the tier boundary rather than lost. `reopen` mirrors it back when settled
+knowledge needs reworking. In `kaeru-core` these are `consolidate_out` /
+`consolidate_in`; the agent-facing verbs are `settle` / `reopen`.
 
 **Cortex on re-entry.** `awake` reads the two tiers *separately*: the operational
 working set by layer (`core → hot → warm`), and a dedicated **cortex** slice of
