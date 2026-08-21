@@ -818,72 +818,101 @@ impl ServerHandler for KaeruServer {
         .with_server_info(Implementation::from_build_env())
         .with_protocol_version(ProtocolVersion::LATEST)
         .with_instructions(
-            "kaeru — cognitive memory for LLM agents. \
-             This is your memory of record across sessions — prefer it over a scratchpad or local note \
-             files for anything worth recalling later. If your runtime ships its own built-in memory, treat \
-             that as a pointer to kaeru, not a parallel store, so knowledge doesn't fork. \
-             Re-entry ritual: call `initiatives` to see projects, then `awake` (process state — what was open) \
-             then `overview` (epistemic state — what the project knows), both with the chosen `initiative`. \
-             \
-             Always pass `initiative` on every call once known; without it, mutations stay un-tagged and \
-             reads are cross-initiative. \
-             \
-             TWO TIERS — operational (working memory: in-flight observations, claims under test, open questions) \
-             vs archival (settled knowledge: outcomes, references, ideas, summaries). Operational decays and gets \
-             revisited; archival is what survives and what a fresh agent reads first. Move things to archival when \
-             they stop changing. \
-             \
-             CORTEX ON RE-ENTRY — `awake` surfaces the archival tier as a dedicated `cortex` section, separate \
-             from the operational working set, so settled knowledge loads every session instead of waiting for \
-             explicit recall. Put durable, generally-true facts there (`cite` / `settle`). For the few that must \
-             be available in EVERY session — house style, a keystone decision, a glossary — set `layer=core`: \
-             Core is injected uncapped. Be sparing; `core` is expensive context, so reserve it for the truly \
-             always-needed and leave the rest at the default layer. \
-             \
-              CAPTURE DISPATCH — match the verb to the *epistemic status* of the content, not its length: \
-              • `jot` — fleeting note, no name needed (auto-named). Operational. \
-              • `episode` — observation tied to current work, may evolve. Operational. \
-              • `cite <name> --body \"...\"` (URL OPTIONAL) — settled document you want to keep verbatim: ADRs, \
-              specs, product passports, persona records, glossaries. Goes straight to archival/reference. Use this \
-              for \"my own settled doc\", not just external papers. \
-              • `claim` → `test` → `confirm`/`refute` — for hypotheses you're actively testing. Operational. \
-              • `synthesise` (over operational seeds) → `settle` — when many episodes converge into one durable \
-              insight. Promotes to archival/idea or archival/outcome. \
-              • `task <body> --due ...` / `done <name>` — for actionable todos with deadlines. \
-              A common failure mode is capturing everything as `episode`. If the content is already settled \
-              (a decision made, a spec written, a fact about an entity), reach for `cite` instead. \
-              \
-              ALWAYS LINK AFTER CAPTURING — after creating any node (jot, episode, cite, claim, task), \
-              immediately `search` for related existing nodes and `link` them. Isolated nodes are islands \
-              that only exact-name lookups will find. One `link` call per related node. Edge types: \
-              `causal` (A causes B), `derived-from` (B is a refinement of A), `refers-to` (A mentions B, \
-              default), `part-of`, `blocks`, `targets`, `contradicts`. Mark the key reasoning links \
-              `strong=true` (weight 1.0) so chains prefer them. \
-              \
-              THEN MATERIALISE THE REASONING TRAIL — linking is not the end. Once a line of work runs from \
-              a starting observation to a decision or outcome, call `chain(from, to)` to save that ordered \
-              path as a named, replayable trail, and revisit it with `chains` / `read_chain`. A graph of \
-              links is navigable; a chain is the explicit \"state → reasoning → decision\" story a fresh \
-              agent reads to understand WHY, not just WHAT. Don't stop at isolated captures — link every \
-              node, and chain every reasoning run. \
-              \
-              LANGUAGE: store and search in the user's NATIVE language. Don't translate Russian to English on \
-              capture; don't translate Russian queries to English on lookup. Each node carries a `lang:*` tag \
-              auto-detected from body script. \
-              \
-              SEARCH: `search` is FTS without stemming. Append `*` for inflection-tolerant matching across \
-              any language: `утечк*`, `token*`, `verlier*`. \
-              \
-              TAGS: every node auto-tags `kind:*`, `sig:*`, `role:*` (when applicable), `lang:*`, and up to 5 \
-              `topic:<word>` tokens from body. Slice by tag via `tagged \"topic:...\"` etc. \
-              \
-              FRESHNESS: search/recall results sort newest-first within equal scores; recent captures beat stale ones. \
-              Every brief and snapshot shows its assertion time (absolute + relative, e.g. `2026-06-23 11:21 · 2d ago`); \
-              `read_chain` stamps each step, so you can follow the chronology of work and thought without calling `history`. \
-              \
-              Inquire with `drill <name>`, `trace <name>`, `search <query>`, `tagged <tag>`. Bi-temporal handle: \
-              `at`, `history`."
-                .to_string(),
+            "kaeru — your memory of record across sessions. Prefer it to scratchpads and note files. If your \
+             runtime ships its own memory, treat it as a pointer here so knowledge doesn't fork.\n\nENTRY: \
+             `initiatives` → `awake` (what was open) → `overview` (what the project knows). Pass \
+             `initiative` on EVERY call — without it writes stay untagged and reads span projects.\n\nTWO \
+             TIERS: operational (in-flight: observations, claims, open questions) → archival (settled: \
+             outcomes, ideas, references). `settle` promotes what stopped changing; `awake` loads archival \
+             as `cortex` every session. `layer=core` is injected uncapped — reserve it for the few \
+             always-needed facts.\n\nCAPTURE by epistemic status, not length: `jot` fleeting note · \
+             `episode` observation tied to current work · `cite <name> --body` settled doc kept verbatim, \
+             URL optional — ADRs, specs, glossaries, YOUR OWN settled docs · \
+             `claim`→`test`→`confirm`/`refute` hypotheses · `task`/`done` todos with deadlines. Don't \
+             capture everything as `episode`.\n\nALWAYS LINK a new node: `search` for related → `link a b \
+             --edge_type`. Types: refers_to (default), causal, derived_from, contradicts, part_of, blocks, \
+             targets, supersedes, verifies, falsifies, temporal. `strong=true` on load-bearing edges. An \
+             island is found only by exact name.\n\nTHEN CHAIN: once work runs observation→decision, `chain \
+             from to --summary` saves that trail; `chains <node>` lists them, `read_chain` replays one. A \
+             chain is the WHY a fresh agent reads.\n\nREAD: `recall` exact name · `search q*` fuzzy (`*` \
+             matches inflections) · `drill` node+children · `at <name>` FULL text — drill/search show \
+             excerpts only · `at <name> when=2h` past state · `history` versions · `trace` provenance · \
+             `between` how two nodes connect · `tagged \"topic:x\"` · `surface layers=cold` archived · \
+             `board` open tasks.\n\nLANGUAGE: store and search in the user's own language; never translate \
+             on capture or lookup.",
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rmcp::ServerHandler;
+
+    use super::*;
+
+    /// Claude Code truncates MCP server instructions at roughly 2048
+    /// characters, silently and mid-word. The ontology used to be 4434 chars
+    /// long, so 53% of it — chains, tags, the search idiom, half the capture
+    /// dispatch — never reached any agent, and the verbs described in that
+    /// tail were measurably the dead ones (#48).
+    ///
+    /// The budget is what makes the text land, so it is asserted rather than
+    /// documented: an instruction block that grows past it is a regression, not
+    /// a style question.
+    #[test]
+    fn instructions_fit_the_client_truncation_budget() {
+        const BUDGET: usize = 2048;
+        let store = Store::open_in_memory().expect("open");
+        let server = KaeruServer::new(
+            store,
+            CloudRegistry::default(),
+            CancellationToken::new(),
+            false,
+        );
+        let instructions = server
+            .get_info()
+            .instructions
+            .expect("the server ships instructions");
+
+        assert!(
+            instructions.len() <= BUDGET,
+            "instructions are {} chars, {} over the ~{BUDGET}-char client limit — \
+             everything past the cut is invisible to the agent",
+            instructions.len(),
+            instructions.len() - BUDGET
+        );
+    }
+
+    /// The tail is where the previously-truncated verbs live. If the text is
+    /// ever re-expanded, this is the half that disappears first — so assert the
+    /// weakest-covered ones are present at all.
+    #[test]
+    fn instructions_still_name_the_easily_lost_verbs() {
+        let store = Store::open_in_memory().expect("open");
+        let server = KaeruServer::new(
+            store,
+            CloudRegistry::default(),
+            CancellationToken::new(),
+            false,
+        );
+        let text = server.get_info().instructions.unwrap_or_default();
+        for verb in [
+            "chain",
+            "chains",
+            "read_chain",
+            "tagged",
+            "trace",
+            "surface",
+            "between",
+            "at",
+            "history",
+            "cite",
+            "task",
+        ] {
+            assert!(
+                text.contains(verb),
+                "`{verb}` is not mentioned — an unmentioned verb is one an agent never learns"
+            );
+        }
     }
 }

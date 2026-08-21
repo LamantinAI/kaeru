@@ -45,7 +45,15 @@ impl FromStr for Tier {
         match s.to_lowercase().as_str() {
             "operational" => Ok(Tier::Operational),
             "archival" => Ok(Tier::Archival),
-            _ => Err(Error::Invalid(format!("unknown tier: {s}"))),
+            // hot/warm/cold/frozen/core are memory LAYERS; the thermal
+            // metaphor invites extrapolating them onto the tier (#50).
+            "core" | "hot" | "warm" | "cold" | "frozen" => Err(Error::Invalid(format!(
+                "`{s}` is a memory layer, not a tier — set it with `layer`. \
+                 Tiers: operational, archival"
+            ))),
+            _ => Err(Error::Invalid(format!(
+                "unknown tier: {s}; valid: operational, archival"
+            ))),
         }
     }
 }
@@ -82,6 +90,27 @@ pub enum NodeType {
 }
 
 impl NodeType {
+    /// Every accepted spelling, for error messages.
+    pub const VALID: [&'static str; 17] = [
+        "episode",
+        "task",
+        "checklist",
+        "roadmap",
+        "experiment",
+        "hypothesis",
+        "scratch",
+        "draft",
+        "audit_event",
+        "chain",
+        "board",
+        "idea",
+        "outcome",
+        "reference",
+        "concept",
+        "entity",
+        "summary",
+    ];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             NodeType::Task => "task",
@@ -142,7 +171,19 @@ impl FromStr for NodeType {
             "concept" => Ok(NodeType::Concept),
             "entity" => Ok(NodeType::Entity),
             "summary" => Ok(NodeType::Summary),
-            _ => Err(Error::Invalid(format!("unknown node type: {s}"))),
+            // `observation` / `decision` / `action` / `chat` are EpisodeKinds,
+            // and kaeru's own surface legitimizes them (the `kind:*` autotag,
+            // the episode verb) — so an agent reaches for them here. Say which
+            // vocabulary they belong to instead of just refusing (#50).
+            "observation" | "decision" | "action" | "chat" => Err(Error::Invalid(format!(
+                "`{s}` is an episode kind, not a node type — capture it with \
+                 `episode kind={s}` (its node type is `episode`). Node types: {}",
+                Self::VALID.join(", ")
+            ))),
+            _ => Err(Error::Invalid(format!(
+                "unknown node type: {s}; valid: {}",
+                Self::VALID.join(", ")
+            ))),
         }
     }
 }
@@ -264,7 +305,13 @@ impl FromStr for Layer {
             "warm" => Ok(Layer::Warm),
             "cold" => Ok(Layer::Cold),
             "frozen" => Ok(Layer::Frozen),
-            _ => Err(Error::Invalid(format!("unknown layer: {s}"))),
+            "operational" | "archival" => Err(Error::Invalid(format!(
+                "`{s}` is a tier, not a layer — move across tiers with `settle` \
+                 / `reopen`. Layers: core, hot, warm, cold, frozen"
+            ))),
+            _ => Err(Error::Invalid(format!(
+                "unknown layer: {s}; valid: core, hot, warm, cold, frozen"
+            ))),
         }
     }
 }
@@ -314,7 +361,77 @@ impl FromStr for Visibility {
         match s.to_lowercase().as_str() {
             "local" => Ok(Visibility::Local),
             "shared" => Ok(Visibility::Shared),
-            _ => Err(Error::Invalid(format!("unknown visibility: {s}"))),
+            _ => Err(Error::Invalid(format!(
+                "unknown visibility: {s}; valid: local, shared"
+            ))),
+        }
+    }
+}
+
+#[cfg(test)]
+mod vocab_tests {
+    use std::str::FromStr;
+
+    use super::{Layer, NodeType, Tier};
+    use crate::graph::EdgeType;
+
+    /// A closed vocabulary must name its members when it refuses a value.
+    /// Without the list an agent has nothing to correct against and guesses
+    /// synonyms in cascades — `link` alone produced hundreds of retries (#50).
+    #[test]
+    fn refusals_enumerate_the_valid_values() {
+        let e = EdgeType::from_str("related_to").unwrap_err().to_string();
+        assert!(
+            e.contains("refers_to") && e.contains("derived_from"),
+            "got: {e}"
+        );
+
+        let e = NodeType::from_str("nonsense").unwrap_err().to_string();
+        assert!(e.contains("episode") && e.contains("outcome"), "got: {e}");
+
+        let e = Tier::from_str("nonsense").unwrap_err().to_string();
+        assert!(
+            e.contains("operational") && e.contains("archival"),
+            "got: {e}"
+        );
+
+        let e = Layer::from_str("nonsense").unwrap_err().to_string();
+        assert!(e.contains("core") && e.contains("frozen"), "got: {e}");
+    }
+
+    /// The two confusions the audit actually caught: an episode kind offered as
+    /// a node type (78% of `supersede`'s errors), and a memory layer offered as
+    /// a tier. Both words are legitimate kaeru vocabulary — just from a
+    /// different axis — so the error should redirect, not merely refuse.
+    #[test]
+    fn crossed_vocabularies_are_redirected_not_just_refused() {
+        let e = NodeType::from_str("observation").unwrap_err().to_string();
+        assert!(e.contains("episode kind"), "names the right axis: {e}");
+        assert!(e.contains("`episode`"), "names the verb to use: {e}");
+
+        let e = Tier::from_str("warm").unwrap_err().to_string();
+        assert!(e.contains("memory layer"), "names the right axis: {e}");
+        assert!(e.contains("`layer`"), "names the verb to use: {e}");
+
+        let e = Layer::from_str("archival").unwrap_err().to_string();
+        assert!(e.contains("tier"), "the mirror case: {e}");
+    }
+
+    /// Every advertised spelling must actually parse — the lists live next to
+    /// the match arms, so this is what keeps them honest as variants are added.
+    #[test]
+    fn every_advertised_value_parses() {
+        for v in NodeType::VALID {
+            assert!(
+                NodeType::from_str(v).is_ok(),
+                "advertised node type `{v}` does not parse"
+            );
+        }
+        for v in EdgeType::VALID {
+            assert!(
+                EdgeType::from_str(v).is_ok(),
+                "advertised edge type `{v}` does not parse"
+            );
         }
     }
 }

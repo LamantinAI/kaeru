@@ -29,6 +29,23 @@ pub enum EdgeType {
 }
 
 impl EdgeType {
+    /// Every accepted spelling, for error messages. Kept next to `as_str` so a
+    /// new variant that misses this list is obvious in review.
+    pub const VALID: [&'static str; 12] = [
+        "refers_to",
+        "derived_from",
+        "supersedes",
+        "causal",
+        "temporal",
+        "contradicts",
+        "part_of",
+        "blocks",
+        "targets",
+        "verifies",
+        "falsifies",
+        "consolidated_to",
+    ];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             EdgeType::DerivedFrom => "derived_from",
@@ -68,7 +85,13 @@ impl FromStr for EdgeType {
             "verifies" => Ok(EdgeType::Verifies),
             "falsifies" => Ok(EdgeType::Falsifies),
             "consolidated_to" => Ok(EdgeType::ConsolidatedTo),
-            _ => Err(Error::Invalid(format!("unknown edge type: {s}"))),
+            // Closed vocabulary: name every valid value. Without the list an
+            // agent guesses synonyms in cascades — `related_to` alone produced
+            // hundreds of retries in the usage audit (#50).
+            _ => Err(Error::Invalid(format!(
+                "unknown edge type: {s}; valid: {}",
+                Self::VALID.join(", ")
+            ))),
         }
     }
 }
@@ -114,7 +137,9 @@ impl FromStr for DstStore {
         match s.to_lowercase().as_str() {
             "local" => Ok(DstStore::Local),
             "cloud" => Ok(DstStore::Cloud),
-            _ => Err(Error::Invalid(format!("unknown dst_store: {s}"))),
+            _ => Err(Error::Invalid(format!(
+                "unknown dst_store: {s}; valid: local, cloud, cloud:<name>"
+            ))),
         }
     }
 }

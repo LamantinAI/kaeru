@@ -56,7 +56,9 @@ impl FromStr for SharePolicy {
             "private" => Ok(SharePolicy::Private),
             "team" => Ok(SharePolicy::Team),
             "ask" => Ok(SharePolicy::Ask),
-            _ => Err(Error::Invalid(format!("unknown share policy: {s}"))),
+            _ => Err(Error::Invalid(format!(
+                "unknown share policy: {s}; valid: private, team, ask"
+            ))),
         }
     }
 }
