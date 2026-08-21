@@ -14,8 +14,8 @@ use rmcp::model::CallToolResult;
 use crate::cloud_client::CloudClient;
 use crate::tools::cloud::push_to_cloud;
 use crate::utils::{
-    capture_result, markup_strip_note, parse_layer, parse_wants_shared, resolve_name,
-    resolve_name_or_id, text, to_mcp, with_initiative,
+    capture_result, markup_strip_note, parse_layer, parse_wants_shared, resolve_link_endpoint,
+    text, to_mcp, with_initiative,
 };
 
 /// When `want_share`, attempts to push the just-created node `id` to the
@@ -118,8 +118,8 @@ pub fn link(
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let edge: EdgeType = edge_type_str.parse().map_err(to_mcp)?;
-        let from_id = resolve_name(store, from)?;
-        let to_id = resolve_name(store, to)?;
+        let from_id = resolve_link_endpoint(store, from)?;
+        let to_id = resolve_link_endpoint(store, to)?;
         // Plain link = 0.5 (a neutral association); `strong` = 1.0 (a key
         // reasoning link); explicit `weight` overrides. Weight is the
         // connection strength that drives chain shortest-paths.
@@ -145,8 +145,8 @@ pub fn unlink(
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let edge: EdgeType = edge_type_str.parse().map_err(to_mcp)?;
-        let from_id = resolve_name(store, from)?;
-        let to_id = resolve_name(store, to)?;
+        let from_id = resolve_link_endpoint(store, from)?;
+        let to_id = resolve_link_endpoint(store, to)?;
         kaeru_core::unlink(store, &from_id, &to_id, edge).map_err(to_mcp)?;
         Ok(text(&format!(
             "unlinked: {from} -[{}]-> {to}",
@@ -168,8 +168,8 @@ pub fn reweight(
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let edge: EdgeType = edge_type_str.parse().map_err(to_mcp)?;
-        let from_id = resolve_name_or_id(store, from)?;
-        let to_id = resolve_name_or_id(store, to)?;
+        let from_id = resolve_link_endpoint(store, from)?;
+        let to_id = resolve_link_endpoint(store, to)?;
         kaeru_core::set_edge_weight(store, &from_id, &to_id, edge, weight).map_err(to_mcp)?;
         Ok(text(&format!(
             "reweighted: {from} -[{}]-> {to} = {:.2}",
@@ -203,4 +203,72 @@ pub async fn cite(
     }
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
     Ok(capture_result(store, &id, initiative, &msg))
+}
+
+#[cfg(test)]
+mod tests {
+    use kaeru_core::{EpisodeKind, Significance, Store};
+
+    use super::link;
+
+    /// Seeds a node under `initiative` and returns its id.
+    fn seed(store: &Store, initiative: &str, name: &str) -> String {
+        store.use_initiative(initiative);
+        kaeru_core::write_episode(
+            store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            name,
+            "body",
+        )
+        .expect("write")
+    }
+
+    /// Counts edges between two ids cross-initiative — a cross-initiative
+    /// edge is invisible to a scoped `between` (which requires both endpoints
+    /// in the active initiative), so read it with the scope cleared.
+    fn edge_count(store: &Store, a: &str, b: &str) -> usize {
+        store
+            .scoped(None, |s| {
+                kaeru_core::between(s, &a.to_string(), &b.to_string())
+            })
+            .expect("between")
+            .len()
+    }
+
+    /// An edge can join nodes living under different initiatives: scoped to
+    /// `a`, the source resolves in-scope while the destination (only in `b`)
+    /// resolves through the cross-initiative fallback. This is the friction
+    /// that used to force dropping the initiative scope to link at all.
+    #[test]
+    fn link_joins_nodes_across_initiatives() {
+        let store = Store::open_in_memory().expect("open");
+        let a = seed(&store, "a", "node-a");
+        let b = seed(&store, "b", "node-b");
+
+        link(
+            &store,
+            "node-a",
+            "node-b",
+            "refers_to",
+            None,
+            false,
+            Some("a"),
+        )
+        .expect("cross-initiative link resolves");
+
+        assert_eq!(edge_count(&store, &a, &b), 1, "edge was created");
+    }
+
+    /// Endpoints may be raw UUIDv7 ids, not just names.
+    #[test]
+    fn link_accepts_ids() {
+        let store = Store::open_in_memory().expect("open");
+        let a = seed(&store, "x", "src");
+        let b = seed(&store, "x", "dst");
+
+        link(&store, &a, &b, "refers_to", None, false, Some("x")).expect("link by id resolves");
+
+        assert_eq!(edge_count(&store, &a, &b), 1, "edge was created from ids");
+    }
 }

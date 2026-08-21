@@ -7,8 +7,7 @@ use rmcp::model::CallToolResult;
 
 use crate::utils::{
     AT_FULLTEXT_HINT_MANY, at_fulltext_hint, body_truncated, history_hint, recall_read_hint,
-    render_briefs, render_summary, resolve_name, resolve_name_or_id, text, to_mcp, was_revised,
-    with_initiative,
+    render_briefs, render_summary, resolve_name_or_id, text, to_mcp, was_revised, with_initiative,
 };
 
 pub fn recall(
@@ -56,7 +55,7 @@ pub fn trace(
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
-        let id = resolve_name(store, name)?;
+        let id = resolve_name_or_id(store, name)?;
         let ancestors = kaeru_core::recollect_provenance(store, &id).map_err(to_mcp)?;
         if ancestors.is_empty() {
             return Ok(text("(no provenance)"));
@@ -131,8 +130,8 @@ pub fn between(
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
-        let a_id = resolve_name(store, a)?;
-        let b_id = resolve_name(store, b)?;
+        let a_id = resolve_name_or_id(store, a)?;
+        let b_id = resolve_name_or_id(store, b)?;
         let edges = kaeru_core::between(store, &a_id, &b_id).map_err(to_mcp)?;
         if edges.is_empty() {
             return Ok(text(&format!("(no edges between {a} and {b})")));
