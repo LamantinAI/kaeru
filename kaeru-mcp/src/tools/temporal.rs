@@ -7,7 +7,7 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
 use crate::utils::{
-    fmt_ts, history_hint, history_read_version_hint, parse_when, resolve_name,
+    fmt_ts, history_hint, history_read_version_hint, parse_when, resolve_name_or_id,
     resolve_name_or_id_at, text, to_mcp, was_revised, with_initiative,
 };
 
@@ -50,7 +50,11 @@ pub fn history(
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
-        let id = resolve_name(store, name)?;
+        // Accept a raw UUID as well as a name — `NameScope` advertises
+        // polymorphic resolution, and `at` already honours it. Resolving
+        // name-only made `history <id>` fail with a misleading "no node
+        // named <id> at NOW".
+        let id = resolve_name_or_id(store, name)?;
         let revs = kaeru_core::history(store, &id).map_err(to_mcp)?;
         if revs.is_empty() {
             return Ok(text("(no history)"));
@@ -149,6 +153,29 @@ mod tests {
         assert!(
             hist_out.contains("read any version in full: `at d2 when="),
             "history points back to at's time-travel:\n{hist_out}"
+        );
+    }
+
+    /// `history` resolves a raw UUIDv7 id, not just a name — regression for
+    /// the resolver bug where it called the name-only `resolve_name` and a
+    /// `history <id>` call failed with a misleading "no node named <id> at
+    /// NOW". `at` already accepted ids; the two now agree.
+    #[test]
+    fn history_resolves_by_id() {
+        let store = store_t();
+        let id = kaeru_core::write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "by-id",
+            "body",
+        )
+        .expect("write");
+
+        let out = text_of(history(&store, &id, Some("t")).expect("history by id resolves"));
+        assert!(
+            out.contains("by-id"),
+            "history addressed by id returns the node's timeline:\n{out}"
         );
     }
 
