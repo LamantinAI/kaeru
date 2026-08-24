@@ -9,7 +9,7 @@
 // a one-lane DAG, so a linear trail and a branching deep-research share one
 // layout instead of two.
 
-import { loadFullBodies } from './bodies.js'
+import { bodiesFor } from './bodies.js'
 
 // same layer ramp the galaxy's readout bar uses
 const LAYER_ACCENT = { core: '#caa24a', hot: '#c8402e', warm: '#7e96cf', cold: '#6f7da0', frozen: '#8a8578' }
@@ -73,10 +73,39 @@ export function createReader(data, { fmtDateTime }) {
   const when = (n) => (n.created_secs ? fmtDateTime(n.created_secs) : '—')
   const h = (s) => { const d = document.createElement('div'); d.innerHTML = s.trim(); return d.firstChild }
 
-  // The galaxy only needs excerpts; a reader needs the whole body.
-  async function loadBodies() {
-    const full = await loadFullBodies()
-    for (const id in full) if (N[id]) N[id].body = full[id]
+  // The galaxy only needs excerpts; a reader needs the whole body — but only
+  // of what it is about to put on the page, which is one trail, not a vault.
+  // Reports whether anything actually grew, so a caller that already drew the
+  // page knows whether it is worth drawing again.
+  async function loadBodies(ids) {
+    const full = await bodiesFor(ids)
+    let grew = false
+    for (const id in full) if (N[id] && N[id].body !== full[id]) { N[id].body = full[id]; grew = true }
+    return grew
+  }
+  // A whole trail in one request: `/v1/chain` is the `read_chain` verb, and it
+  // answers with the members in order, bodies untruncated. Asking per node
+  // costs a request per step; asking per trail costs one. Resolves false when
+  // there is no daemon to ask, and the caller falls back to per-node.
+  //
+  // Only bodies are taken from it. Everything else about a node — type, tier,
+  // layer — is already here from the galaxy's export, and two sources for one
+  // field is one source too many.
+  async function hydrateChain(id) {
+    try {
+      const r = await fetch(`/v1/chain?id=${encodeURIComponent(id)}`)
+      if (!r.ok) return false
+      const c = await r.json()
+      for (const s of c.steps || []) if (N[s.id] && s.body) N[s.id].body = s.body
+      return true
+    } catch (_) { return false }
+  }
+
+  // Which nodes a trail will show: its members, and — when the way in was a
+  // bare node — that node, whether or not a saved trail claims it.
+  const trailOf = (id) => {
+    const c = data.chains.find((x) => (x.members || []).includes(id))
+    return c ? c.members : [id]
   }
 
   // ── layout: derivation DAG, lanes by path decomposition ─────────────────
@@ -473,7 +502,12 @@ export function createReader(data, { fmtDateTime }) {
     if (!N[id]) return false
     const from = mark()
     const c = data.chains.find((x) => (x.members || []).includes(id))
-    const ok = c ? render(c, c.members) : render({ name: N[id].name, adhoc: true }, [id])
+    const members = c ? c.members : [id]
+    const ok = c ? render(c, members) : render({ name: N[id].name, adhoc: true }, [id])
+    // Draw on what is already here, then fetch the text and draw again if it
+    // changed anything. A link that shows nothing until the network answers
+    // reads as broken; one that fills in a moment later does not.
+    if (ok) loadBodies(members).then((grew) => { if (grew && chain) render(chain, members) })
     if (ok && remember && from && JSON.stringify(from) !== JSON.stringify(mark())) hist.push(from)
     syncBack()
     return ok
@@ -512,8 +546,8 @@ export function createReader(data, { fmtDateTime }) {
   return {
     /** Load a chain (by the picker's value) and render both views. */
     async show(chainId) {
-      await loadBodies()
       const c = data.chains.find((x) => x.id === chainId) || data.chains.find((x) => x.name === chainId)
+      if (c && !(await hydrateChain(c.id))) await loadBodies(c.members)
       hist = []; syncBack()
       return c ? render(c, c.members) : false
     },
@@ -522,7 +556,7 @@ export function createReader(data, { fmtDateTime }) {
      *  a saved chain, read that trail; otherwise make an ad-hoc one from the
      *  node, which the layout then grows along its derivation links. */
     async showNode(id) {
-      await loadBodies()
+      await loadBodies(trailOf(id))
       hist = []; syncBack()
       return openNode(id, false)
     },

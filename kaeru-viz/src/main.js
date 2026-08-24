@@ -65,8 +65,11 @@ const resolvedTheme = () => (themePref === 'auto' ? (mql.matches ? 'light' : 'da
 let TH = THEMES[resolvedTheme()]
 
 // ── data ──────────────────────────────────────────────────────────────────
+// `/v1/export` is the verb; `/graph.json` is the alias it replaced, tried next
+// so a visualizer that updates ahead of its daemon still starts; the relative
+// path is the baked snapshot, which has no daemon at all.
 async function loadGraph() {
-  for (const url of ['/graph.json', './graph.json']) {
+  for (const url of ['/v1/export', '/graph.json', './graph.json']) {
     try { const r = await fetch(url); if (r.ok) return await r.json() } catch (_) {}
   }
   return null
@@ -630,8 +633,29 @@ function makeDropdown(sel) {
   dd.append(trig, menu); sel.after(dd)
   const close = () => { menu.hidden = true; trig.classList.remove('open')
     trig.setAttribute('aria-expanded', 'false')
-    document.removeEventListener('pointerdown', outside, true) }
+    document.removeEventListener('pointerdown', outside, true)
+    removeEventListener('resize', place); removeEventListener('scroll', place, true) }
   const outside = (e) => { if (!dd.contains(e.target)) close() }
+
+  // The menu is a fixed element, so it has to be told where to go — that is
+  // the price of not being clipped by the console (see .dd-menu in style.css).
+  // Two things it can now do that it could not before: grow past the panel's
+  // edge, and stop short of the window's. A list that runs off the bottom of
+  // the screen is no more use than one cut off at the top.
+  function place() {
+    const r = trig.getBoundingClientRect()
+    const down = dd.classList.contains('down')
+    const gap = 5, edge = 8
+    const room = (down ? innerHeight - r.bottom : r.top) - gap - edge
+    menu.style.minWidth = `${Math.round(r.width)}px`
+    menu.style.maxHeight = `${Math.round(Math.max(120, Math.min(300, room)))}px`
+    // width is only settled once the height cap has been applied — a menu that
+    // gained a scrollbar is wider than the same menu without one
+    const w = menu.getBoundingClientRect().width
+    menu.style.left = `${Math.round(Math.min(Math.max(edge, r.left), Math.max(edge, innerWidth - w - edge)))}px`
+    menu.style.top = down ? `${Math.round(r.bottom + gap)}px` : 'auto'
+    menu.style.bottom = down ? 'auto' : `${Math.round(innerHeight - r.top + gap)}px`
+  }
   function sync() {
     const o = sel.selectedOptions[0]; lab.textContent = o ? o.textContent : ''
     ;[...menu.children].forEach((c) => {
@@ -655,9 +679,12 @@ function makeDropdown(sel) {
     }
     sync()
   }
-  const open = () => { rebuild(); menu.hidden = false; trig.classList.add('open')
+  const open = () => { rebuild(); menu.hidden = false; place(); trig.classList.add('open')
     trig.setAttribute('aria-expanded', 'true')
-    document.addEventListener('pointerdown', outside, true) }
+    document.addEventListener('pointerdown', outside, true)
+    // the console scrolls sideways when the window is narrow, so an open menu
+    // has to follow its trigger rather than drift away from it
+    addEventListener('resize', place); addEventListener('scroll', place, true) }
   trig.addEventListener('click', () => { if (menu.hidden) open(); else close() })
   // a focusable control has to answer the keyboard too
   trig.addEventListener('keydown', (e) => {
@@ -708,6 +735,42 @@ function buildProjects() {
       setFocus(focusInit === name ? null : name)   // clicking the active one clears it
     })
   }
+  markMore(el)
+}
+
+// How many projects the rail shows before it starts scrolling. Twelve is a
+// list; twenty-eight is a wall, and the window's height is no reason to draw
+// one — the search box above reaches anything the cap hides.
+const LIST_ROWS = 12
+
+// Sizes the list to a whole number of rows and fades its bottom edge while
+// anything is still below. The heights are measured rather than assumed: the
+// first row carries a rule under it and is taller than the rest, and a cap
+// guessed in CSS would slice a row in half — which is what made the list read
+// as broken rather than scrollable.
+function markMore(el) {
+  const update = () => {
+    const rows = el.querySelectorAll('.pr')
+    if (rows.length) {
+      // Where a row *ends*, measured from the top of the list's content. Row
+      // heights alone are not enough: the first row carries a rule and a
+      // margin under it, and a margin is not part of a height — capping by
+      // heights left the box half a row short and sliced the last one.
+      // the content's origin: the box does not move when the list scrolls, so
+      // subtracting scrollTop from the box top is where row zero begins
+      const origin = el.getBoundingClientRect().top - el.scrollTop
+      const endOf = (i) => rows[i].getBoundingClientRect().bottom - origin
+      // never taller than the room left above the console, whatever the cap
+      const room = innerHeight - el.getBoundingClientRect().top - 96
+      let n = Math.min(LIST_ROWS, rows.length)
+      while (n > 4 && endOf(n - 1) > room) n--
+      el.style.maxHeight = `${Math.ceil(endOf(n - 1))}px`
+    }
+    el.classList.toggle('more', el.scrollHeight - el.clientHeight - el.scrollTop > 4)
+  }
+  update()
+  el.addEventListener('scroll', update, { passive: true })
+  addEventListener('resize', update)
 }
 
 function buildLegend() {

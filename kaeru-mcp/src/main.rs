@@ -16,6 +16,7 @@
 
 // `settings` rather than `config` — avoids a path-resolution clash
 // with the external `config` crate that this module imports from.
+mod api;
 mod auth;
 mod cloud_client;
 mod hygiene;
@@ -25,7 +26,6 @@ mod settings;
 mod sse;
 mod tools;
 mod utils;
-mod viz;
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -164,12 +164,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server = KaeruServer::new(store, clouds, cancel.child_token(), hygiene_enabled);
     server.hygiene_scheduler().spawn_sweeper();
 
-    // Read-only `/graph.json` export for the kaeru-viz visualizer — OFF unless
-    // `KAERU_MCP_VIZ_ENABLE` is set, so a daemon never exposes a whole-graph
-    // export unasked. When on, scope is operator-configured (no names in
-    // source): `KAERU_MCP_VIZ_INITIATIVES` is the allow ceiling (empty =
-    // nothing), `KAERU_MCP_VIZ_DENY` is always denied, and only `shared` nodes
-    // export unless `KAERU_MCP_VIZ_INCLUDE_LOCAL=1`.
+    // Read-only HTTP API (`/v1/…`, plus the legacy `/graph.json` alias) — OFF
+    // unless `KAERU_MCP_VIZ_ENABLE` is set, so a daemon never exposes a
+    // whole-graph export unasked. When on, scope is operator-configured (no
+    // names in source): `KAERU_MCP_VIZ_INITIATIVES` is the allow ceiling
+    // (empty = nothing), `KAERU_MCP_VIZ_DENY` is always denied, and only
+    // `shared` nodes export unless `KAERU_MCP_VIZ_INCLUDE_LOCAL=1`. The env
+    // names still say VIZ because operators already set them; the surface they
+    // gate is no longer viz-specific.
     let viz_enabled = matches!(
         std::env::var("KAERU_MCP_VIZ_ENABLE").ok().as_deref(),
         Some("1") | Some("true") | Some("yes")
@@ -186,10 +188,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
             })
             .unwrap_or_default()
     };
-    let viz_router = viz_enabled.then(|| {
-        viz::router(
+    let api_router = viz_enabled.then(|| {
+        api::router(
             server.store(),
-            viz::VizConfig {
+            api::ApiConfig {
                 allow: viz_csv("KAERU_MCP_VIZ_INITIATIVES"),
                 deny: viz_csv("KAERU_MCP_VIZ_DENY"),
                 include_local: matches!(
@@ -203,7 +205,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         )
     });
     if viz_enabled {
-        tracing::info!("kaeru-viz /graph.json endpoint enabled (KAERU_MCP_VIZ_ENABLE)");
+        tracing::info!(
+            "HTTP API enabled (KAERU_MCP_VIZ_ENABLE): /v1/export, and /graph.json as a deprecated alias"
+        );
     }
 
     let mut session_manager = LocalSessionManager::default();
@@ -257,8 +261,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut router = axum::Router::new()
         .nest_service(&mcp_config.mount_path, service)
         .merge(sse_router);
-    if let Some(viz_router) = viz_router {
-        router = router.merge(viz_router);
+    if let Some(api_router) = api_router {
+        router = router.merge(api_router);
     }
 
     // Bearer-token gate, layered over the whole router so it covers the
