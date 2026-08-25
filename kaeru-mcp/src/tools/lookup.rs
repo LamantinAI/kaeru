@@ -387,4 +387,54 @@ mod tests {
         let out = text_of(tagged(&store, "topic:figma", Some("t")).unwrap());
         assert!(out.contains("(1)"), "topic:figma now resolves: {out}");
     }
+
+    /// Case 1 — the agent had the name right; only the scope was wrong. This
+    /// is the dominant organic failure: `link` filtering resolution by
+    /// initiative and reporting "does not exist".
+    #[test]
+    fn a_name_that_lives_elsewhere_says_where() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("other");
+        write(&store, "the-decision", "made over there");
+        store.use_initiative("t");
+
+        let err = drill(&store, "the-decision", Some("t"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("it lives in `other`"), "{err}");
+        assert!(
+            err.contains("initiative=other"),
+            "and how to get there: {err}"
+        );
+    }
+
+    /// Case 2 — a misremembered name. The audit found the same nonexistent
+    /// name re-tried across three sessions, because nothing ever corrected it.
+    #[test]
+    fn a_misremembered_name_gets_a_did_you_mean() {
+        let store = store_t();
+        write(
+            &store,
+            "auth-token-leak",
+            "the token leaked through the proxy",
+        );
+        let err = drill(&store, "auth-token-leaks", Some("t"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("did you mean"), "{err}");
+        assert!(err.contains("auth-token-leak"), "{err}");
+    }
+
+    /// Case 3 — genuinely absent. Nothing to suggest, so point at the verb
+    /// that searches text rather than names.
+    #[test]
+    fn a_name_that_exists_nowhere_says_so_and_offers_search() {
+        let store = store_t();
+        write(&store, "unrelated", "nothing alike");
+        let err = drill(&store, "zzzznotathing", Some("t"))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("anywhere at NOW"), "{err}");
+        assert!(err.contains("`search zzzznotathing*`"), "{err}");
+    }
 }

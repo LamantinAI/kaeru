@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
+use super::fts::fuzzy_recall;
 use super::{NodeBrief, NodeFull, parse_brief};
 use crate::errors::Result;
 use crate::graph::NodeId;
@@ -343,6 +344,97 @@ pub fn count_by_type(store: &Store, node_type: &str) -> Result<usize> {
         .and_then(|v| v.get_int())
         .unwrap_or(0);
     Ok(count as usize)
+}
+
+/// Node names close to `requested` — the did-you-mean for a name that did not
+/// resolve.
+///
+/// A not-found that only says "no node named X" leaves the agent guessing, and
+/// the audit caught the same misremembered name being tried across three
+/// separate sessions: a stable false memory, re-entered because nothing ever
+/// corrected it.
+///
+/// Candidates come from the FTS index rather than a full scan of every name —
+/// this runs on a miss, and a miss should not cost a table scan. The query is
+/// built from the requested name's **tokens**, each as a prefix: the input is
+/// wrong by assumption, so feeding it to FTS whole finds nothing (a name with
+/// punctuation parses as a quoted phrase, which then has to match exactly —
+/// precisely what already failed). `auth-token-leaks` asks for `auth*`,
+/// `token*`, `leaks*` and gets `auth-token-leak` back from the first.
+///
+/// Ranking then mirrors the initiative did-you-mean (#28): containment either
+/// way, then edit distance within a length-scaled tolerance. Scoped to the
+/// active initiative, like every other recall.
+pub fn suggest_node_name(store: &Store, requested: &str) -> Result<Vec<String>> {
+    const PER_TOKEN: usize = 6;
+    const MAX_TOKENS: usize = 4;
+    const SUGGESTIONS: usize = 3;
+
+    let requested = requested.trim();
+    if requested.is_empty() {
+        return Ok(Vec::new());
+    }
+    let req = requested.to_lowercase();
+
+    let tokens: Vec<String> = req
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|t| t.chars().count() >= 3)
+        .take(MAX_TOKENS)
+        .map(String::from)
+        .collect();
+
+    // Any FTS failure yields no suggestions rather than an error: this is
+    // already the unhappy path, and a miss must never become a crash.
+    let mut names: Vec<String> = Vec::new();
+    for token in &tokens {
+        if let Ok(hits) = fuzzy_recall(store, &format!("{token}*"), PER_TOKEN) {
+            names.extend(hits.into_iter().map(|b| b.name));
+        }
+    }
+    names.sort();
+    names.dedup();
+
+    let mut ranked: Vec<(usize, String)> = names
+        .into_iter()
+        .filter(|n| n.to_lowercase() != req)
+        .filter_map(|n| {
+            let nl = n.to_lowercase();
+            let score = if nl.contains(&req) || req.contains(&nl) {
+                0
+            } else {
+                let d = levenshtein(&req, &nl);
+                if d > (nl.chars().count() / 3).max(2) {
+                    return None;
+                }
+                d
+            };
+            Some((score, n))
+        })
+        .collect();
+    ranked.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    Ok(ranked
+        .into_iter()
+        .take(SUGGESTIONS)
+        .map(|(_, n)| n)
+        .collect())
+}
+
+/// Levenshtein edit distance (two-row DP). Deliberately a second copy of the
+/// one in `initiatives.rs`: sharing it would mean a `pub(crate)` helper in a
+/// module neither owns, for twelve lines that will never diverge.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
+    let mut curr = vec![0usize; b_chars.len() + 1];
+    for (i, ca) in a.chars().enumerate() {
+        curr[0] = i + 1;
+        for (j, &cb) in b_chars.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[j + 1] = (prev[j] + cost).min(prev[j + 1] + 1).min(curr[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b_chars.len()]
 }
 
 #[cfg(test)]

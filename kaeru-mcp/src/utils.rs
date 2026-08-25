@@ -329,9 +329,63 @@ pub fn with_initiative<T>(
 }
 
 pub fn resolve_name(store: &Store, name: &str) -> Result<NodeId, McpError> {
-    kaeru_core::recall_id_by_name(store, name)
-        .map_err(to_mcp)?
-        .ok_or_else(|| to_mcp(Error::NotFound(format!("no node named {name:?} at NOW"))))
+    match kaeru_core::recall_id_by_name(store, name).map_err(to_mcp)? {
+        Some(id) => Ok(id),
+        None => Err(name_not_found(store, name)),
+    }
+}
+
+/// The not-found an agent can act on.
+///
+/// One message for every miss taught nothing: `no node named "x" at NOW` is
+/// the same answer whether the node is in the next initiative over, spelled
+/// differently, or genuinely absent — three situations with three different
+/// next moves. The audit caught one misremembered name being re-tried across
+/// three separate sessions, a false memory that nothing ever corrected.
+///
+/// The cases are checked cheapest-first, and each names its own way out:
+///
+/// 1. **Elsewhere.** The name resolves outside the active scope — the agent
+///    had it right all along and only the scope was wrong.
+/// 2. **Nearly.** Close names exist here; say which.
+/// 3. **Nowhere.** Nothing to offer, so point at the verb that searches text
+///    rather than names, and admit it may simply not be captured yet.
+fn name_not_found(store: &Store, name: &str) -> McpError {
+    // 1 — the same name, under another initiative.
+    if let Ok(Some(id)) = kaeru_core::recall_id_by_name_global(store, name) {
+        let elsewhere = kaeru_core::initiatives_of_node(store, &id).unwrap_or_default();
+        if let Some(first) = elsewhere.first() {
+            let named = elsewhere
+                .iter()
+                .map(|i| format!("`{i}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            return to_mcp(Error::NotFound(format!(
+                "no node named {name:?} in this initiative — it lives in {named}. \
+                 Pass `initiative={first}` to work there, or `attach {name} <this initiative>` \
+                 to file it here as well."
+            )));
+        }
+    }
+
+    // 2 — something close, here.
+    let near = kaeru_core::suggest_node_name(store, name).unwrap_or_default();
+    if !near.is_empty() {
+        let listed = near
+            .iter()
+            .map(|n| format!("`{n}`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return to_mcp(Error::NotFound(format!(
+            "no node named {name:?} at NOW — did you mean {listed}?"
+        )));
+    }
+
+    // 3 — nowhere.
+    to_mcp(Error::NotFound(format!(
+        "no node named {name:?} anywhere at NOW — `search {name}*` looks by text instead of by \
+         name, and `initiatives` shows what else exists. If it was never captured, capture it."
+    )))
 }
 
 /// A UUIDv7 id is 36 chars with a `-` at index 8; this cheap shape check

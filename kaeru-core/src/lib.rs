@@ -39,11 +39,11 @@ pub use mutate::{
     cite, cite_with_layer, complete_task, consolidate_in, consolidate_out, create_chain,
     delete_initiative, ensure_board, extend_chain, forget, formulate_hypothesis,
     formulate_hypothesis_with_layer, formulate_hypothesis_with_status, get_layer, get_share_policy,
-    get_visibility, improve, jot, jot_with_layer, link, link_remote, link_remote_to,
-    link_with_weight, mark_resolved, mark_under_review, occupy_slot, regenerate_chain,
-    relabel_status, release_slot, remove_status, rename_initiative, reorder_statuses,
-    resolve_review, run_experiment, set_edge_weight, set_layer, set_share_policy, set_status,
-    set_visibility, slot_holder, slots_in, supersedes, synthesise, unlink,
+    get_visibility, improve, initiatives_of_node, jot, jot_with_layer, link, link_remote,
+    link_remote_to, link_with_weight, mark_resolved, mark_under_review, occupy_slot,
+    regenerate_chain, relabel_status, release_slot, remove_status, rename_initiative,
+    reorder_statuses, resolve_review, run_experiment, set_edge_weight, set_layer, set_share_policy,
+    set_status, set_visibility, slot_holder, slots_in, supersedes, synthesise, unlink,
     update_hypothesis_status, upsert_edge, upsert_node, write_episode, write_episode_with_layer,
     write_task, write_task_with_layer,
 };
@@ -57,7 +57,8 @@ pub use recall::{
     open_tasks, overview, read_chain, read_node_full, recall_by_layer, recall_by_layer_in_tier,
     recall_id_by_name, recall_id_by_name_at, recall_id_by_name_ever, recall_id_by_name_global,
     recent_episodes, recollect_idea, recollect_outcome, recollect_provenance, reflect,
-    shortest_path, suggest_initiative, summary_view, tagged, tags_like, under_review_pinned, walk,
+    shortest_path, suggest_initiative, suggest_node_name, summary_view, tagged, tags_like,
+    under_review_pinned, walk,
 };
 pub use sanitize::strip_tool_call_markup;
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};
