@@ -320,7 +320,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Compute the shortest weighted path between two nodes WITHOUT saving it (preview). Use `chain` to persist one."
+        description = "Compute the shortest weighted path between two nodes WITHOUT writing anything — a preview. Edge weight is the cost, so stronger links (`link --strong`) make shorter paths. `chain` saves the same path as a recallable trail; use `path` to look first when you are not sure the two are meaningfully connected."
     )]
     fn path(&self, Parameters(p): Parameters<PathParams>) -> Result<CallToolResult, McpError> {
         tools::chain::path(&self.store, &p.from, &p.to, p.initiative.as_deref())
@@ -472,20 +472,22 @@ impl KaeruServer {
     }
 
     // ----- Lookup --------------------------------------------------------
-    #[tool(description = "Look up a node id by exact name. Returns the id or `(not found)`.")]
+    #[tool(
+        description = "Look up a node id by EXACT name — no fuzziness, no stemming. Returns the id alone, so follow it with `at <name>` for the full text or `drill <name>` for its neighbours. When you don't know the exact name, `search` is the verb; a miss here tells you whether the name lives in another initiative, is spelled differently, or is absent."
+    )]
     fn recall(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::lookup::recall(&self.store, &p.name, p.initiative.as_deref())
     }
 
     #[tool(
-        description = "Drill into a node — name → brief + 1-hop drill-down children (sources via derived_from, parts via part_of)."
+        description = "Drill into a node — its brief plus one hop of children (sources via derived_from, parts via part_of). The fast way to see what a memory is attached to. Bodies come back as EXCERPTS: use `at <name>` when you need the whole text, and `between a b` when you want the edges rather than the neighbours."
     )]
     fn drill(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::lookup::drill(&self.store, &p.name, p.initiative.as_deref())
     }
 
     #[tool(
-        description = "Walk derived_from ancestors of a node back to its sources — the provenance chain."
+        description = "Walk derived_from ancestors of a node back to its sources — where a conclusion CAME FROM. Use it before trusting a synthesised or settled node: it shows the raw material the claim was built on. `why` is the sibling verb for the reasoning trail; `trace` is the material one."
     )]
     fn trace(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::lookup::trace(&self.store, &p.name, p.initiative.as_deref())
@@ -498,12 +500,16 @@ impl KaeruServer {
         tools::lookup::search(&self.store, &p.query, p.limit, p.initiative.as_deref())
     }
 
-    #[tool(description = "List archival ideas — long-term cortex memory of stable ideas.")]
+    #[tool(
+        description = "List the initiative's archival IDEAS — proposals that settled without yet becoming results. Part of the cortex `awake` loads every session, so this is the deliberate deep read when you want them all rather than the layered slice. `outcomes` is the sibling for results; `settle` is how a node gets here."
+    )]
     fn ideas(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         tools::lookup::ideas(&self.store, p.initiative.as_deref())
     }
 
-    #[tool(description = "List archival outcomes — settled results.")]
+    #[tool(
+        description = "List the initiative's archival OUTCOMES — what the work actually concluded. This is the highest-value read for a fresh agent: results, not the working notes that produced them. `trace` walks any of them back to its sources; `ideas` lists the proposals that have not become results yet."
+    )]
     fn outcomes(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         tools::lookup::outcomes(&self.store, p.initiative.as_deref())
     }
@@ -516,7 +522,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Show every edge between two nodes (both directions) at NOW. Answers `why are A and B connected?`."
+        description = "Show every edge between two nodes, both directions, at NOW — answers \"are A and B connected, and how?\". Edges are typed (refers_to, causal, derived_from, contradicts, part_of, blocks, targets, supersedes, verifies, falsifies, temporal), so the answer says what KIND of connection it is. `path` finds a route when there is no direct edge; `drill` lists neighbours rather than edges."
     )]
     fn between(
         &self,
@@ -539,7 +545,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Print every assertion / retraction recorded for a node, chronologically. + means asserted, - means retracted."
+        description = "Print every assertion / retraction recorded for a node, chronologically — `+` asserted, `-` retracted. This is how you see that a node CHANGED, and when. Accepts a former name too: a node renamed by `revise` or `supersede` is still reachable by the name it used to carry. Pair with `at <name> when=<t>` to read any of those versions in full."
     )]
     fn history(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::temporal::history(&self.store, &p.name, p.initiative.as_deref())
@@ -621,14 +627,14 @@ impl KaeruServer {
 
     // ----- Review-flow ---------------------------------------------------
     #[tool(
-        description = "Flag a node for review — creates a high-significance review episode + contradicts edge. Target unchanged."
+        description = "Flag a node as doubtful — writes a review episode carrying your REASON and a contradicts edge to the target. The target itself is untouched: the doubt is recorded beside it, not written into it. It then shows up in `awake`'s under-review list until `close_review` or `resolve` settles it. Not the same as `link contradicts`, which records the edge without the reason."
     )]
     fn flag(&self, Parameters(p): Parameters<FlagParams>) -> Result<CallToolResult, McpError> {
         tools::review::flag(&self.store, &p.target, &p.reason, p.initiative.as_deref())
     }
 
     #[tool(
-        description = "Resolve an open question by recording that `by` answers it (creates a supersedes edge)."
+        description = "Resolve an open question by recording that `by` answers it — a supersedes edge from the answer to the question, so the question stays readable as history instead of being deleted. For a doubt raised by `flag`, `close_review` is the matching verb."
     )]
     fn resolve(
         &self,
@@ -688,7 +694,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Many-to-one consolidation — create a new node from several seeds, with derived_from edges to each."
+        description = "Many-to-one consolidation — write one durable node from several seeds, with a derived_from edge to each so `trace` can walk back to them. Use when scattered observations have converged into a single finding; `settle` is the one-to-one version, which promotes a single node in place."
     )]
     fn synthesise(
         &self,
@@ -738,7 +744,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Mark a task done — RMW retract+reassert with status:done, preserving id and name. Accepts task name or UUIDv7 id."
+        description = "Mark a task done — the id, name and manual tags survive; only the status moves, and `history` shows the transition. Accepts a task name or a UUIDv7 id. For any other column of the initiative's board use `set_status`; `done` is the shortcut for the terminal one."
     )]
     fn done(&self, Parameters(p): Parameters<NameScope>) -> Result<CallToolResult, McpError> {
         tools::task::done(&self.store, &p.name, p.initiative.as_deref())
@@ -795,7 +801,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Rewrite a node's body and/or rename. Implemented as retract+reassert so history sees both versions."
+        description = "Rewrite a node's body and/or rename it IN PLACE — the id survives, and `history` shows both versions. This is the verb for correcting or extending a node. Use `supersede` instead when the change is big enough to deserve a new identity, and `settle` when the node is not changing at all, just finished."
     )]
     fn revise(&self, Parameters(p): Parameters<ReviseParams>) -> Result<CallToolResult, McpError> {
         tools::metabolism::revise(
@@ -809,7 +815,7 @@ impl KaeruServer {
 
     // ----- Diagnostics / snapshot ---------------------------------------
     #[tool(
-        description = "Diagnostic snapshot — orphan nodes (no edges) and unresolved reviews (inbound contradicts)."
+        description = "Diagnostic snapshot of graph hygiene: orphan nodes (no edges at all), unresolved reviews, and dangling edges whose endpoint was retracted. Read-only. `reflect` is the fuller version — it pairs each finding with what to do about it, and adds overdue tasks, stale chains and cortex candidates."
     )]
     fn lint(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         tools::lint::lint(&self.store, p.initiative.as_deref())
@@ -871,6 +877,49 @@ mod tests {
     use rmcp::ServerHandler;
 
     use super::*;
+
+    /// The instructions had to lose most of the ontology to fit the client's
+    /// truncation budget, and the deal was that the displaced detail moves
+    /// into the `#[tool]` descriptions — which the client does NOT truncate
+    /// (#48). For a while it was only half a deal: the text got shorter
+    /// without landing anywhere else.
+    ///
+    /// This pins the second half. Each entry is a concept that used to live in
+    /// the instructions and now has to be carried by some tool's own
+    /// description. The assertion is deliberately about the surface as a
+    /// whole, not about which tool says it — where a concept belongs is a
+    /// judgement call, whether it is said at all is not.
+    #[test]
+    fn the_displaced_ontology_lives_in_the_tool_descriptions() {
+        let router = KaeruServer::tool_router();
+        let surface: String = router
+            .list_all()
+            .iter()
+            .filter_map(|t| t.description.as_deref().map(str::to_string))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for (concept, needle) in [
+            ("prefix search for inflections", "`*`"),
+            ("edge types are a closed set", "contradicts"),
+            ("strong edges shorten chains", "strong"),
+            ("excerpts are not the full text", "EXCERPT"),
+            ("a chain is a reasoning trail", "trail"),
+            ("provenance walks derived_from", "derived_from"),
+            ("the two tiers", "archival"),
+            ("the memory layers", "cold"),
+            ("tasks carry deadlines", "due"),
+            ("capture by epistemic status", "hypothesis"),
+            ("nodes resolve by id as well as name", "UUIDv7"),
+        ] {
+            assert!(
+                surface.contains(needle),
+                "the tool descriptions no longer teach {concept:?} \
+                 (looked for {needle:?}) — it was displaced from the \
+                 instructions and has to be carried here"
+            );
+        }
+    }
 
     /// Claude Code truncates MCP server instructions at roughly 2048
     /// characters, silently and mid-word. The ontology used to be 4434 chars
