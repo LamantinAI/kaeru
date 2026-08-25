@@ -53,7 +53,7 @@ pub fn set_status(store: &Store, initiative: &str, task_id: &NodeId, status: &st
 
     let body_text = current.body.clone().unwrap_or_default();
     let status_tag = format!("status:{status}");
-    let fresh = build_body_tags(&["kind:task", &status_tag], &body_text);
+    let fresh = build_body_tags(&["kind:task", &status_tag], None, &body_text);
     // Drop the re-derived families; KEEP `due:` (the deadline still stands,
     // unlike `complete_task`) and any manual tags.
     let tags = merge_tags(&current.tags, &["status:", "lang:", "topic:"], fresh);

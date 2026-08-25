@@ -6,7 +6,7 @@
 //! re-exports the public surface and houses cross-submodule helpers
 //! (timestamp generation, RMW reads).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cozo::{DataValue, ScriptMutability};
@@ -70,36 +70,90 @@ pub(crate) fn now_validity_seconds() -> u64 {
         .unwrap_or(0)
 }
 
-/// Maximum number of `topic:<word>` tags derived from a body.
+/// Maximum number of `topic:<word>` tags derived from a node.
 /// Keeps the tag list bounded; bumps later if needed.
 const MAX_TOPIC_TOKENS: usize = 5;
 
-/// Extracts up to [`MAX_TOPIC_TOKENS`] significant content tokens from
-/// `body` — lowercased, alphanumeric (Unicode-aware, so Cyrillic /
-/// CJK survive), length ≥ 3, deduped, basic stop-words removed. Used
-/// to build `topic:<word>` tags so nodes can be sliced by content via
-/// `tagged "topic:<word>"`.
+/// How much harder an author-chosen name counts than a word in the body.
+/// A name is the one string on a node somebody deliberately wrote to say what
+/// it is about, so a single mention there outranks two in the prose.
+const NAME_WEIGHT: usize = 3;
+
+/// Extracts up to [`MAX_TOPIC_TOKENS`] topical tokens from a node —
+/// lowercased, alphanumeric (Unicode-aware, so Cyrillic / CJK survive),
+/// length ≥ 3, stop-words removed. Used to build `topic:<word>` tags so nodes
+/// can be sliced by content via `tagged "topic:<word>"`.
+///
+/// Selection is by **salience, not position**. The original took the body's
+/// first five content words, which selects for however the sentence happens
+/// to open — so a project's actual subject, mentioned throughout but rarely
+/// in the opening clause, never became a tag at all, and `tagged` answered
+/// emptily on the one theme the initiative was about (#59). Tokens are scored
+/// by how often they occur, ties broken by first appearance so the result
+/// stays deterministic: the same node always derives the same tags,
+/// regardless of what else the vault holds.
+///
+/// `name` is counted at [`NAME_WEIGHT`] and should be passed only when
+/// somebody **chose** it. Pass `None` for auto-named nodes (`jot`, `task`),
+/// whose name is itself derived from the body's first words — counting it
+/// would smuggle the position bias back in through the front door.
+///
+/// A hyphenated or underscored compound yields its parts as well as itself:
+/// `figma-макет` scores `figma-макет`, `figma` and `макет`. Tags are matched
+/// exactly by `tagged`, so without this the word inside a compound is
+/// unreachable — which is exactly how a Figma-centric initiative ended up
+/// with no `topic:figma` on anything.
 ///
 /// Returns `Vec<String>` of just the tokens themselves (without the
 /// `topic:` prefix); call sites do that wrapping.
-pub(crate) fn derive_topic_tokens(body: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    for raw in body.split_whitespace() {
-        let cleaned: String = raw
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
-            .collect::<String>()
-            .to_lowercase();
-        if cleaned.chars().count() < 3 || is_stop_word(&cleaned) || !seen.insert(cleaned.clone()) {
-            continue;
-        }
-        out.push(cleaned);
-        if out.len() >= MAX_TOPIC_TOKENS {
-            break;
+pub(crate) fn derive_topic_tokens(name: Option<&str>, body: &str) -> Vec<String> {
+    // token -> (score, first appearance) — the tuple is the whole ranking.
+    let mut scores: HashMap<String, (usize, usize)> = HashMap::new();
+    let mut position = 0usize;
+
+    let mut count = |token: String, weight: usize, position: usize| {
+        let entry = scores.entry(token).or_insert((0, position));
+        entry.0 += weight;
+    };
+
+    for (text, weight) in [(name.unwrap_or(""), NAME_WEIGHT), (body, 1)] {
+        for raw in text.split_whitespace() {
+            let cleaned: String = raw
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                .collect::<String>()
+                .to_lowercase();
+            let cleaned = cleaned.trim_matches(['-', '_']).to_string();
+            if cleaned.chars().count() < 3 || is_stop_word(&cleaned) {
+                continue;
+            }
+            count(cleaned.clone(), weight, position);
+            position += 1;
+
+            // Parts of a compound are searchable in their own right.
+            if cleaned.contains(['-', '_']) {
+                for part in cleaned.split(['-', '_']) {
+                    if part.chars().count() >= 3 && !is_stop_word(part) {
+                        count(part.to_string(), weight, position);
+                        position += 1;
+                    }
+                }
+            }
         }
     }
-    out
+
+    let mut ranked: Vec<(String, usize, usize)> = scores
+        .into_iter()
+        .map(|(tok, (score, first))| (tok, score, first))
+        .collect();
+    // Most-mentioned first; ties settled by who appeared first, so the output
+    // never depends on hash iteration order.
+    ranked.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)));
+    ranked
+        .into_iter()
+        .take(MAX_TOPIC_TOKENS)
+        .map(|(tok, _, _)| tok)
+        .collect()
 }
 
 /// Tiny EN+RU stop-word list — drops the most common low-content tokens
@@ -176,10 +230,14 @@ pub(crate) fn tags_literal(tags: &[String]) -> String {
 /// Convenience: builds the tags list for a write that has a body.
 /// Combines fixed prefix tags (caller-specified) with the auto-derived
 /// `lang:*` and `topic:<word>` tags.
-pub(crate) fn build_body_tags(fixed: &[&str], body: &str) -> Vec<String> {
+///
+/// Pass `name` only when it was **chosen** — see [`derive_topic_tokens`]. The
+/// auto-naming verbs (`jot`, `task`) pass `None`, because their name is the
+/// body's own opening words and counting it would just re-weight position.
+pub(crate) fn build_body_tags(fixed: &[&str], name: Option<&str>, body: &str) -> Vec<String> {
     let mut tags: Vec<String> = fixed.iter().map(|s| (*s).to_string()).collect();
     tags.push(detect_lang_tag(body));
-    for token in derive_topic_tokens(body) {
+    for token in derive_topic_tokens(name, body) {
         tags.push(format!("topic:{token}"));
     }
     tags
@@ -622,6 +680,84 @@ pub(crate) fn read_derived_from_targets(store: &Store, src_id: &NodeId) -> Resul
         .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
         .collect();
     Ok(targets)
+}
+
+#[cfg(test)]
+mod topic_tests {
+    use super::derive_topic_tokens;
+
+    /// The bug #59 is named after: the theme runs through the whole note but
+    /// never opens it, so a first-five-words rule never tagged it.
+    #[test]
+    fn the_repeated_subject_wins_over_the_opening_words() {
+        let tokens = derive_topic_tokens(
+            None,
+            "Yesterday morning during standup we agreed the figma export keeps \
+             dropping layer names; figma support confirmed it, so figma is the \
+             blocker until they ship a fix",
+        );
+        assert!(
+            tokens.contains(&"figma".to_string()),
+            "the subject is tagged: {tokens:?}"
+        );
+    }
+
+    /// A chosen name is the one string somebody wrote to say what the node is
+    /// about, so one mention there beats two in the prose.
+    #[test]
+    fn a_chosen_name_outweighs_the_body() {
+        let tokens = derive_topic_tokens(
+            Some("figma-export-broken"),
+            "the pipeline drops values while writing the manifest, twice today",
+        );
+        assert!(tokens.contains(&"figma".to_string()), "{tokens:?}");
+        assert!(tokens.contains(&"export".to_string()), "{tokens:?}");
+    }
+
+    /// Tags are matched exactly, so a word buried in a compound has to be
+    /// reachable on its own — this is the literal `topic:figma` miss.
+    #[test]
+    fn a_compound_is_findable_by_its_parts() {
+        let tokens = derive_topic_tokens(None, "правим figma-макет и ещё раз figma-макет");
+        assert!(tokens.contains(&"figma-макет".to_string()), "{tokens:?}");
+        assert!(
+            tokens.contains(&"figma".to_string()),
+            "and by its parts: {tokens:?}"
+        );
+        assert!(tokens.contains(&"макет".to_string()), "{tokens:?}");
+    }
+
+    /// An auto-named node passes `None`, so its name — the body's own opening
+    /// words — cannot smuggle the position bias back in.
+    #[test]
+    fn an_auto_name_is_not_counted_twice() {
+        let body = "alpha alpha beta beta beta";
+        let auto = derive_topic_tokens(None, body);
+        assert_eq!(auto.first(), Some(&"beta".to_string()), "{auto:?}");
+    }
+
+    /// Same input, same tags — always. Ranking must not depend on hash order,
+    /// or a node's tags would differ between runs.
+    #[test]
+    fn derivation_is_deterministic() {
+        let body = "cache cache index index storage retry retry retry";
+        let first = derive_topic_tokens(Some("storage-cache"), body);
+        for _ in 0..20 {
+            assert_eq!(derive_topic_tokens(Some("storage-cache"), body), first);
+        }
+    }
+
+    /// Bounded, and stop-words still don't burn slots.
+    #[test]
+    fn the_tag_set_stays_bounded_and_content_bearing() {
+        let tokens = derive_topic_tokens(None, &"that will your from with ".repeat(50));
+        assert!(
+            tokens.is_empty(),
+            "pure stop-words yield nothing: {tokens:?}"
+        );
+        let many = derive_topic_tokens(None, "one two three four five six seven eight nine");
+        assert!(many.len() <= 5, "{many:?}");
+    }
 }
 
 #[cfg(test)]

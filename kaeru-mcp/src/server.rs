@@ -509,7 +509,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "List nodes whose `tags` array contains the given tag — exact match. Common tag families: `kind:<type>` (observation, experiment, idea, reference, …), `sig:<level>` (low/medium/high), `role:<role>` (jot/review/synthesise/revised), `lang:<code>` (ru/en/mixed/other — auto-detected from body), `topic:<word>` (up to 5 content tokens auto-derived from body — same form as in body, no stemming), `status:<state>` (only for hypotheses). For loose matching use the `search` tool with `prefix*` instead. Newest-first when multiple match."
+        description = "List nodes whose `tags` array contains the given tag — exact match. Common tag families: `kind:<type>` (observation, experiment, idea, reference, …), `sig:<level>` (low/medium/high), `role:<role>` (jot/review/synthesise/revised), `lang:<code>` (ru/en/mixed/other — auto-detected from body), `topic:<word>` (up to 5 auto-derived tokens — a node\'s MOST-MENTIONED words, weighted toward a name somebody chose; a compound like `figma-макет` is also tagged by its parts), `status:<state>` (hypotheses and tasks). Exact match, no stemming — but a miss comes back with the near tags that DO exist in scope, so an empty answer tells you what to ask instead. For loose matching over text use `search prefix*`. Newest-first when multiple match."
     )]
     fn tagged(&self, Parameters(p): Parameters<TaggedParams>) -> Result<CallToolResult, McpError> {
         tools::lookup::tagged(&self.store, &p.tag, p.initiative.as_deref())

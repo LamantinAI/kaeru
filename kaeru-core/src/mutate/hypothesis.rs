@@ -61,7 +61,7 @@ pub fn formulate_hypothesis_with_status(
     params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
     let status_tag = format!("status:{}", status.as_str());
-    let all_tags = build_body_tags(&[status_tag.as_str()], claim);
+    let all_tags = build_body_tags(&[status_tag.as_str()], Some(name), claim);
     let tags = tags_literal(&all_tags);
     let script = format!(
         r#"
@@ -100,7 +100,7 @@ pub fn run_experiment(
     p1.insert("id".to_string(), DataValue::Str(id.clone().into()));
     p1.insert("name".to_string(), DataValue::Str(name.into()));
     p1.insert("body".to_string(), DataValue::Str(method.into()));
-    let all_tags = build_body_tags(&["kind:experiment"], method);
+    let all_tags = build_body_tags(&["kind:experiment"], Some(name), method);
     let tags = tags_literal(&all_tags);
     let s1 = format!(
         r#"
@@ -169,7 +169,7 @@ pub fn update_hypothesis_status(
 
     let status_full = format!("status:{}", new_status.as_str());
     let fresh: Vec<String> = match current.body.as_deref() {
-        Some(b) => build_body_tags(&[status_full.as_str()], b),
+        Some(b) => build_body_tags(&[status_full.as_str()], Some(&current.name), b),
         None => vec![status_full.clone()],
     };
     let tags = merge_tags(&current.tags, &["status:", "lang:", "topic:"], fresh);

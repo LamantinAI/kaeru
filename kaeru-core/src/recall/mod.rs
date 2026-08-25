@@ -52,7 +52,7 @@ pub use recent::recent_episodes;
 pub use recollect::{recollect_idea, recollect_outcome, recollect_provenance};
 pub use reflect::{ReflectionReport, reflect};
 pub use summary_view::{SummaryView, summary_view};
-pub use tagged::tagged;
+pub use tagged::{tagged, tags_like};
 pub use under_review::under_review_pinned;
 pub use walk::walk;
 

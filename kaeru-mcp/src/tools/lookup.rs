@@ -127,8 +127,37 @@ pub fn tagged(
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let briefs = kaeru_core::tagged(store, tag).map_err(to_mcp)?;
-        Ok(text(&render_briefs(&format!("tagged `{tag}`"), &briefs)))
+        let mut out = render_briefs(&format!("tagged `{tag}`"), &briefs);
+        // An exact-match miss reads exactly like an empty vault, and the first
+        // one is what taught agents to stop reaching for this verb. Turn it
+        // into a menu of what the scope actually carries.
+        if briefs.is_empty() {
+            out.push_str(&tagged_miss_hint(store, tag));
+        }
+        Ok(text(&out))
     })
+}
+
+/// `↳ …` for a `tagged` that matched nothing: the near tags that do exist,
+/// or — when nothing is close — the verb that searches text instead of tags.
+fn tagged_miss_hint(store: &Store, tag: &str) -> String {
+    // Match on the value, not the family: someone asking for `topic:figma`
+    // wants `topic:figma-макет`, and searching the whole string would only
+    // ever find the `topic:` prefix it already knows about.
+    let fragment = tag.split_once(':').map(|(_, v)| v).unwrap_or(tag);
+    let near = kaeru_core::tags_like(store, fragment).unwrap_or_default();
+    let near: Vec<&(String, usize)> = near.iter().filter(|(t, _)| t != tag).collect();
+    if near.is_empty() {
+        return format!(
+            "\n↳ no tag like that in scope — search the text instead: `search {fragment}*`."
+        );
+    }
+    let listed = near
+        .iter()
+        .map(|(t, n)| format!("`{t}` ({n})"))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    format!("\n↳ nothing carries that exact tag. In scope: {listed}.")
 }
 
 pub fn between(
@@ -161,7 +190,7 @@ mod tests {
     use kaeru_core::{EpisodeKind, Significance, Store};
     use rmcp::model::CallToolResult;
 
-    use super::{drill, recall, search};
+    use super::{drill, recall, search, tagged};
     use kaeru_core::EdgeType;
 
     fn store_t() -> Store {
@@ -311,5 +340,51 @@ mod tests {
         write(&store, "lonely", "x");
         let out = text_of(drill(&store, "lonely", Some("t")).unwrap());
         assert!(!out.contains("saved trail"), "no trail, no hint: {out}");
+    }
+
+    /// The failure that killed the verb: an exact-match miss reads exactly
+    /// like an empty vault. It has to say what the scope does carry.
+    #[test]
+    fn a_tag_miss_offers_the_near_tags_that_exist() {
+        let store = store_t();
+        write(
+            &store,
+            "the-note",
+            "правим figma-макет и ещё раз figma-макет",
+        );
+        let out = text_of(tagged(&store, "topic:figma-макет", Some("t")).unwrap());
+        assert!(out.contains("(1)"), "the exact tag works: {out}");
+
+        // A near miss on the same word — the literal #59 report.
+        let miss = text_of(tagged(&store, "topic:figma-file", Some("t")).unwrap());
+        assert!(miss.contains("(0)"), "still an honest zero: {miss}");
+        assert!(
+            miss.contains("topic:figma-макет"),
+            "and names what is there: {miss}"
+        );
+    }
+
+    /// Nothing close means nothing to offer — point at the verb that reads
+    /// text rather than inventing a suggestion.
+    #[test]
+    fn a_tag_miss_with_nothing_close_points_at_search() {
+        let store = store_t();
+        write(&store, "the-note", "unrelated content entirely");
+        let out = text_of(tagged(&store, "topic:zzzznope", Some("t")).unwrap());
+        assert!(out.contains("`search zzzznope*`"), "{out}");
+    }
+
+    /// The compound fix, end to end through a real write: the word inside a
+    /// compound is reachable as a tag of its own.
+    #[test]
+    fn a_word_inside_a_compound_is_taggable() {
+        let store = store_t();
+        write(
+            &store,
+            "the-note",
+            "правим figma-макет и ещё раз figma-макет",
+        );
+        let out = text_of(tagged(&store, "topic:figma", Some("t")).unwrap());
+        assert!(out.contains("(1)"), "topic:figma now resolves: {out}");
     }
 }

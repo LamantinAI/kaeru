@@ -288,10 +288,13 @@ Every captured node automatically gets these tags:
 - `sig:<level>` — `sig:low` / `sig:medium` / `sig:high` (significance, only for episodes that have it).
 - `role:<role>` — `role:jot` / `role:review` / `role:synthesise` / `role:revised` (when applicable).
 - `lang:<code>` — `lang:ru` / `lang:en` / `lang:mixed` / `lang:other` (auto-detected from body script).
-- `topic:<word>` — up to 5 content tokens auto-derived from the body.
-  E.g. `jot "обнаружил утечку токена"` adds `topic:обнаружил`,
-  `topic:утечку`, `topic:токена`.
-- `status:<state>` — only for hypotheses (`status:open`, `status:supported`, `status:refuted`, `status:inconclusive`).
+- `topic:<word>` — up to 5 auto-derived tokens: the node's **most-mentioned**
+  words, not its first ones. A name you chose counts triple, so
+  `episode "figma-export-broken" "the pipeline drops layer names"` tags
+  `topic:figma` and `topic:export` ahead of anything in the prose. A compound
+  is tagged by its parts too — `figma-макет` also yields `topic:figma` and
+  `topic:макет`, so the word inside it stays reachable.
+- `status:<state>` — hypotheses (`status:open`, `status:supported`, `status:refuted`, `status:inconclusive`) and tasks (`status:open`, `status:done`, or the initiative's own board vocabulary).
 
 Examples:
 ```bash
@@ -306,6 +309,10 @@ Topic tags use the **exact form from the body** — same as `search`,
 no stemming. If you stored "утечку", topic tag is `topic:утечку`,
 not `topic:утечка`. For loose matching use `search "<root>*"`
 instead of `tagged`.
+
+A miss is not a dead end: `tagged` answers an unmatched tag with the near
+tags that actually exist in scope (and their counts), so the empty answer
+tells you what to ask for instead.
 
 ## Reason (hypothesis cycle)
 

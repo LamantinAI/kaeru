@@ -77,9 +77,16 @@ pub fn mark_under_review(store: &Store, target_id: &NodeId, reason: &str) -> Res
     let assert_secs = now_validity_seconds();
     let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
     p1.insert("id".to_string(), DataValue::Str(review_id.clone().into()));
-    p1.insert("name".to_string(), DataValue::Str(review_name.into()));
+    p1.insert(
+        "name".to_string(),
+        DataValue::Str(review_name.clone().into()),
+    );
     p1.insert("body".to_string(), DataValue::Str(reason.into()));
-    let all_tags = build_body_tags(&["kind:observation", "sig:high", "role:review"], reason);
+    let all_tags = build_body_tags(
+        &["kind:observation", "sig:high", "role:review"],
+        Some(&review_name),
+        reason,
+    );
     let tags = tags_literal(&all_tags);
     let s1 = format!(
         r#"
@@ -192,9 +199,16 @@ pub fn resolve_review(
             "id".to_string(),
             DataValue::Str(resolution_id.clone().into()),
         );
-        pn.insert("name".to_string(), DataValue::Str(resolution_name.into()));
+        pn.insert(
+            "name".to_string(),
+            DataValue::Str(resolution_name.clone().into()),
+        );
         pn.insert("body".to_string(), DataValue::Str(note.into()));
-        let all_tags = build_body_tags(&["kind:observation", "sig:high", "role:resolution"], note);
+        let all_tags = build_body_tags(
+            &["kind:observation", "sig:high", "role:resolution"],
+            Some(&resolution_name),
+            note,
+        );
         let tags = tags_literal(&all_tags);
         let sn = format!(
             r#"

@@ -55,7 +55,7 @@ All capture verbs take `layer` (default `warm`) and `visibility: shared` (captur
 | `drill` | A node plus its drill-down children (excerpts). |
 | `trace` | Follow provenance (`derived_from`) back to sources. |
 | `between` | The edges linking two nodes, both directions. |
-| `tagged` | Read by tag. |
+| `tagged` | Read by tag, exact match. `topic:` tags are a node's most-mentioned words (a chosen name counts triple, compounds are also tagged by their parts). A miss returns the near tags that exist in scope rather than a bare empty list. |
 | `at` | Read a node **in full** (whole body + every field), at NOW or as-of a past `when:`. |
 | `history` | The assertion / retraction timeline of a node. |
 | `surface` | Pull archived `cold` / `frozen` layers that `awake` withholds. |

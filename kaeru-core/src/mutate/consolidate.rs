@@ -140,7 +140,7 @@ fn consolidate(
     // name and body carry over unchanged and dropping the tags would be a
     // silent edit nobody asked for.
     let kind_tag = format!("kind:{}", new_type_str);
-    let fresh = build_body_tags(&[kind_tag.as_str()], new_body);
+    let fresh = build_body_tags(&[kind_tag.as_str()], Some(new_name), new_body);
     let all_tags = merge_tags(&inherited_tags, &["kind:", "lang:", "topic:"], fresh);
     let tags = tags_literal(&all_tags);
     let s2 = format!(

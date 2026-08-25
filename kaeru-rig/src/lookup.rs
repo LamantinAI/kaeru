@@ -3,7 +3,7 @@
 
 use kaeru_core::{
     Layer, at, between, fuzzy_recall, history, read_node_full, recall_by_layer, recollect_idea,
-    recollect_outcome, recollect_provenance, summary_view, tagged,
+    recollect_outcome, recollect_provenance, summary_view, tagged, tags_like,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -173,12 +173,27 @@ mem_tool!(
     Tagged,
     "kaeru_tagged",
     "List every memory carrying an exact tag, e.g. `kind:experiment`, `sig:high`, `topic:auth`, \
-     `status:open`, `lang:ru`. Tags use the exact stored form (no stemming).",
+     `status:open`, `lang:ru`. Tags use the exact stored form (no stemming); `topic:` tags are a \
+     node's most-mentioned words, weighted toward a chosen name. A miss comes back with the near \
+     tags that do exist rather than a bare empty list.",
     TaggedArgs,
     { "type": "object", "properties": {
         "tag": { "type": "string", "description": "exact tag, e.g. topic:auth" }
     }, "required": ["tag"] },
     |store, args| match tagged(store, &args.tag) {
+        Ok(v) if v.is_empty() => {
+            // Exact-match is right for a slice, but it makes every near miss
+            // look like an empty vault — which is what taught agents to stop
+            // reaching for this verb at all.
+            let fragment = args.tag.split_once(':').map(|(_, v)| v).unwrap_or(&args.tag);
+            let near: Vec<serde_json::Value> = tags_like(store, fragment)
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|(t, _)| *t != args.tag)
+                .map(|(t, n)| json!({ "tag": t, "nodes": n }))
+                .collect();
+            json!({ "tagged": [], "near": near })
+        }
         Ok(v) => json!({ "tagged": briefs(&v) }),
         Err(e) => json!({ "error": e.to_string() }),
     }

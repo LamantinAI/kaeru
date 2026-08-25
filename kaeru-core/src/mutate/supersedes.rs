@@ -74,7 +74,7 @@ pub fn supersedes(
     p2.insert("name".to_string(), DataValue::Str(new_name.into()));
     p2.insert("body".to_string(), DataValue::Str(new_body.into()));
     let kind_tag = format!("kind:{}", new_type.as_str());
-    let all_tags = build_body_tags(&[kind_tag.as_str()], new_body);
+    let all_tags = build_body_tags(&[kind_tag.as_str()], Some(new_name), new_body);
     let tags = tags_literal(&all_tags);
     let s2 = format!(
         r#"

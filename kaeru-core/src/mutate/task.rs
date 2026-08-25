@@ -59,7 +59,7 @@ pub fn write_task_with_layer(
         due_tag = format!("due:{d}");
         fixed.push(&due_tag);
     }
-    let all_tags = build_body_tags(&fixed, body);
+    let all_tags = build_body_tags(&fixed, None, body);
     let tags = tags_literal(&all_tags);
 
     let now_secs = now_validity_seconds();
@@ -94,7 +94,7 @@ pub fn complete_task(store: &Store, task_id: &NodeId) -> Result<()> {
         .ok_or_else(|| Error::NotFound(format!("task {task_id} not found at NOW")))?;
     let body_text = current.body.clone().unwrap_or_default();
 
-    let fresh = build_body_tags(&["kind:task", "status:done"], &body_text);
+    let fresh = build_body_tags(&["kind:task", "status:done"], None, &body_text);
     let tags = merge_tags(
         &current.tags,
         &["status:", "due:", "lang:", "topic:"],

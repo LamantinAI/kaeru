@@ -85,7 +85,11 @@ pub fn improve(store: &Store, node_id: &NodeId, new_name: &str, new_body: &str) 
         .ok_or_else(|| Error::NotFound(format!("node {node_id} not found at NOW")))?;
 
     let kind_tag = format!("kind:{}", current.type_);
-    let fresh = build_body_tags(&[kind_tag.as_str(), "role:revised"], new_body);
+    let fresh = build_body_tags(
+        &[kind_tag.as_str(), "role:revised"],
+        Some(new_name),
+        new_body,
+    );
     let tags = merge_tags(&current.tags, &["lang:", "topic:"], fresh);
 
     // Re-assert first, retract second, same timestamp — see

@@ -56,7 +56,7 @@ pub fn cite_with_layer(
     params.insert("properties".to_string(), DataValue::Json(JsonData(payload)));
     params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
-    let all_tags = build_body_tags(&["kind:reference"], body);
+    let all_tags = build_body_tags(&["kind:reference"], Some(name), body);
     let tags = tags_literal(&all_tags);
     let script = format!(
         r#"

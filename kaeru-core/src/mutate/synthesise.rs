@@ -52,7 +52,7 @@ pub fn synthesise(
     p1.insert("body".to_string(), DataValue::Str(body.into()));
     let kind_tag = format!("kind:{}", target_type_str);
     let role_tag = "role:synthesise".to_string();
-    let all_tags = build_body_tags(&[kind_tag.as_str(), role_tag.as_str()], body);
+    let all_tags = build_body_tags(&[kind_tag.as_str(), role_tag.as_str()], Some(name), body);
     let tags = tags_literal(&all_tags);
     let s1 = format!(
         r#"

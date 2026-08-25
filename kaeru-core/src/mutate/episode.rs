@@ -55,7 +55,7 @@ pub fn write_episode_with_layer(
     // trips `eval::not_constant`.
     let kind_tag = format!("kind:{}", kind.as_str());
     let sig_tag = format!("sig:{}", significance.as_str());
-    let all_tags = build_body_tags(&[kind_tag.as_str(), sig_tag.as_str()], body);
+    let all_tags = build_body_tags(&[kind_tag.as_str(), sig_tag.as_str()], Some(name), body);
     let tags = tags_literal(&all_tags);
     let now_secs = now_validity_seconds();
     let script = format!(
@@ -101,7 +101,7 @@ pub fn jot_with_layer(store: &Store, body: &str, layer: Layer) -> Result<NodeId>
     params.insert("body".to_string(), DataValue::Str(body.into()));
     params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
-    let all_tags = build_body_tags(&["kind:observation", "sig:low", "role:jot"], body);
+    let all_tags = build_body_tags(&["kind:observation", "sig:low", "role:jot"], None, body);
     let tags = tags_literal(&all_tags);
     let now_secs = now_validity_seconds();
     let script = format!(
