@@ -48,7 +48,7 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 - **`audit_event` is a first-class node type** — every mutation writes an audit node, so changes to memory themselves become reasoning surface for the agent. Substrate-level history (`Validity`) and operational audit (audit-event nodes) stay separate: the substrate tracks *what was*, the audit nodes track *who did it and why*.
 - **Per-initiative scope through junction relations** rather than column filtering — RocksDB prefix-scan gives O(log n + k) on the active initiative.
 - **Retrieval is structural-first** — explicit name lookup, typed graph traversal, summary views. Cozo FTS for fuzzy fallback when an exact name is forgotten. No vector/embedding layer today: Cozo supports HNSW, but kaeru wires none of it — a vector fallback is possible future work, not a current feature.
-- **Two-tier with explicit promotion** — `settle` moves an operational draft into the archival tier as a deliberate, logged operation (`reopen` mirrors it back). Provenance (`derived_from`) survives the tier boundary.
+- **Two-tier with explicit promotion** — `settle <name>` moves a node that stopped changing into the archival tier as a deliberate, logged operation, carrying its name, body and manual tags over unchanged (`unsettle` mirrors it back). Provenance (`derived_from`) survives the tier boundary.
 - **Single binary, embedded substrate** — `kaeru` runs in-process with the agent. No server, no network. Vault on disk under a platform-specific default (Linux `$XDG_DATA_HOME/kaeru`, macOS `~/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`); override with `KAERU_VAULT_PATH`.
 
 ## Layout

@@ -432,8 +432,8 @@ impl KaeruMemory {
     pub fn settle(&self) -> Settle {
         Settle(self.clone())
     }
-    pub fn reopen(&self) -> Reopen {
-        Reopen(self.clone())
+    pub fn unsettle(&self) -> Unsettle {
+        Unsettle(self.clone())
     }
     pub fn synthesise(&self) -> Synthesise {
         Synthesise(self.clone())
@@ -574,7 +574,7 @@ impl KaeruMemory {
                 revise,
                 supersede,
                 resolve,
-                reopen,
+                unsettle,
                 // maintain
                 hygiene,
                 reflect,

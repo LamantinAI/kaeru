@@ -361,11 +361,13 @@ kaeru --initiative X resolve <question> --by <answer-name>
 ## Evolve (graph metabolism)
 
 ```bash
-# Promote operational draft → archival (preserves provenance):
-kaeru --initiative X settle <draft> --as idea --name <new> --body "..."
+# Promote a node that stopped changing → archival (preserves provenance).
+# The name alone is enough: name, body and manual tags carry over, and the
+# type is derived (episode/task → outcome, draft/scratch → idea).
+kaeru --initiative X settle <name> [--as idea] [--name <new>] [--body "..."]
 
-# Bring archival back to operational for revision:
-kaeru --initiative X reopen <archival> --as draft --name <new> --body "..."
+# Bring archival back to operational for revision (same in-place defaults):
+kaeru --initiative X unsettle <name> [--as draft]
 
 # Many-to-one consolidation:
 kaeru --initiative X synthesise --from a,b,c --as summary \

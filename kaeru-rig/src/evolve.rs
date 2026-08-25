@@ -2,79 +2,127 @@
 //! revision, and layer re-filing.
 
 use kaeru_core::{
-    Layer, NodeType, Tier, consolidate_in, consolidate_out, forget, improve, node_brief_by_id,
-    set_layer, supersedes, synthesise,
+    Layer, NodeType, Store, Tier, consolidate_in, consolidate_out, forget, improve,
+    node_brief_by_id, read_node_full, set_layer, supersedes, synthesise,
 };
 use serde::Deserialize;
 use serde_json::json;
 
 use crate::{mem_tool, resolve};
 
+/// What a promote-in-place inherits from the node it replaces: the type it
+/// should become, its current name, and its full body.
+///
+/// Consolidation used to demand all three re-authored on every call, and the
+/// price is why the tier model went unused — four outcomes across 1245 nodes,
+/// while the same finished work got demoted to a cold layer instead. `derive`
+/// turns the node's own type into the successor's default: `settled_form` on
+/// the way out, identity on the way back in.
+fn inherited(
+    store: &Store,
+    id: &str,
+    asked_type: Option<&str>,
+    derive: impl Fn(NodeType) -> NodeType,
+) -> Result<(NodeType, String, String), String> {
+    let full = read_node_full(store, &id.to_string())
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("no node {id:?} at NOW"))?;
+    let ty = match asked_type {
+        Some(t) => t.parse::<NodeType>().map_err(|e| e.to_string())?,
+        None => derive(
+            full.node_type
+                .parse::<NodeType>()
+                .map_err(|e| e.to_string())?,
+        ),
+    };
+    Ok((ty, full.name, full.body.unwrap_or_default()))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SettleArgs {
     pub name_or_id: String,
     #[serde(default)]
     pub as_type: Option<String>,
-    pub name: String,
-    pub body: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
 }
 
 mem_tool!(
     /// `kaeru_settle` — promote an operational draft to archival (keeps provenance).
     Settle,
     "kaeru_settle",
-    "Promote an operational draft to the archival tier as settled knowledge, preserving a \
-     `derived_from` link to the original. `as_type` is the archival type (idea, outcome, concept, \
-     entity, summary); defaults to idea.",
+    "Promote a node that stopped changing into the archival tier as settled knowledge, \
+     preserving a `derived_from` link to the original. The name alone is enough: with no other \
+     argument the node keeps its name and full body, and the type is derived (episode/task/\
+     experiment/hypothesis -> outcome; draft/scratch -> idea). Don't demote finished work to a \
+     cold layer instead — a layer is how eagerly a node loads, a tier is whether it is still in \
+     flight.",
     SettleArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "operational node name or id" },
-        "as_type": { "type": "string", "description": "archival type (default idea)" },
-        "name": { "type": "string", "description": "name for the settled node" },
-        "body": { "type": "string", "description": "settled, stable form of the content" }
-    }, "required": ["name_or_id", "name", "body"] },
+        "name_or_id": { "type": "string", "description": "node name or id" },
+        "as_type": { "type": "string", "description": "optional archival type; derived from the node when omitted" },
+        "name": { "type": "string", "description": "optional new name; the node's own is kept when omitted" },
+        "body": { "type": "string", "description": "optional new body; the node's own is kept when omitted" }
+    }, "required": ["name_or_id"] },
     |store, args| {
         let id = resolve(store, &args.name_or_id);
-        match args.as_type.as_deref().unwrap_or("idea").parse::<NodeType>() {
-            Ok(ty) => match consolidate_out(store, &id, ty, &args.name, &args.body) {
-                Ok(new_id) => json!({ "settled": true, "id": new_id }),
-                Err(e) => json!({ "settled": false, "error": e.to_string() }),
-            },
-            Err(e) => json!({ "settled": false, "error": e.to_string() }),
+        match inherited(store, &id, args.as_type.as_deref(), |t| t.settled_form()) {
+            Ok((ty, name, body)) => {
+                let name = args.name.as_deref().unwrap_or(&name);
+                let body = args.body.as_deref().unwrap_or(&body);
+                match consolidate_out(store, &id, ty, name, body) {
+                    Ok(new_id) => json!({
+                        "settled": true, "id": new_id, "name": name, "type": ty.as_str()
+                    }),
+                    Err(e) => json!({ "settled": false, "error": e.to_string() }),
+                }
+            }
+            Err(e) => json!({ "settled": false, "error": e }),
         }
     }
 );
 
 #[derive(Debug, Deserialize)]
-pub struct ReopenArgs {
+pub struct UnsettleArgs {
     pub name_or_id: String,
     #[serde(default)]
     pub as_type: Option<String>,
-    pub name: String,
-    pub body: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub body: Option<String>,
 }
 
 mem_tool!(
-    /// `kaeru_reopen` — bring archival knowledge back to operational for revision.
-    Reopen,
-    "kaeru_reopen",
-    "Bring an archival node back into the operational tier for active revision, preserving \
-     provenance. `as_type` is the operational type (draft, scratch, …); defaults to draft.",
-    ReopenArgs,
+    /// `kaeru_unsettle` — bring archival knowledge back to operational for revision.
+    Unsettle,
+    "kaeru_unsettle",
+    "Bring an archival node back into the operational tier for active revision — `kaeru_settle`'s \
+     mirror, for settled knowledge that turned out to still be in flight. The name alone is \
+     enough: name, body and type all carry over unless you say otherwise.",
+    UnsettleArgs,
     { "type": "object", "properties": {
         "name_or_id": { "type": "string", "description": "archival node name or id" },
-        "as_type": { "type": "string", "description": "operational type (default draft)" },
-        "name": { "type": "string", "description": "name for the reopened node" },
-        "body": { "type": "string", "description": "working form of the content" }
-    }, "required": ["name_or_id", "name", "body"] },
+        "as_type": { "type": "string", "description": "optional operational type; the node's own is kept when omitted" },
+        "name": { "type": "string", "description": "optional new name; the node's own is kept when omitted" },
+        "body": { "type": "string", "description": "optional new body; the node's own is kept when omitted" }
+    }, "required": ["name_or_id"] },
     |store, args| {
         let id = resolve(store, &args.name_or_id);
-        match args.as_type.as_deref().unwrap_or("draft").parse::<NodeType>() {
-            Ok(ty) => match consolidate_in(store, &id, ty, &args.name, &args.body) {
-                Ok(new_id) => json!({ "reopened": true, "id": new_id }),
-                Err(e) => json!({ "reopened": false, "error": e.to_string() }),
-            },
-            Err(e) => json!({ "reopened": false, "error": e.to_string() }),
+        match inherited(store, &id, args.as_type.as_deref(), |t| t) {
+            Ok((ty, name, body)) => {
+                let name = args.name.as_deref().unwrap_or(&name);
+                let body = args.body.as_deref().unwrap_or(&body);
+                match consolidate_in(store, &id, ty, name, body) {
+                    Ok(new_id) => json!({
+                        "unsettled": true, "id": new_id, "name": name, "type": ty.as_str()
+                    }),
+                    Err(e) => json!({ "unsettled": false, "error": e.to_string() }),
+                }
+            }
+            Err(e) => json!({ "unsettled": false, "error": e }),
         }
     }
 );
@@ -137,24 +185,28 @@ mem_tool!(
     Supersede,
     "kaeru_supersede",
     "Create a new version that supersedes an old node — bi-temporally retracts the old one and \
-     links the new with a `supersedes` edge. `as_type` defaults to draft, `tier` to operational.",
+     links the new with a `supersedes` edge. `as_type` defaults to the old node's own type — \
+     replacing a node rarely changes what kind of thing it is. `tier` defaults from that type.",
     SupersedeArgs,
     { "type": "object", "properties": {
         "old": { "type": "string", "description": "node name or id to supersede" },
-        "as_type": { "type": "string", "description": "new node type (default draft)" },
-        "tier": { "type": "string", "description": "operational | archival (default operational)" },
+        "as_type": { "type": "string", "description": "optional new node type; the old node's own is kept when omitted" },
+        "tier": { "type": "string", "description": "operational | archival (defaults from the type)" },
         "name": { "type": "string", "description": "name for the new version" },
         "body": { "type": "string", "description": "the new content" }
     }, "required": ["old", "name", "body"] },
     |store, args| {
         let old = resolve(store, &args.old);
-        let ty = match args.as_type.as_deref().unwrap_or("draft").parse::<NodeType>() {
-            Ok(t) => t,
-            Err(e) => return json!({ "superseded": false, "error": e.to_string() }),
+        let ty = match inherited(store, &old, args.as_type.as_deref(), |t| t) {
+            Ok((t, _, _)) => t,
+            Err(e) => return json!({ "superseded": false, "error": e }),
         };
-        let tier = match args.tier.as_deref().unwrap_or("operational").parse::<Tier>() {
-            Ok(t) => t,
-            Err(e) => return json!({ "superseded": false, "error": e.to_string() }),
+        let tier = match args.tier.as_deref() {
+            Some(t) => match t.parse::<Tier>() {
+                Ok(t) => t,
+                Err(e) => return json!({ "superseded": false, "error": e.to_string() }),
+            },
+            None => ty.default_tier(),
         };
         match supersedes(store, &old, ty, tier, &args.name, &args.body) {
             Ok(id) => json!({ "superseded": true, "id": id }),

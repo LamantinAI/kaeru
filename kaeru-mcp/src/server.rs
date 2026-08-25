@@ -623,7 +623,7 @@ impl KaeruServer {
 
     // ----- Consolidation -------------------------------------------------
     #[tool(
-        description = "Promote operational draft → archival counterpart. Provenance via derived_from is replicated across the tier."
+        description = "Promote a node that stopped changing from the operational tier into the archival one — this is how knowledge hardens. `settle <name>` ALONE IS ENOUGH: with no new_* the node keeps its name and its full body, and the type is derived (episode/task/experiment/hypothesis → outcome; draft/scratch → idea). Provenance via derived_from is replicated across the tier boundary, and manual tags come with it. Don't demote finished work to a cold layer instead — a layer is how eagerly a node loads, a tier is whether it is still in flight."
     )]
     fn settle(
         &self,
@@ -632,26 +632,26 @@ impl KaeruServer {
         tools::consolidate::settle(
             &self.store,
             &p.source,
-            &p.new_type,
-            &p.new_name,
-            &p.new_body,
+            p.new_type.as_deref(),
+            p.new_name.as_deref(),
+            p.new_body.as_deref(),
             p.initiative.as_deref(),
         )
     }
 
     #[tool(
-        description = "Bring an archival node back into the operational tier (mirror of `settle`)."
+        description = "Bring an archival node back into the operational tier — `settle`'s mirror, for settled knowledge that turned out to still be in flight. `unsettle <name>` alone is enough: name, body and type all carry over unless you say otherwise."
     )]
-    fn reopen(
+    fn unsettle(
         &self,
         Parameters(p): Parameters<ConsolidateParams>,
     ) -> Result<CallToolResult, McpError> {
-        tools::consolidate::reopen(
+        tools::consolidate::unsettle(
             &self.store,
             &p.source,
-            &p.new_type,
-            &p.new_name,
-            &p.new_body,
+            p.new_type.as_deref(),
+            p.new_name.as_deref(),
+            p.new_body.as_deref(),
             p.initiative.as_deref(),
         )
     }
@@ -675,7 +675,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Replace a node with a fresh one carrying new content, connected by a supersedes edge. Use when the change is large enough to warrant a new identity."
+        description = "Replace a node with a fresh one carrying new content, connected by a supersedes edge. Use when the change is large enough to warrant a new identity; `revise` edits in place instead. new_type is optional — it defaults to the old node's."
     )]
     fn supersede(
         &self,
@@ -684,7 +684,7 @@ impl KaeruServer {
         tools::consolidate::supersede(
             &self.store,
             &p.old,
-            &p.new_type,
+            p.new_type.as_deref(),
             &p.new_name,
             &p.new_body,
             p.tier.as_deref(),
@@ -813,7 +813,8 @@ impl ServerHandler for KaeruServer {
              `initiatives` → `awake` (what was open) → `overview` (what the project knows). Pass \
              `initiative` on EVERY call — without it writes stay untagged and reads span projects.\n\nTWO \
              TIERS: operational (in-flight: observations, claims, open questions) → archival (settled: \
-             outcomes, ideas, references). `settle` promotes what stopped changing; `awake` loads archival \
+             outcomes, ideas, references). `settle <name>` ALONE promotes what stopped changing — name and \
+             body carry over; don't demote finished work to `cold` instead. `awake` loads archival \
              as `cortex` every session. `layer=core` is injected uncapped — reserve it for the few \
              always-needed facts.\n\nCAPTURE by epistemic status, not length: `jot` fleeting note · \
              `episode` observation tied to current work · `cite <name> --body` settled doc kept verbatim, \

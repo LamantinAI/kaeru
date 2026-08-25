@@ -447,14 +447,26 @@ pub struct CloseReviewParams {
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct ConsolidateParams {
-    /// Source node name.
+    /// Source node name (or id).
     pub source: String,
-    /// New node type (`idea`, `outcome`, `summary`, `draft`, …).
-    pub new_type: String,
-    /// New node name.
-    pub new_name: String,
-    /// New node body.
-    pub new_body: String,
+    /// Type for the successor. OPTIONAL — omit to promote in place, and the
+    /// type is derived from the source (`episode`/`task`/`experiment`/
+    /// `hypothesis` → `outcome`; `draft`/`scratch` → `idea`; anything already
+    /// archival keeps itself). The chosen type is always printed back.
+    /// A CLOSED vocabulary, one of exactly these: `episode`, `task`,
+    /// `checklist`, `roadmap`, `experiment`, `hypothesis`, `scratch`, `draft`,
+    /// `audit_event`, `chain`, `board`, `idea`, `outcome`, `reference`,
+    /// `concept`, `entity`, `summary`.
+    #[serde(default)]
+    pub new_type: Option<String>,
+    /// Name for the successor. OPTIONAL — omit to carry the source's name over
+    /// unchanged.
+    #[serde(default)]
+    pub new_name: Option<String>,
+    /// Body for the successor. OPTIONAL — omit to carry the source's body over
+    /// unchanged (in full, not the excerpt).
+    #[serde(default)]
+    pub new_body: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -463,14 +475,21 @@ pub struct ConsolidateParams {
 pub struct SynthesiseParams {
     /// Seed node names.
     pub from: Vec<String>,
-    /// Type of the synthesised node (defaults `summary`).
+    /// Type of the synthesised node (defaults `summary`). A CLOSED
+    /// vocabulary, one of exactly these: `episode`, `task`, `checklist`,
+    /// `roadmap`, `experiment`, `hypothesis`, `scratch`, `draft`,
+    /// `audit_event`, `chain`, `board`, `idea`, `outcome`, `reference`,
+    /// `concept`, `entity`, `summary`.
     #[serde(default = "default_synth_type")]
     pub new_type: String,
     /// Name for the synthesised node.
     pub new_name: String,
     /// Body for the synthesised node.
     pub new_body: String,
-    /// Tier override (`operational` / `archival`). Defaults from type.
+    /// Tier override. A CLOSED vocabulary, one of exactly these:
+    /// `operational`, `archival`. Defaults from the type. (Not to be confused
+    /// with the memory *layer* — `core`/`hot`/`warm`/`cold`/`frozen` — which
+    /// `layer` sets.)
     #[serde(default)]
     pub tier: Option<String>,
     #[serde(default)]
@@ -485,13 +504,21 @@ fn default_synth_type() -> String {
 pub struct SupersedeParams {
     /// Old node name (or id).
     pub old: String,
-    /// New node type.
-    pub new_type: String,
+    /// Type for the successor. OPTIONAL — omit to keep the old node's own
+    /// type, which is what a straight replacement wants. A CLOSED vocabulary,
+    /// one of exactly these: `episode`, `task`, `checklist`, `roadmap`,
+    /// `experiment`, `hypothesis`, `scratch`, `draft`, `audit_event`, `chain`,
+    /// `board`, `idea`, `outcome`, `reference`, `concept`, `entity`,
+    /// `summary`.
+    #[serde(default)]
+    pub new_type: Option<String>,
     /// New node name.
     pub new_name: String,
     /// New node body.
     pub new_body: String,
-    /// Tier override (defaults from new_type).
+    /// Tier override. A CLOSED vocabulary, one of exactly these:
+    /// `operational`, `archival`. Defaults from the type. (Not the memory
+    /// *layer* — that is `core`/`hot`/`warm`/`cold`/`frozen`, set by `layer`.)
     #[serde(default)]
     pub tier: Option<String>,
     #[serde(default)]

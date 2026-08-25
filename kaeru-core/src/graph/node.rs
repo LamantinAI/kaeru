@@ -138,6 +138,33 @@ impl NodeType {
     /// archival-only types pin to `Archival`. Dual-tier types
     /// (`Concept`, `Entity`, `Summary`) default to `Operational` —
     /// promote with `consolidate_out` once they settle.
+    /// The archival form this type takes when a node **settles** — the
+    /// default `new_type` for a `settle` called without one.
+    ///
+    /// Consolidation used to demand a re-authored type on every call, and the
+    /// evidence is that agents simply did not pay it: four outcomes across
+    /// 1245 nodes, while the same work got demoted to a cold layer instead.
+    /// A default that is right most of the time and always printed back beats
+    /// a mandatory field that stops the verb being used at all.
+    ///
+    /// Two rules and a fallthrough:
+    ///  - work that produced a result settles as the **result** it produced;
+    ///  - work that was still a proposal settles as the **proposal**;
+    ///  - a type already at home in the archival tier (or in both) keeps
+    ///    itself — only the tier moves.
+    pub fn settled_form(&self) -> NodeType {
+        match self {
+            NodeType::Episode
+            | NodeType::Experiment
+            | NodeType::Hypothesis
+            | NodeType::Task
+            | NodeType::Checklist
+            | NodeType::Roadmap => NodeType::Outcome,
+            NodeType::Draft | NodeType::Scratch => NodeType::Idea,
+            other => *other,
+        }
+    }
+
     pub fn default_tier(&self) -> Tier {
         match self {
             NodeType::Idea | NodeType::Outcome | NodeType::Reference => Tier::Archival,
@@ -370,6 +397,55 @@ impl FromStr for Visibility {
 
 #[cfg(test)]
 mod vocab_tests {
+
+    /// The mapping `settle` falls back on when no type is given. Pure, so it
+    /// is pinned here rather than through the substrate: the point is that a
+    /// finished piece of work settles as the *result* it produced, and an
+    /// unfinished proposal settles as the *proposal*.
+    #[test]
+    fn settled_form_maps_work_to_result_and_proposal_to_idea() {
+        use crate::graph::NodeType;
+
+        for t in [
+            NodeType::Episode,
+            NodeType::Experiment,
+            NodeType::Hypothesis,
+            NodeType::Task,
+            NodeType::Checklist,
+            NodeType::Roadmap,
+        ] {
+            assert_eq!(
+                t.settled_form(),
+                NodeType::Outcome,
+                "{t:?} produced a result"
+            );
+        }
+        for t in [NodeType::Draft, NodeType::Scratch] {
+            assert_eq!(
+                t.settled_form(),
+                NodeType::Idea,
+                "{t:?} was still a proposal"
+            );
+        }
+        // Already archival, or at home in both tiers — only the tier moves.
+        for t in [
+            NodeType::Idea,
+            NodeType::Outcome,
+            NodeType::Reference,
+            NodeType::Concept,
+            NodeType::Entity,
+            NodeType::Summary,
+        ] {
+            assert_eq!(t.settled_form(), t, "{t:?} keeps itself");
+        }
+        // And every settled form actually belongs in the archival tier.
+        for t in [NodeType::Episode, NodeType::Draft, NodeType::Task] {
+            assert_eq!(
+                t.settled_form().default_tier(),
+                crate::graph::Tier::Archival
+            );
+        }
+    }
     use std::str::FromStr;
 
     use super::{Layer, NodeType, Tier};

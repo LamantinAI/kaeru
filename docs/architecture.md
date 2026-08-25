@@ -75,9 +75,19 @@ the hippocampus / cortex split:
 
 Promotion across the boundary is a deliberate, logged operation
 (`synthesise` → `settle`), and provenance (`derived_from`) is preserved across
-the tier boundary rather than lost. `reopen` mirrors it back when settled
+the tier boundary rather than lost. `unsettle` mirrors it back when settled
 knowledge needs reworking. In `kaeru-core` these are `consolidate_out` /
-`consolidate_in`; the agent-facing verbs are `settle` / `reopen`.
+`consolidate_in`; the agent-facing verbs are `settle` / `unsettle`.
+
+**Promotion is in place.** `settle <name>` needs nothing else: the successor
+keeps the node's name, its full body and its manual tags, and only the tier —
+plus a type derived from what it was — moves. That is a correction, not a
+convenience. Requiring a re-authored type, name and body on every call priced
+the verb out of use: four outcomes across 1245 nodes, while the same finished
+work was being demoted to a `cold` layer instead. A layer says how eagerly a
+node loads; a tier says whether it is still in flight. When the cheap verb
+answers the wrong question, the model on paper stops being the model in the
+graph.
 
 **Cortex on re-entry.** `awake` reads the two tiers *separately*: the operational
 working set by layer (`core → hot → warm`), and a dedicated **cortex** slice of

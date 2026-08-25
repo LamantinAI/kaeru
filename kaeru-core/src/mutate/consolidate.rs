@@ -9,8 +9,8 @@ use cozo::{DataValue, ScriptMutability};
 
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, attach_node_to_initiative_named,
-    build_body_tags, initiatives_of_node, now_validity_seconds, read_derived_from_targets,
-    read_node_now, tags_literal,
+    build_body_tags, initiatives_of_node, merge_tags, now_validity_seconds,
+    read_derived_from_targets, read_node_now, tags_literal,
 };
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
@@ -99,9 +99,12 @@ fn consolidate(
     // deliberately NOT inherited: `shared` means "is in the cloud", and the
     // new node — a brand-new id — is not there yet; the MCP layer surfaces
     // a re-share hint instead.
-    let inherited_layer = read_node_now(store, old_id)?
-        .map(|n| n.layer)
+    let current = read_node_now(store, old_id)?;
+    let inherited_layer = current
+        .as_ref()
+        .map(|n| n.layer.clone())
         .unwrap_or_else(|| "warm".to_string());
+    let inherited_tags: Vec<String> = current.map(|n| n.tags).unwrap_or_default();
 
     let new_id = new_node_id();
     let new_type_str = new_type.as_str();
@@ -128,8 +131,17 @@ fn consolidate(
     p2.insert("id".to_string(), DataValue::Str(new_id.clone().into()));
     p2.insert("name".to_string(), DataValue::Str(new_name.into()));
     p2.insert("body".to_string(), DataValue::Str(new_body.into()));
+    // The successor keeps the predecessor's *manual* tags. Only the derived
+    // ones are rebuilt: `kind:` follows the new type, and `lang:` / `topic:`
+    // follow the new body. Everything else — `status:`, `due:`, `sig:`,
+    // `role:`, anything an agent set by hand — is the node's own content, and
+    // consolidation moves a node between tiers rather than replacing what it
+    // says about itself. Matters most for a promote-in-place `settle`, where
+    // name and body carry over unchanged and dropping the tags would be a
+    // silent edit nobody asked for.
     let kind_tag = format!("kind:{}", new_type_str);
-    let all_tags = build_body_tags(&[kind_tag.as_str()], new_body);
+    let fresh = build_body_tags(&[kind_tag.as_str()], new_body);
+    let all_tags = merge_tags(&inherited_tags, &["kind:", "lang:", "topic:"], fresh);
     let tags = tags_literal(&all_tags);
     let s2 = format!(
         r#"

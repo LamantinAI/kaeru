@@ -74,8 +74,8 @@ All capture verbs take `layer` (default `warm`) and `visibility: shared` (captur
 | Verb | Does |
 |---|---|
 | `synthesise` | Converge several operational seeds into one durable insight. |
-| `settle` | Promote an operational draft into the archival tier (`derived_from` preserved). |
-| `reopen` | Bring an archival node back to operational for rework (mirror of settle). |
+| `settle` | Promote a node that stopped changing into the archival tier (`derived_from` preserved). `settle <name>` alone is enough — name, body and manual tags carry over, the type is derived. |
+| `unsettle` | Bring an archival node back to operational for rework (mirror of settle; same in-place defaults). |
 | `supersede` | Replace a node with a new version (bi-temporal retraction of the old). |
 | `revise` | Amend a node's content. |
 | `flag` / `resolve` | Raise / clear an `under_review` (a `contradicts` edge). |
