@@ -38,6 +38,11 @@ Two consequences worth stating:
 - **Squash before pushing, not after.** If a batch is genuinely two unrelated
   changes, push it as two batches — squash the first, push, then the second.
   One commit per batch, not one commit per push session.
+- **A batch is normally one issue.** That is the unit that reads well in
+  `git log` a year later: the commit and the issue explain each other, and
+  `git revert` on it takes back exactly one decision. Don't hold several
+  issues back to push them together, and don't split one issue across pushes
+  unless a piece of it genuinely stands alone.
 
 ## Commit authorship
 
