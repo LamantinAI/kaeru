@@ -410,14 +410,17 @@ impl KaeruMemory {
     pub fn claim(&self) -> Claim {
         Claim(self.clone())
     }
-    pub fn test(&self) -> Test {
-        Test(self.clone())
+    pub fn evidence(&self) -> Evidence {
+        Evidence(self.clone())
     }
     pub fn confirm(&self) -> Confirm {
         Confirm(self.clone())
     }
     pub fn refute(&self) -> Refute {
         Refute(self.clone())
+    }
+    pub fn inconclusive(&self) -> Inconclusive {
+        Inconclusive(self.clone())
     }
     pub fn flag(&self) -> Flag {
         Flag(self.clone())
@@ -567,7 +570,8 @@ impl KaeruMemory {
                 close_review,
                 // claims lifecycle
                 claim,
-                test,
+                evidence,
+                inconclusive,
                 confirm,
                 refute,
                 settle,
@@ -951,7 +955,7 @@ mod tests {
             .unwrap();
         assert_eq!(done["done"], true, "task done; got {done}");
 
-        // hypothesis cycle: claim → test (exercises enum-bearing bodies).
+        // hypothesis cycle: claim → evidence (exercises enum-bearing bodies).
         let claim = mem
             .claim()
             .call(args(serde_json::json!({
@@ -961,8 +965,9 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(claim["created"], true, "claim created; got {claim}");
-        let test = mem
-            .test()
+        assert_eq!(claim["status"], "open", "no verdict given; got {claim}");
+        let evidence = mem
+            .evidence()
             .call(args(serde_json::json!({
                 "hypothesis": "weekend-deploys-flaky",
                 "name": "compare-runs",
@@ -970,7 +975,26 @@ mod tests {
             })))
             .await
             .unwrap();
-        assert_eq!(test["created"], true, "experiment created; got {test}");
+        assert_eq!(
+            evidence["created"], true,
+            "experiment created; got {evidence}"
+        );
+
+        // The retrospective shape: the verdict is known at capture, so it is
+        // stamped at creation rather than by a second call.
+        let settled_claim = mem
+            .claim()
+            .call(args(serde_json::json!({
+                "name": "cache-pays-for-itself",
+                "claim": "the cache pays for itself",
+                "verdict": "refuted"
+            })))
+            .await
+            .unwrap();
+        assert_eq!(
+            settled_claim["status"], "refuted",
+            "born settled; got {settled_claim}"
+        );
 
         // consolidation: settle an operational note into an archival idea
         // (parses NodeType "idea").

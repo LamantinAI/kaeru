@@ -385,6 +385,18 @@ pub struct ClaimParams {
     /// Optional existing node this claim is about (refers_to edge).
     #[serde(default)]
     pub about: Option<String>,
+    /// The verdict, when you ALREADY KNOW IT — the usual case, since you
+    /// normally reach memory after the check has run. Omit for a genuinely
+    /// open question. A CLOSED vocabulary, one of exactly these: `supported`,
+    /// `refuted`, `inconclusive` (`confirmed` / `falsified` / `partial` are
+    /// accepted as aliases).
+    #[serde(default)]
+    pub verdict: Option<String>,
+    /// Evidence node (name or id) the verdict rests on — linked `verifies` /
+    /// `falsifies`. Optional, but a verdict without one is a claim with no
+    /// citation.
+    #[serde(default)]
+    pub by: Option<String>,
     /// Optional memory layer stamped at creation: `core`, `hot`, `warm`,
     /// `cold`, or `frozen`. Defaults to `warm`.
     #[serde(default)]
@@ -394,21 +406,33 @@ pub struct ClaimParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct TestParams {
-    /// Hypothesis name.
+pub struct EvidenceParams {
+    /// Hypothesis name or id this evidence bears on.
     pub hypothesis: String,
-    /// How the experiment was conducted.
-    pub method: String,
+    /// What you actually did and what came out of it — past tense. Creates
+    /// the experiment node. Give this OR `node`.
+    #[serde(default)]
+    pub method: Option<String>,
+    /// An existing node (name or id) to register as the evidence instead of
+    /// writing a new one — an episode you already captured, say. Give this OR
+    /// `method`.
+    #[serde(default)]
+    pub node: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct VerdictParams {
-    /// Hypothesis name.
+    /// Hypothesis name or id.
     pub hypothesis: String,
-    /// Evidence node name (verifying for `confirm`, falsifying for `refute`).
-    pub by: String,
+    /// Evidence node name or id — linked `verifies` for `confirm`,
+    /// `falsifies` for `refute`. OPTIONAL: record the verdict even with
+    /// nothing to point at yet, rather than leaving the claim tagged `open`
+    /// with the answer buried in its prose. (`inconclusive` writes no edge at
+    /// all, so it never needs one.)
+    #[serde(default)]
+    pub by: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }

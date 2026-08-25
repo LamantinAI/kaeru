@@ -547,45 +547,76 @@ impl KaeruServer {
 
     // ----- Hypothesis cycle ---------------------------------------------
     #[tool(
-        description = "Formulate a hypothesis. Auto-named. Optional `about` links via refers_to."
+        description = "Record a hypothesis. Auto-named. If you ALREADY know how it turned out — the usual case, since you reach memory after the check has run — pass `verdict` (supported/refuted/inconclusive) and `by` (the evidence node) and it lands settled in this one call. Without a verdict it is an open question, and `awake` will keep surfacing it until one arrives. Optional `about` links via refers_to."
     )]
     fn claim(&self, Parameters(p): Parameters<ClaimParams>) -> Result<CallToolResult, McpError> {
         tools::hypothesis::claim(
             &self.store,
             &p.text,
             p.about.as_deref(),
+            p.verdict.as_deref(),
+            p.by.as_deref(),
             p.layer.as_deref(),
             p.initiative.as_deref(),
         )
     }
 
     #[tool(
-        description = "Run an experiment against an open hypothesis. Auto-named from the method body."
+        description = "Record what you actually checked, and attach it to a hypothesis. Past tense — this documents a check that already ran, it does not schedule one (and it is not `cargo test`). Pass `method` to write the result up as a new experiment node, or `node` to point at something you already captured."
     )]
-    fn test(&self, Parameters(p): Parameters<TestParams>) -> Result<CallToolResult, McpError> {
-        tools::hypothesis::test_hypothesis(
+    fn evidence(
+        &self,
+        Parameters(p): Parameters<EvidenceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::hypothesis::evidence(
             &self.store,
             &p.hypothesis,
-            &p.method,
+            p.method.as_deref(),
+            p.node.as_deref(),
             p.initiative.as_deref(),
         )
     }
 
     #[tool(
-        description = "Mark a hypothesis as supported, attaching `by` as the verifying evidence."
+        description = "Mark a hypothesis as supported. `by` (the verifying evidence node) is optional — record the verdict even with nothing to point at yet rather than leaving the claim open with the answer buried in its text."
     )]
     fn confirm(
         &self,
         Parameters(p): Parameters<VerdictParams>,
     ) -> Result<CallToolResult, McpError> {
-        tools::hypothesis::confirm(&self.store, &p.hypothesis, &p.by, p.initiative.as_deref())
+        tools::hypothesis::confirm(
+            &self.store,
+            &p.hypothesis,
+            p.by.as_deref(),
+            p.initiative.as_deref(),
+        )
     }
 
     #[tool(
-        description = "Mark a hypothesis as refuted, attaching `by` as the falsifying counter-evidence."
+        description = "Mark a hypothesis as refuted. `by` (the falsifying counter-evidence node) is optional, same as for `confirm`."
     )]
     fn refute(&self, Parameters(p): Parameters<VerdictParams>) -> Result<CallToolResult, McpError> {
-        tools::hypothesis::refute(&self.store, &p.hypothesis, &p.by, p.initiative.as_deref())
+        tools::hypothesis::refute(
+            &self.store,
+            &p.hypothesis,
+            p.by.as_deref(),
+            p.initiative.as_deref(),
+        )
+    }
+
+    #[tool(
+        description = "Mark a hypothesis as inconclusive — the check ran and did not decide. A real third verdict, not a failure to answer: it closes the claim out of the open queue while recording that the question stayed open on the merits. Writes no verdict edge, so `by` is not needed."
+    )]
+    fn inconclusive(
+        &self,
+        Parameters(p): Parameters<VerdictParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::hypothesis::inconclusive(
+            &self.store,
+            &p.hypothesis,
+            p.by.as_deref(),
+            p.initiative.as_deref(),
+        )
     }
 
     // ----- Review-flow ---------------------------------------------------
@@ -819,14 +850,14 @@ impl ServerHandler for KaeruServer {
              always-needed facts.\n\nCAPTURE by epistemic status, not length: `jot` fleeting note · \
              `episode` observation tied to current work · `cite <name> --body` settled doc kept verbatim, \
              URL optional — ADRs, specs, glossaries, YOUR OWN settled docs · \
-             `claim`→`test`→`confirm`/`refute` hypotheses · `task`/`done` todos with deadlines. Don't \
+             `claim --verdict refuted --by <ev>` — the answer WITH the claim, you usually know it \
+             already · `task`/`done` todos with deadlines. Don't \
              capture everything as `episode`.\n\nALWAYS LINK a new node: `search` for related → `link a b \
              --edge_type`. Types: refers_to (default), causal, derived_from, contradicts, part_of, blocks, \
              targets, supersedes, verifies, falsifies, temporal. `strong=true` on load-bearing edges. An \
              island is found only by exact name.\n\nTHEN CHAIN: once work runs observation→decision, `chain \
              from to --summary` saves that trail; `why <node>` reads the reasoning that leads there. A \
-             chain is the WHY a fresh agent reads.\n\nREAD: `recall` exact name · `search q*` fuzzy (`*` \
-             matches inflections) · `drill` node+children · `at <name>` FULL text — drill/search show \
+             chain is the WHY a fresh agent reads.\n\nREAD: `recall` exact name · `search q*` fuzzy · `drill` node+children · `at <name>` FULL text — drill/search show \
              excerpts only · `at <name> when=2h` past state · `history` versions · `trace` provenance · \
              `between` how two nodes connect · `tagged \"topic:x\"` · `surface layers=cold` archived · \
              `board` open tasks.\n\nLANGUAGE: store and search in the user's own language; never translate \

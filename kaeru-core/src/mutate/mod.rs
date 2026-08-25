@@ -42,7 +42,8 @@ pub use consolidate::{consolidate_in, consolidate_out};
 pub use edge::{link, link_remote, link_remote_to, link_with_weight, set_edge_weight, unlink};
 pub use episode::{jot, jot_with_layer, write_episode, write_episode_with_layer};
 pub use hypothesis::{
-    formulate_hypothesis, formulate_hypothesis_with_layer, run_experiment, update_hypothesis_status,
+    formulate_hypothesis, formulate_hypothesis_with_layer, formulate_hypothesis_with_status,
+    run_experiment, update_hypothesis_status,
 };
 pub use ingest::{upsert_edge, upsert_node};
 pub use initiative::{

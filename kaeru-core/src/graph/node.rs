@@ -133,11 +133,6 @@ impl NodeType {
         }
     }
 
-    /// Default tier for a `NodeType` when the caller doesn't pin it
-    /// explicitly. Operational-only types pin to `Operational`,
-    /// archival-only types pin to `Archival`. Dual-tier types
-    /// (`Concept`, `Entity`, `Summary`) default to `Operational` —
-    /// promote with `consolidate_out` once they settle.
     /// The archival form this type takes when a node **settles** — the
     /// default `new_type` for a `settle` called without one.
     ///
@@ -165,6 +160,11 @@ impl NodeType {
         }
     }
 
+    /// Default tier for a `NodeType` when the caller doesn't pin it
+    /// explicitly. Operational-only types pin to `Operational`,
+    /// archival-only types pin to `Archival`. Dual-tier types
+    /// (`Concept`, `Entity`, `Summary`) default to `Operational` —
+    /// promote with `settle` once they stop changing.
     pub fn default_tier(&self) -> Tier {
         match self {
             NodeType::Idea | NodeType::Outcome | NodeType::Reference => Tier::Archival,
@@ -248,12 +248,41 @@ pub enum HypothesisStatus {
 }
 
 impl HypothesisStatus {
+    /// Every accepted spelling, for error messages.
+    pub const VALID: [&'static str; 4] = ["open", "supported", "refuted", "inconclusive"];
+
     pub fn as_str(&self) -> &'static str {
         match self {
             HypothesisStatus::Open => "open",
             HypothesisStatus::Supported => "supported",
             HypothesisStatus::Refuted => "refuted",
             HypothesisStatus::Inconclusive => "inconclusive",
+        }
+    }
+
+    /// Whether this status is a settled verdict rather than an open question.
+    pub fn is_verdict(&self) -> bool {
+        !matches!(self, HypothesisStatus::Open)
+    }
+}
+
+impl FromStr for HypothesisStatus {
+    type Err = Error;
+
+    /// Accepts the canonical spellings plus the two words an agent reaches
+    /// for first. `confirmed` / `partial` are not synonyms invented here —
+    /// they are what agents actually typed into hypothesis bodies when no
+    /// tool would take a verdict, so the parser meets them where they are.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "open" => Ok(HypothesisStatus::Open),
+            "supported" | "confirmed" => Ok(HypothesisStatus::Supported),
+            "refuted" | "falsified" => Ok(HypothesisStatus::Refuted),
+            "inconclusive" | "partial" => Ok(HypothesisStatus::Inconclusive),
+            _ => Err(Error::Invalid(format!(
+                "unknown verdict: {s}; valid: {}",
+                HypothesisStatus::VALID.join(", ")
+            ))),
         }
     }
 }

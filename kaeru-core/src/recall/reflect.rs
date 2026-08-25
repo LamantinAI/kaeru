@@ -41,6 +41,20 @@ pub struct ReflectionReport {
     /// them, or push the deadline. A maintenance item like any other: the
     /// graph knows the date passed, so the work-list should say so.
     pub overdue_tasks: Vec<NodeId>,
+    /// Hypotheses still tagged `status:open` whose own text announces a
+    /// verdict — "REFUTED", "VERDICT: PARTIAL" and friends.
+    ///
+    /// These exist because for a long time no tool would take a verdict at
+    /// capture, so agents wrote it where they could: into the prose. The tag
+    /// then says `open` while the body says the opposite, and every read
+    /// surface trusts the tag — so the claim shows up forever as awaiting an
+    /// answer it already has.
+    ///
+    /// Surfaced, never auto-corrected. Deciding what a body *means* is
+    /// reading, and rewriting someone's text on a keyword match is a guess
+    /// with the user's content as the stake. The work-list points; the agent
+    /// (or the user) settles it with `confirm` / `refute` / `inconclusive`.
+    pub contested_claims: Vec<NodeId>,
 }
 
 /// Builds the reflection work-list for the active initiative (cross-initiative
@@ -58,6 +72,7 @@ pub fn reflect(store: &Store) -> Result<ReflectionReport> {
             .filter(|t| t.overdue)
             .map(|t| t.id)
             .collect(),
+        contested_claims: contested_claims(store)?,
     })
 }
 
@@ -183,6 +198,145 @@ fn shared_nodes(store: &Store) -> Result<Vec<NodeId>> {
         .db_ref()
         .run_script(script, params, ScriptMutability::Immutable)?;
     Ok(first_col_ids(&rows))
+}
+
+/// Verdict words as they actually appear in a claim that never got one
+/// through the API: shouted in caps, or introduced as a label. Deliberately
+/// narrow — a body that merely *discusses* refutation in lowercase prose is
+/// not making a claim about its own status, and flagging it would train the
+/// agent to ignore the section.
+const VERDICT_MARKERS: [&str; 8] = [
+    "REFUTED",
+    "CONFIRMED",
+    "SUPPORTED",
+    "INCONCLUSIVE",
+    "FALSIFIED",
+    "VERDICT:",
+    "verdict:",
+    "PARTIAL",
+];
+
+/// Open hypotheses whose name or body announces a verdict the tag doesn't
+/// carry. See [`ReflectionReport::contested_claims`].
+fn contested_claims(store: &Store) -> Result<Vec<NodeId>> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    let script = match store.current_initiative() {
+        Some(init) => {
+            params.insert("init".to_string(), DataValue::Str(init.into()));
+            r#"
+            ?[id, name, body] :=
+                *node_initiative{initiative, node_id: id}, initiative = $init,
+                *node{id, type, name, body, tags @ 'NOW'},
+                type = 'hypothesis',
+                !is_null(tags),
+                is_in('status:open', tags)
+            "#
+        }
+        None => {
+            r#"
+            ?[id, name, body] :=
+                *node{id, type, name, body, tags @ 'NOW'},
+                type = 'hypothesis',
+                !is_null(tags),
+                is_in('status:open', tags)
+            "#
+        }
+    };
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .iter()
+        .filter(|r| {
+            let text = [r.get(1), r.get(2)]
+                .iter()
+                .filter_map(|c| c.and_then(|v| v.get_str()))
+                .collect::<Vec<_>>()
+                .join(" ");
+            VERDICT_MARKERS.iter().any(|m| text.contains(m))
+        })
+        .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
+        .collect())
+}
+
+#[cfg(test)]
+mod contested_tests {
+    use super::reflect;
+    use crate::store::Store;
+    use crate::{HypothesisStatus, Layer, formulate_hypothesis_with_status};
+
+    /// The exact shape found in the wild: an open claim whose own body
+    /// announces the verdict. The tag says `open`, so every read surface
+    /// keeps asking for an answer the node already has.
+    #[test]
+    fn a_claim_shouting_its_verdict_is_surfaced() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        formulate_hypothesis_with_status(
+            &store,
+            "the-cache-claim",
+            "REFUTED — the cache cost more than it saved",
+            Layer::default(),
+            HypothesisStatus::Open,
+        )
+        .expect("claim");
+        formulate_hypothesis_with_status(
+            &store,
+            "an-honest-open-one",
+            "the index may help under load",
+            Layer::default(),
+            HypothesisStatus::Open,
+        )
+        .expect("claim");
+
+        let r = reflect(&store).expect("reflect");
+        assert_eq!(r.contested_claims.len(), 1, "{:?}", r.contested_claims);
+    }
+
+    /// A claim already carrying a real verdict is not contested — it is done.
+    #[test]
+    fn a_settled_claim_is_not_contested() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        formulate_hypothesis_with_status(
+            &store,
+            "settled",
+            "REFUTED — and the tag agrees",
+            Layer::default(),
+            HypothesisStatus::Refuted,
+        )
+        .expect("claim");
+        assert!(
+            reflect(&store)
+                .expect("reflect")
+                .contested_claims
+                .is_empty()
+        );
+    }
+
+    /// Lowercase prose that merely discusses refutation is not a claim about
+    /// the node's own status. Flagging it would train the agent to skip the
+    /// section.
+    #[test]
+    fn ordinary_prose_about_refuting_things_is_left_alone() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        formulate_hypothesis_with_status(
+            &store,
+            "quiet",
+            "we should try to refute this by measuring the cold path",
+            Layer::default(),
+            HypothesisStatus::Open,
+        )
+        .expect("claim");
+        assert!(
+            reflect(&store)
+                .expect("reflect")
+                .contested_claims
+                .is_empty()
+        );
+    }
 }
 
 #[cfg(test)]

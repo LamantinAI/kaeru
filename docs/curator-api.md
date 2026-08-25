@@ -65,9 +65,9 @@ All capture verbs take `layer` (default `warm`) and `visibility: shared` (captur
 
 | Verb | Does |
 |---|---|
-| `claim` | State a hypothesis (status `open`). |
-| `test` | Record an experiment targeting a hypothesis. |
-| `confirm` / `refute` | Mark it supported / refuted, attaching the evidence. |
+| `claim` | Record a hypothesis. With `--verdict` (+ optional `--by`) it lands settled in one call — the usual case, since you reach memory after the check has run. Without one it stays `open` and keeps surfacing in `awake`. |
+| `evidence` | Record what was actually checked: `--method` writes it up as an experiment node, `--node` registers one you already captured. Past tense. |
+| `confirm` / `refute` / `inconclusive` | Mark it supported / refuted / undecided. `--by` (the evidence) is optional — a verdict with no citation still beats one buried in the body. |
 
 ## Evolve knowledge — when it changes shape
 

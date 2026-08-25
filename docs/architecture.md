@@ -89,6 +89,16 @@ node loads; a tier says whether it is still in flight. When the cheap verb
 answers the wrong question, the model on paper stops being the model in the
 graph.
 
+**The hypothesis cycle is retrospective.** `claim` → `evidence` →
+`confirm`/`refute`/`inconclusive` is written as a sequence, but an agent reaches
+memory *after* the check has already run in-session, so all of it lands in one
+moment. `claim --verdict` is therefore the primary shape, not a shortcut: the
+verdict is stamped at creation, on the **tag**, where every read surface looks.
+The alternative was what the graph actually filled up with — claims tagged
+`open` forever whose bodies shouted "REFUTED" in prose that nothing could
+query. `reflect` surfaces any that remain; it never rewrites them, because
+deciding what a body means is reading, not migration.
+
 **Cortex on re-entry.** `awake` reads the two tiers *separately*: the operational
 working set by layer (`core → hot → warm`), and a dedicated **cortex** slice of
 the archival tier. Core-layer cortex is uncapped, so a project's standing facts

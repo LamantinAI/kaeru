@@ -310,16 +310,26 @@ instead of `tagged`.
 ## Reason (hypothesis cycle)
 
 ```bash
+# You normally reach memory AFTER the check has run, so record the answer
+# with the claim — one call, and the status lands on the tag where every
+# read surface can see it:
+kaeru --initiative X claim "weekend deploys cause flaky tests" \
+  --verdict refuted --by <evidence-name>
+
+# Genuinely open question — no verdict yet. Keeps surfacing in `awake`:
 kaeru --initiative X claim "weekend deploys cause flaky tests" --about <related-name>
-# → creates hypothesis, optionally linked via refers-to.
 
-kaeru --initiative X test <hypothesis> --method "compared 100 runs each"
-# → creates experiment with `targets` edge.
+kaeru --initiative X evidence <hypothesis> --method "compared 100 runs each"
+# → writes the result up as an experiment node with a `targets` edge.
+kaeru --initiative X evidence <hypothesis> --node <existing-episode>
+# → registers something you already captured instead.
 
-kaeru --initiative X confirm <hypothesis> --by <evidence-name>
-# → status = Supported, edge `verifies`.
-kaeru --initiative X refute <hypothesis> --by <counterexample-name>
+kaeru --initiative X confirm <hypothesis> [--by <evidence-name>]
+# → status = Supported, edge `verifies` when `--by` is given.
+kaeru --initiative X refute <hypothesis> [--by <counterexample-name>]
 # → status = Refuted, edge `falsifies`.
+kaeru --initiative X inconclusive <hypothesis>
+# → the check ran and did not decide. A verdict, not a missing answer.
 ```
 
 ## Knowledge chains (strongest reasoning trail between two nodes)

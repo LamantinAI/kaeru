@@ -30,6 +30,27 @@ pub fn formulate_hypothesis_with_layer(
     claim: &str,
     layer: Layer,
 ) -> Result<NodeId> {
+    formulate_hypothesis_with_status(store, name, claim, layer, HypothesisStatus::Open)
+}
+
+/// Creates a hypothesis node already carrying `status` — the retrospective
+/// capture: a claim whose verdict is known at the moment it is written.
+///
+/// The cycle was designed prospectively (claim, then experiment, then
+/// verdict), but an agent reaches memory *after* the check has run in-session,
+/// so all three collapse into one moment. Writing the verdict at creation is
+/// not a shortcut around the cycle — it is the shape the cycle actually takes.
+///
+/// It also has to be one write rather than create-then-update: validities are
+/// whole seconds, so a node created and re-asserted inside the same second
+/// carries an assert and a retract that cannot be ordered.
+pub fn formulate_hypothesis_with_status(
+    store: &Store,
+    name: &str,
+    claim: &str,
+    layer: Layer,
+    status: HypothesisStatus,
+) -> Result<NodeId> {
     let id = new_node_id();
     let now_secs = now_validity_seconds();
 
@@ -39,7 +60,8 @@ pub fn formulate_hypothesis_with_layer(
     params.insert("body".to_string(), DataValue::Str(claim.into()));
     params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
-    let all_tags = build_body_tags(&["status:open"], claim);
+    let status_tag = format!("status:{}", status.as_str());
+    let all_tags = build_body_tags(&[status_tag.as_str()], claim);
     let tags = tags_literal(&all_tags);
     let script = format!(
         r#"
@@ -127,12 +149,17 @@ pub fn run_experiment(
 /// the new status.
 ///
 /// `Open` and `Inconclusive` produce no verdict edge — they just update the
-/// status tag.
+/// status tag. `by` is optional for the same reason the whole cycle changed
+/// shape: an agent often knows the verdict before any separate evidence node
+/// exists, and refusing the verdict until one does only pushes the answer
+/// into the body as prose, where nothing on the read side can see it. A
+/// status tag with no edge beats an `open` tag next to a body shouting
+/// REFUTED. The adapters hint at attaching the evidence afterwards.
 pub fn update_hypothesis_status(
     store: &Store,
     hypothesis_id: &NodeId,
     new_status: HypothesisStatus,
-    by: &NodeId,
+    by: Option<&NodeId>,
 ) -> Result<()> {
     // RMW: read the current row so the rewrite preserves everything the
     // status transition doesn't touch (name, body, layer, visibility,
@@ -172,7 +199,8 @@ pub fn update_hypothesis_status(
         HypothesisStatus::Refuted => Some("falsifies"),
         HypothesisStatus::Open | HypothesisStatus::Inconclusive => None,
     };
-    if let Some(edge_type_str) = verdict_edge {
+    // No evidence node means no verdict edge — the status still lands.
+    if let (Some(edge_type_str), Some(by)) = (verdict_edge, by) {
         let edge_secs = now_validity_seconds();
         let mut p3: BTreeMap<String, DataValue> = BTreeMap::new();
         p3.insert("src".to_string(), DataValue::Str(by.clone().into()));
@@ -193,11 +221,17 @@ pub fn update_hypothesis_status(
         attach_edge_to_initiative(store, by, hypothesis_id, edge_type_str)?;
     }
 
+    // The audit records what the transition actually touched: the hypothesis
+    // always, the evidence node only when one was given.
+    let mut touched = vec![hypothesis_id.clone()];
+    if let Some(by) = by {
+        touched.push(by.clone());
+    }
     write_audit(
         store.db_ref(),
         "update_hypothesis_status",
         "system",
-        &[hypothesis_id.clone(), by.clone()],
+        &touched,
     )?;
     Ok(())
 }
@@ -225,7 +259,7 @@ mod tests {
         let evidence = jot(&store, "repro log attached").expect("jot");
 
         std::thread::sleep(Duration::from_millis(1100));
-        update_hypothesis_status(&store, &hyp, HypothesisStatus::Supported, &evidence)
+        update_hypothesis_status(&store, &hyp, HypothesisStatus::Supported, Some(&evidence))
             .expect("confirm");
 
         let snap = at(&store, &hyp, 9_999_999_999.0)

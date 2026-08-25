@@ -38,13 +38,14 @@ pub use mutate::{
     AttachStats, ChainOutcome, DeleteStats, RechainStats, RenameStats, add_status, attach_node,
     cite, cite_with_layer, complete_task, consolidate_in, consolidate_out, create_chain,
     delete_initiative, ensure_board, extend_chain, forget, formulate_hypothesis,
-    formulate_hypothesis_with_layer, get_layer, get_share_policy, get_visibility, improve, jot,
-    jot_with_layer, link, link_remote, link_remote_to, link_with_weight, mark_resolved,
-    mark_under_review, occupy_slot, regenerate_chain, relabel_status, release_slot, remove_status,
-    rename_initiative, reorder_statuses, resolve_review, run_experiment, set_edge_weight,
-    set_layer, set_share_policy, set_status, set_visibility, slot_holder, slots_in, supersedes,
-    synthesise, unlink, update_hypothesis_status, upsert_edge, upsert_node, write_episode,
-    write_episode_with_layer, write_task, write_task_with_layer,
+    formulate_hypothesis_with_layer, formulate_hypothesis_with_status, get_layer, get_share_policy,
+    get_visibility, improve, jot, jot_with_layer, link, link_remote, link_remote_to,
+    link_with_weight, mark_resolved, mark_under_review, occupy_slot, regenerate_chain,
+    relabel_status, release_slot, remove_status, rename_initiative, reorder_statuses,
+    resolve_review, run_experiment, set_edge_weight, set_layer, set_share_policy, set_status,
+    set_visibility, slot_holder, slots_in, supersedes, synthesise, unlink,
+    update_hypothesis_status, upsert_edge, upsert_node, write_episode, write_episode_with_layer,
+    write_task, write_task_with_layer,
 };
 pub use recall::{
     BoardColumn, BoardStatus, BoardTask, BoardView, ChainMembership, EdgeRow,
@@ -1530,7 +1531,7 @@ mod tests {
 
         std::thread::sleep(std::time::Duration::from_millis(1100));
 
-        update_hypothesis_status(&store, &h, HypothesisStatus::Supported, &exp)
+        update_hypothesis_status(&store, &h, HypothesisStatus::Supported, Some(&exp))
             .expect("update_hypothesis_status");
 
         // experiment → verifies → hypothesis
@@ -1570,7 +1571,7 @@ mod tests {
 
         std::thread::sleep(std::time::Duration::from_millis(1100));
 
-        update_hypothesis_status(&store, &h, HypothesisStatus::Refuted, &counterexample)
+        update_hypothesis_status(&store, &h, HypothesisStatus::Refuted, Some(&counterexample))
             .expect("refute");
 
         let reached = walk(&store, &counterexample, &[EdgeType::Falsifies], 1).unwrap();

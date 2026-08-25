@@ -57,7 +57,8 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
             + r.stale_chains.len()
             + r.cortex_candidates.len()
             + r.shared.len()
-            + r.overdue_tasks.len();
+            + r.overdue_tasks.len()
+            + r.contested_claims.len();
         if total == 0 {
             return Ok(text(
                 "reflection: store is tidy — nothing to tend right now.",
@@ -78,6 +79,14 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
             "overdue tasks",
             "past their `due:` date — `done` when finished, else `set_status` to move them",
             &r.overdue_tasks,
+        );
+        push_section(
+            &mut out,
+            store,
+            "claims whose text already answers them",
+            "the body says the verdict, the tag still says open — settle it with `confirm` / \
+             `refute` / `inconclusive`",
+            &r.contested_claims,
         );
         push_section(
             &mut out,
