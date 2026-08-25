@@ -1,5 +1,9 @@
 # CLAUDE.md — kaeru
 
+> Working agreements — how to commit, push, review and close things — live in
+> [AGENTS.md](AGENTS.md). This file is what the code **is**; that one is how we
+> work in it. Read both.
+
 ## Project Summary
 
 `kaeru` is a cognitive memory layer for LLM agents — a typed property graph stored in CozoDB with a bi-temporal substrate, a curator API as the operational layer, and a two-tier (cognitive / recollection) design grounded in the hippocampus / cortex split.
