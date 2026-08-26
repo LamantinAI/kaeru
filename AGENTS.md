@@ -93,6 +93,8 @@ Before changing code, orient yourself by crate and responsibility:
 5. Shared dependencies live in the root `Cargo.toml` under `[workspace.dependencies]`. Add new deps there first; pull them into a crate with `dep.workspace = true`.
 6. Treat `kaeru-core` as the source of truth for shared types. Adapter crates (`kaeru-mcp`, `kaeru-cloud`, `kaeru-rig`, future `kaeru-langchain`) consume `kaeru-core`; do not duplicate types.
 7. When adding or renaming a curator-API verb, update the matching `#[tool]` in `kaeru-mcp/src/server.rs`.
+8. The HTTP surface in `kaeru-mcp/src/api/` is the **same verb set over a second transport**, not a parallel API. A route is named after the verb it serves (`/v1/board` is `board`); do not invent a vocabulary the curator API does not have, and do not add a `POST /call/{verb}` tunnel. Three rules hold across every handler: `/v1/` on the path, a `Principal` argument, and everything leaving the process going out through `egress`.
+9. **Nothing leaves without asking `egress` both questions.** The operator's initiative ceiling (`reaches` / `reaches_node`) and the node's visibility (`may_show`) are two halves of one rule, and a handler that asks only the first does not fail — it succeeds, serving `local` nodes that the verbs asking both correctly refuse. `local` is the default visibility, so the blast radius is an ordinary vault. Ask before a node is read, described **or followed**: a node filtered after its edges are walked still leaves its id and the graph's shape in the response.
 
 ## Local Runbook
 
@@ -158,7 +160,11 @@ kaeru-mcp/src/
 ├── params.rs               ← Parameters<T> structs the tools deserialize
 ├── utils.rs                ← output builders + input parsing (with_initiative, parse_*)
 ├── cloud_client.rs         ← async reqwest client + CloudRegistry (named multi-cloud)
-└── tools/                  ← one module per verb group (capture, cloud, session, lookup, …)
+├── tools/                  ← one module per verb group (capture, cloud, session, lookup, …)
+└── api/                    ← the HTTP surface: one route per curator verb
+    ├── principal.rs        ← who is asking (one variant today, by design)
+    ├── egress.rs           ← ApiConfig: the initiative ceiling, visibility, redaction
+    └── v1/                 ← a module per verb (export, board, at, chain)
 
 kaeru-cloud/src/
 ├── main.rs                 ← thin entrypoint (config + tracing → run)

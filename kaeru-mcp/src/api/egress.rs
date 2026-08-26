@@ -115,6 +115,37 @@ impl ApiConfig {
     pub fn reaches_node(&self, initiatives: &[String]) -> bool {
         initiatives.iter().any(|i| self.reaches(i))
     }
+
+    /// Whether a node's visibility lets it leave the machine.
+    ///
+    /// The second half of the rule, and the half that is easy to forget: the
+    /// ceiling says which initiatives may be reached, this says which nodes
+    /// inside them may be shown. `local` is the **default** visibility, so a
+    /// verb that checks only the ceiling serves an ordinary vault whole while
+    /// the verbs that check both serve nothing — the same node refused by one
+    /// route and handed over in full by another.
+    ///
+    /// It exists as a method rather than an inline comparison for that reason.
+    /// The rule was being written out per handler, and the handlers that
+    /// forgot to write it out did not fail — they succeeded, loudly.
+    pub fn may_show(&self, visibility: &str) -> bool {
+        self.include_local || visibility == "shared"
+    }
+
+    /// The ceiling applied to a node's initiative list, for a response that
+    /// names them.
+    ///
+    /// Naming an initiative the caller may not reach is the same disclosure
+    /// this surface avoids by answering 404 rather than 403: an initiative
+    /// name is often the most sensitive string in a record — a client
+    /// codename, an unannounced project — and "you may not read it" still
+    /// says it exists.
+    pub fn visible_initiatives(&self, initiatives: Vec<String>) -> Vec<String> {
+        initiatives
+            .into_iter()
+            .filter(|i| self.reaches(i))
+            .collect()
+    }
 }
 
 /// Exact match, or prefix match when `pattern` ends with `*`.
@@ -247,6 +278,30 @@ mod tests {
         // deny is judged per initiative, so being in a denied one alongside a
         // reachable one does not withdraw the reachable one's permission
         assert!(c.reaches_node(&["alpha".into(), "secret".into()]));
+    }
+
+    #[test]
+    fn local_stays_home_unless_the_operator_says_otherwise() {
+        let c = cfg();
+        assert!(c.may_show("shared"));
+        assert!(!c.may_show("local"), "local is the default visibility");
+        // an unknown value is not "shared", so it does not leave
+        assert!(!c.may_show(""));
+        let open = ApiConfig {
+            include_local: true,
+            ..cfg()
+        };
+        assert!(open.may_show("local"));
+    }
+
+    #[test]
+    fn a_response_never_names_an_initiative_the_caller_cannot_reach() {
+        let named = cfg().visible_initiatives(vec![
+            "alpha".into(),
+            "codename-thunderbolt".into(),
+            "secret".into(),
+        ]);
+        assert_eq!(named, vec!["alpha".to_string()]);
     }
 
     #[test]

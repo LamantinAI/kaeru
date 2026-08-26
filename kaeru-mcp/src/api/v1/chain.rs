@@ -24,7 +24,8 @@ use axum::extract::{Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use kaeru_core::{
-    NodeBrief, Store, edges_of, initiatives_of_node, node_brief_by_id, read_chain, read_node_full,
+    NodeBrief, NodeId, Store, edges_of, get_visibility, initiatives_of_node, node_brief_by_id,
+    read_chain, read_node_full,
 };
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +80,18 @@ struct NearOut {
     name: String,
 }
 
+/// Whether a node may appear in a response at all: inside the operator's
+/// ceiling, and shared.
+///
+/// One predicate, called before a node is read, described or followed. The
+/// two halves used to be applied in different places — the ceiling here, the
+/// visibility nowhere — which is how a trail came to serve in full the very
+/// bodies `at` refused on the same daemon.
+fn may_leave(store: &Store, id: &NodeId, cfg: &ApiConfig) -> bool {
+    initiatives_of_node(store, id).is_ok_and(|i| cfg.reaches_node(&i))
+        && get_visibility(store, id).is_ok_and(|v| cfg.may_show(v.as_str()))
+}
+
 fn step(store: &Store, brief: &NodeBrief) -> StepOut {
     // The brief carries the assertion time and a truncated body; the full
     // record carries the text. Neither alone is a step.
@@ -111,19 +124,26 @@ fn read(store: &Store, id: &str, cfg: &ApiConfig) -> Option<ChainOut> {
     if !cfg.reaches_node(&initiatives_of_node(store, &id).ok()?) {
         return None;
     }
+    // the trail node itself is a node, and answers to the same rule
+    let head_full = read_node_full(store, &id).ok()??;
+    if !cfg.may_show(&head_full.visibility) {
+        return None;
+    }
     let head = node_brief_by_id(store, &id).ok()??;
     let members = read_chain(store, &id).ok()?;
 
-    // A step outside the ceiling is dropped rather than redacted. Redaction
-    // says "there is something here you may not read"; for a trail the honest
-    // answer is that the operator did not share this line of work at all.
+    // A step the caller may not have is dropped rather than redacted.
+    // Redaction says "there is something here you may not read"; for a trail
+    // the honest answer is that the operator did not share this line of work
+    // at all.
+    //
+    // Both halves of the rule are applied here, once, and before anything
+    // walks a step's edges — a step filtered later would still have had its
+    // edges followed, putting ids and structure into the response for nodes
+    // that never appear in it.
     let members: Vec<NodeBrief> = members
         .into_iter()
-        .filter(|m| {
-            initiatives_of_node(store, &m.id)
-                .map(|i| cfg.reaches_node(&i))
-                .unwrap_or(false)
-        })
+        .filter(|m| may_leave(store, &m.id, cfg))
         .collect();
 
     let on_trail: BTreeSet<String> = members.iter().map(|m| m.id.clone()).collect();
@@ -147,11 +167,10 @@ fn read(store: &Store, id: &str, cfg: &ApiConfig) -> Option<ChainOut> {
                     });
                     continue;
                 }
-                let Ok(inits) = initiatives_of_node(store, other) else {
+                // an edge into work the operator did not share is not shown —
+                // the margin cites names, and a name is disclosure enough
+                if !may_leave(store, other, cfg) {
                     continue;
-                };
-                if !cfg.reaches_node(&inits) {
-                    continue; // an edge into work the operator did not share is not shown
                 }
                 let Ok(Some(b)) = node_brief_by_id(store, other) else {
                     continue;
@@ -177,7 +196,10 @@ fn read(store: &Store, id: &str, cfg: &ApiConfig) -> Option<ChainOut> {
     Some(ChainOut {
         id,
         name: head.name,
-        summary: head.body_excerpt,
+        // the full body, not the excerpt: the steps below carry untruncated text,
+        // and a summary that lost its tail while they kept theirs would be a
+        // silent inconsistency rather than a visible one
+        summary: head_full.body,
         steps: members.iter().map(|m| step(store, m)).collect(),
         edges,
         nearby: nearby.into_values().collect(),
@@ -214,4 +236,94 @@ pub async fn chain(
 fn internal(msg: String) -> Response {
     tracing::warn!(error = %msg, "chain read failed");
     (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use kaeru_core::{
+        EdgeType, EpisodeKind, Significance, Store, Visibility, create_chain, link, set_visibility,
+        write_episode,
+    };
+
+    use super::read;
+    use crate::api::ApiConfig;
+
+    fn cfg() -> ApiConfig {
+        ApiConfig {
+            allow: vec!["t".into()],
+            ..ApiConfig::default()
+        }
+    }
+
+    /// Two episodes joined into a trail. Everything is `local` — the default —
+    /// unless a test says otherwise.
+    fn store_with_a_trail() -> (Store, String, String, String) {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let a = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Medium,
+            "first step",
+            "MY PRIVATE PASSWORD NOTES",
+        )
+        .expect("a");
+        let b = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Medium,
+            "second step",
+            "and what followed from it",
+        )
+        .expect("b");
+        link(&store, &a, &b, EdgeType::DerivedFrom).expect("edge");
+        let chain = create_chain(&store, &a, &b, Some("the trail"), Some("why it matters"))
+            .expect("chain")
+            .expect("connected");
+        (store, chain.id, a, b)
+    }
+
+    /// The defect: the trail checked the operator's initiative ceiling and
+    /// never `visibility`, so it served in full the very bodies `at` answered
+    /// 404 for — on one daemon, under one config.
+    #[test]
+    fn a_local_trail_is_not_served_at_all() {
+        let (store, chain, _, _) = store_with_a_trail();
+        assert!(read(&store, &chain, &cfg()).is_none());
+    }
+
+    #[test]
+    fn a_shared_trail_still_withholds_its_local_steps() {
+        let (store, chain, a, b) = store_with_a_trail();
+        set_visibility(&store, &chain, Visibility::Shared).expect("share chain");
+        set_visibility(&store, &b, Visibility::Shared).expect("share second");
+        // `a` stays local on purpose
+
+        let out = read(&store, &chain, &cfg()).expect("served");
+        let bodies: Vec<String> = out.steps.iter().filter_map(|s| s.body.clone()).collect();
+        assert!(
+            !bodies.iter().any(|t| t.contains("PRIVATE PASSWORD")),
+            "the local step's body is nowhere in the answer: {bodies:?}"
+        );
+        assert!(
+            !out.steps.iter().any(|s| s.id == a),
+            "and neither is its id"
+        );
+        assert!(
+            !out.edges.iter().any(|e| e.src == a || e.dst == a),
+            "nor is it reachable through an edge"
+        );
+        assert_eq!(out.steps.len(), 1, "only the shared step remains");
+    }
+
+    /// The summary used to come from the brief, which truncates, while the
+    /// steps beside it carried full bodies.
+    #[test]
+    fn the_summary_is_not_truncated_while_the_steps_are_not() {
+        let (store, chain, _, b) = store_with_a_trail();
+        set_visibility(&store, &chain, Visibility::Shared).expect("share chain");
+        set_visibility(&store, &b, Visibility::Shared).expect("share second");
+        let out = read(&store, &chain, &cfg()).expect("served");
+        assert_eq!(out.summary.as_deref(), Some("why it matters"));
+    }
 }

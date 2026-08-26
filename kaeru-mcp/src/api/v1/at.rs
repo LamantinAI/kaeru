@@ -12,7 +12,9 @@
 use axum::extract::{Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use kaeru_core::{Store, at as node_at, initiatives_of_node, node_brief_by_id, read_node_full};
+use kaeru_core::{
+    Store, at as node_at, get_visibility, initiatives_of_node, node_brief_by_id, read_node_full,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::api::egress::{redact_excerpt, redact_name};
@@ -53,21 +55,26 @@ pub struct NodeOut {
 /// historical read. A node made `local` today should not leak through a
 /// question about last week — visibility is policy, and policy is not
 /// something the past gets a vote on.
+///
+/// It is read on its own rather than taken off the full record, which would
+/// have a second effect the rule does not intend: the full record only exists
+/// at NOW, so gating on it would gate *existence* on the present and answer
+/// 404 for a node since retracted — for the one verb whose whole purpose is
+/// to look at moments that have passed.
 fn read(store: &Store, id: &str, when: Option<f64>, cfg: &ApiConfig) -> Option<NodeOut> {
     let id = id.to_string();
     let inits = initiatives_of_node(store, &id).ok()?;
     if !cfg.reaches_node(&inits) {
         return None;
     }
-    let full = read_node_full(store, &id).ok()??;
-    if !cfg.include_local && full.visibility != "shared" {
+    if !cfg.may_show(get_visibility(store, &id).ok()?.as_str()) {
         return None;
     }
 
     // With a moment, answer from history; without one, the full record — the
-    // only read that carries the body untruncated. The brief supplies the
-    // assertion time the full record does not, and every step the reader draws
-    // is dated.
+    // only read at NOW that carries the body untruncated. The brief supplies
+    // the assertion time the full record does not, and every step the reader
+    // draws is dated.
     let (node_type, tier, layer, name, body, tags, ts) = match when {
         Some(secs) => {
             let snap = node_at(store, &id, secs).ok()??;
@@ -83,6 +90,7 @@ fn read(store: &Store, id: &str, when: Option<f64>, cfg: &ApiConfig) -> Option<N
             )
         }
         None => {
+            let full = read_node_full(store, &id).ok()??;
             let ts = node_brief_by_id(store, &id)
                 .ok()
                 .flatten()
@@ -109,7 +117,8 @@ fn read(store: &Store, id: &str, when: Option<f64>, cfg: &ApiConfig) -> Option<N
         name,
         body,
         tags,
-        initiatives: inits,
+        // an initiative the caller cannot reach is not named back at them
+        initiatives: cfg.visible_initiatives(inits),
         ts,
         redacted: name_hit || body_hit,
     })
@@ -144,4 +153,49 @@ pub async fn at(_who: Principal, State(st): State<ApiState>, Query(q): Query<AtQ
 fn internal(msg: String) -> Response {
     tracing::warn!(error = %msg, "node read failed");
     (StatusCode::INTERNAL_SERVER_ERROR, msg).into_response()
+}
+
+#[cfg(test)]
+mod tests {
+    use kaeru_core::{Store, Visibility, attach_node, set_visibility, write_task};
+
+    use super::read;
+    use crate::api::ApiConfig;
+
+    fn cfg() -> ApiConfig {
+        ApiConfig {
+            allow: vec!["t".into()],
+            ..ApiConfig::default()
+        }
+    }
+
+    #[test]
+    fn a_local_node_is_not_served() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let id = write_task(&store, "a private chore", None).expect("task");
+        assert!(read(&store, &id, None, &cfg()).is_none());
+
+        set_visibility(&store, &id, Visibility::Shared).expect("share");
+        assert!(
+            read(&store, &id, None, &cfg()).is_some(),
+            "shared is served"
+        );
+    }
+
+    /// An initiative name is often the most sensitive string in a record — a
+    /// client codename, an unannounced project. Naming one back at a caller
+    /// who cannot reach it is the disclosure this surface avoids by answering
+    /// 404 rather than 403.
+    #[test]
+    fn initiatives_outside_the_ceiling_are_not_named_back() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let id = write_task(&store, "a shared chore", None).expect("task");
+        set_visibility(&store, &id, Visibility::Shared).expect("share");
+        attach_node(&store, &id, "codename-thunderbolt").expect("attach");
+
+        let out = read(&store, &id, None, &cfg()).expect("served");
+        assert_eq!(out.initiatives, vec!["t".to_string()]);
+    }
 }
