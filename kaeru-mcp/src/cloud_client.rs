@@ -21,6 +21,24 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// instead of waiting out the OS connect timeout.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Percent-encodes a query-string value. Deliberately hand-rolled and
+/// minimal: the only values that reach it are search terms, and pulling a URL
+/// crate into two duplicated clients for one parameter is a poor trade.
+/// Anything outside the unreserved set is escaped, so a term with `&`, `=` or
+/// a space cannot break out of its parameter.
+fn urlencoding(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for b in value.as_bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*b as char)
+            }
+            other => out.push_str(&format!("%{other:02X}")),
+        }
+    }
+    out
+}
+
 /// Holds the cloud's configured name, its base URL, the bearer token, and a
 /// reusable reqwest client (cheap to clone — it shares a connection pool
 /// internally).
@@ -174,9 +192,13 @@ impl CloudClient {
         initiative: &str,
         limit: usize,
         offset: usize,
+        query: Option<&str>,
     ) -> Result<(u16, String), String> {
+        let q = query
+            .map(|q| format!("&q={}", urlencoding(q)))
+            .unwrap_or_default();
         let url = format!(
-            "{}/api/v1/initiatives/{initiative}/nodes?limit={limit}&offset={offset}",
+            "{}/api/v1/initiatives/{initiative}/nodes?limit={limit}&offset={offset}{q}",
             self.base_url
         );
         self.get(&url).await

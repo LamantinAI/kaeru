@@ -135,6 +135,14 @@ pub struct PageQuery {
     limit: Option<usize>,
     #[serde(default)]
     offset: Option<usize>,
+    /// Case-insensitive substring over name and excerpt.
+    ///
+    /// The cloud had listing and get-by-id and no way to *look* for anything,
+    /// so an agent whose whole reflex is `search` could not reach the second
+    /// tier with it at all — it had to page through an initiative or already
+    /// know an id (#57).
+    #[serde(default)]
+    q: Option<String>,
 }
 
 async fn list_nodes(
@@ -145,9 +153,19 @@ async fn list_nodes(
 ) -> Result<Json<Vec<NodeBriefView>>, ApiError> {
     let limit = page.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
     let offset = page.offset.unwrap_or(0);
+    let needle = page.q.as_deref().map(str::to_lowercase);
     let briefs = nodes_in_initiative(&store, &name)?;
     let views = briefs
         .into_iter()
+        .filter(|b| match &needle {
+            None => true,
+            Some(q) => {
+                b.name.to_lowercase().contains(q)
+                    || b.body_excerpt
+                        .as_deref()
+                        .is_some_and(|e| e.to_lowercase().contains(q))
+            }
+        })
         .skip(offset)
         .take(limit)
         .map(|b| NodeBriefView {
@@ -315,6 +333,53 @@ mod tests {
         assert_eq!(
             count(app.oneshot(page("?limit=100000")).await.unwrap()).await,
             8
+        );
+    }
+
+    /// The cloud had listing and get-by-id and no way to look for anything, so
+    /// an agent whose reflex is `search` could not reach the second tier with
+    /// it at all — it had to page an initiative or already know an id.
+    #[tokio::test]
+    async fn the_node_listing_can_be_searched() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("many");
+        kaeru_core::jot(&store, "the proxy drops idle connections").expect("jot");
+        kaeru_core::jot(&store, "unrelated note about billing").expect("jot");
+        let app = api_router(AppState {
+            api_token: Arc::from(""),
+            store: Arc::new(store),
+        });
+
+        let hits = |q: &str| {
+            Request::builder()
+                .uri(format!("/api/v1/initiatives/many/nodes?q={q}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let names = |resp: axum::response::Response| async {
+            let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+            serde_json::from_slice::<Vec<serde_json::Value>>(&bytes)
+                .unwrap()
+                .iter()
+                .map(|v| v["name"].as_str().unwrap_or("").to_string())
+                .collect::<Vec<_>>()
+        };
+
+        let found = names(app.clone().oneshot(hits("proxy")).await.unwrap()).await;
+        assert_eq!(found.len(), 1, "matched on the body excerpt: {found:?}");
+
+        // Case-insensitive, and a miss is an empty list rather than an error.
+        assert_eq!(
+            names(app.clone().oneshot(hits("PROXY")).await.unwrap())
+                .await
+                .len(),
+            1
+        );
+        assert_eq!(
+            names(app.oneshot(hits("zzznope")).await.unwrap())
+                .await
+                .len(),
+            0
         );
     }
 }

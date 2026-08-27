@@ -42,6 +42,13 @@ pub struct ShareParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct CloudScopeParams {
+    /// Which cloud to ask. Required when several are configured.
+    #[serde(default)]
+    pub cloud: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct UnshareParams {
     /// Node name or UUIDv7 id to withdraw from the cloud.
     pub name: String,
@@ -71,6 +78,10 @@ pub struct CloudRecallParams {
     /// configured.
     #[serde(default)]
     pub cloud: Option<String>,
+    /// Search the cloud instead of listing it: a case-insensitive substring
+    /// over shared node names and excerpts. Omit to list everything shared.
+    #[serde(default)]
+    pub query: Option<String>,
     /// Page size, default 25, ceiling 500. A shared initiative can hold
     /// hundreds of nodes — more than a context window — so this read is
     /// bounded like every other list on the surface.

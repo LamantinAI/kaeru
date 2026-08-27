@@ -101,7 +101,8 @@ Explicit, gated (initiative policy + secret guard); nothing leaves automatically
 | `policy` | Read / set an initiative's sharing gate: `policy` says WHETHER it may leave (`private` / `team` / `ask`), `clouds` says WHERE TO (a list restricting it to named clouds; empty = any). |
 | `share` | Push a node to the shared cloud (runs the two gates). Re-sharing a corrected node updates the cloud copy in place — the push is an upsert under the same id. |
 | `unshare` | Withdraw a node from a cloud: retracts the cloud copy (bi-temporally — history survives) and marks it `local` again. `share`'s inverse. |
-| `cloud_recall` | List what the team has shared — paged (25 by default), reporting the true total and the exact call for the next page. |
+| `cloud_recall` | Search or list what the team has shared — `query` matches names and excerpts, the tier a local `search` cannot reach. Paged (25 by default), reporting the true total and the next call. |
+| `cloud_initiatives` | What one cloud holds: initiatives and their shared-node counts. A cloud initiative is independent of the local one with the same name. |
 | `pull` | Bring a shared node into the local graph. |
 | `link_cloud` / `cloud_links` | Reference a cloud node from a local one without copying, resolved on demand. |
 | `clouds` | What this daemon can reach: names, endpoints, which is default. |

@@ -215,6 +215,21 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 - The MCP server surfaces errors directly from `kaeru-core::Result`. No re-wrapping.
 - The substrate is single-process embedded — no server, no network. Adapters wrap the in-process API; they do not expose a separate persistence path.
 
+## Sharing & Cloud — the second tier has to announce itself
+
+The local vault is not the whole graph, and every read that answers from it
+alone is capable of being confidently incomplete. `awake` and `overview`
+therefore end with a cloud line on any initiative whose policy permits
+sharing — reading the policy is local and free, so the line costs no network
+call inside the verbs an agent runs first. It says a tier exists; it never
+claims how much is in it, because knowing would cost that call.
+
+`cloud_recall` takes a `query`, and `cloud_initiatives` lists what a cloud
+holds. Before those, the cloud could only be listed one initiative at a time
+or fetched by id — so an agent whose reflex is `search` could not reach it,
+and one real session resolved "what's in the cloud?" by shelling out to `curl`
+against kaeru's own REST API.
+
 ## Sharing & Cloud — the two questions of the first gate
 
 Sharing is gated twice: the initiative's policy, then the pre-share secret

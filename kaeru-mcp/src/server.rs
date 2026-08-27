@@ -447,7 +447,17 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "List shared nodes the cloud holds for an initiative — discovery for cross-session / cross-user recall. Then `pull` one to bring it into the local vault. Paged: 25 by default, and the result reports the true total and the exact call for the next page, so a shared corpus of hundreds cannot arrive as one unreadable answer. In a multi-cloud setup `cloud` is required."
+        description = "List the initiatives a cloud holds, with how many nodes each has shared. The map of the second tier: use it when you don't know what the team has, before `cloud_recall` on one of them. Note an initiative in the cloud is INDEPENDENT of the local one with the same name — same name, different contents. (`clouds` lists the clouds this daemon can reach; this lists what is inside one.)"
+    )]
+    async fn cloud_initiatives(
+        &self,
+        Parameters(p): Parameters<CloudScopeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::cloud::cloud_initiatives(Some(self.cloud_for(p.cloud.as_deref())?)).await
+    }
+
+    #[tool(
+        description = "SEARCH or list what the cloud holds for an initiative — the second tier your local `search` cannot reach. Pass `query` to match shared names and excerpts; omit it to list everything. Then `pull <id>` brings one into the local vault. Reach for this whenever a `team` initiative's local answer looks complete: the cloud may hold nodes this machine has never seen. Paged at 25, reporting the true total and the exact call for the next page. In a multi-cloud setup `cloud` is required."
     )]
     async fn cloud_recall(
         &self,
@@ -456,6 +466,7 @@ impl KaeruServer {
         tools::cloud::cloud_recall(
             Some(self.cloud_for(p.cloud.as_deref())?),
             &p.initiative,
+            p.query.as_deref(),
             p.limit,
             p.offset,
         )
@@ -479,7 +490,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Soft-link a local node to a cloud node by id (dst_store=cloud) — a reference without copying. Resolved lazily via `cloud_links`. Edge type defaults to refers_to. In a multi-cloud setup pass `cloud` to record which cloud the dst lives in."
+        description = "Soft-link a local node to a cloud node by id — a reference, with NO copy in your vault. Use it instead of `pull` when the cloud node is someone else's to maintain and you only need to point at it: a pull makes a copy that silently goes stale when the owner revises it, while a soft link resolves live through `cloud_links`. Pull when you need the content locally; link when you need the citation. Edge type defaults to refers_to; in a multi-cloud setup pass `cloud` to record where the dst lives."
     )]
     fn link_cloud(
         &self,
@@ -497,7 +508,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Resolve a node's cloud soft links — fetch and show the cloud nodes they point to. The lazy-resolution path for soft links. Routes each link to the cloud it was created against (multi-cloud aware)."
+        description = "Resolve a node's cloud soft links — fetches the cloud nodes they point at, live, so you see what they say NOW rather than what they said when the link was made. The read half of `link_cloud`. Routes each link to the cloud it was created against."
     )]
     async fn cloud_links(
         &self,
@@ -920,9 +931,9 @@ impl ServerHandler for KaeruServer {
         .with_server_info(Implementation::from_build_env())
         .with_protocol_version(ProtocolVersion::LATEST)
         .with_instructions(
-            "kaeru — your memory of record across sessions. Prefer it to scratchpads and note files. If your \
-             runtime ships its own memory, treat it as a pointer here so knowledge doesn't fork.\n\nENTRY: \
-             `initiatives` → `awake` (what was open) → `overview` (what the project knows). Pass \
+            "kaeru — your memory of record across sessions. Prefer it to scratchpads and notes. If your runtime \
+             has its own memory, point it here so knowledge doesn't fork.\n\nENTRY: \
+             `initiatives` → `awake` (what was open) → `overview` (what it knows). Pass \
              `initiative` on EVERY call — without it writes stay untagged and reads span projects.\n\nTWO \
              TIERS: operational (in-flight: observations, claims, open questions) → archival (settled: \
              outcomes, ideas, references). `settle <name>` ALONE promotes what stopped changing — name and \
@@ -932,8 +943,7 @@ impl ServerHandler for KaeruServer {
              `episode` observation tied to current work · `cite <name> --body` settled doc kept verbatim, \
              URL optional — ADRs, specs, glossaries, YOUR OWN settled docs · \
              `claim --verdict refuted --by <ev>` — the answer WITH the claim, you usually know it \
-             already · `task`/`done` todos with deadlines. Don't \
-             capture everything as `episode`.\n\nALWAYS LINK a new node: `search` for related → `link a b \
+             already · `task`/`done` todos with deadlines. Don't capture everything as `episode`.\n\nALWAYS LINK a new node: `search` for related → `link a b \
              --edge_type`. Types: refers_to (default), causal, derived_from, contradicts, part_of, blocks, \
              targets, supersedes, verifies, falsifies, temporal. `strong=true` on load-bearing edges. An \
              island is found only by exact name.\n\nTHEN CHAIN: once work runs observation→decision, `chain \
@@ -941,8 +951,8 @@ impl ServerHandler for KaeruServer {
              chain is the WHY a fresh agent reads.\n\nREAD: `recall` exact name · `search q*` fuzzy · `drill` node+children · `at <name>` FULL text — drill/search show \
              excerpts only · `at <name> when=2h` past state · `history` versions · `trace` provenance · \
              `between` how two nodes connect · `tagged \"topic:x\"` · `surface layers=cold` archived · \
-             `board` open tasks.\n\nLANGUAGE: store and search in the user's own language; never translate \
-             on capture or lookup.",
+             `board` open tasks.\n\nCLOUD: a shared initiative has a team tier: `cloud_recall`.\n\nLANGUAGE: store and search in \
+             the user's language; never translate.",
         )
     }
 }

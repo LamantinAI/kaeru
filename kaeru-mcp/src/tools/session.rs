@@ -156,13 +156,49 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
         if !ctx.chains.is_empty() {
             out.push_str("↳ saved reasoning trails — read one with `why <name>`.\n");
         }
+
+        // The second tier. `awake` answers "what was open" from the local
+        // vault alone, so on a team initiative it produces a plausible,
+        // complete-looking answer while the cloud holds nodes this machine has
+        // never seen — and nothing in the reply suggests there is anywhere
+        // else to look. Reading the policy is local and free; counting what
+        // the cloud holds would mean a network round-trip inside the verb an
+        // agent calls first, which is not a cost this line is worth.
+        if let Some(init) = ctx.initiative.as_deref() {
+            out.push_str(&cloud_tail(store, init));
+        }
         Ok(text(&out))
     })
 }
 
+/// `↳ cloud: …` for an initiative whose policy lets it share — the reminder
+/// that the local graph is not the whole graph.
+///
+/// Only the policy is read, and only locally: an initiative that cannot share
+/// has no second tier to mention, and one that can is exactly the case where a
+/// confident local-only answer is a wrong answer. Says nothing about how many
+/// nodes are up there, because knowing would cost a network call in the verb
+/// an agent runs first.
+fn cloud_tail(store: &Store, initiative: &str) -> String {
+    let permits = kaeru_core::get_share_policy(store, initiative)
+        .map(|p| p.permits_share())
+        .unwrap_or(false);
+    if !permits {
+        return String::new();
+    }
+    format!(
+        "\ncloud: `{initiative}` is a shared initiative — the cloud may hold nodes this vault \
+         does not.\n↳ `cloud_recall {initiative}` lists what the team shared; `pull <id> \
+         {initiative}` brings one in. A local-only answer here can be confidently incomplete.\n"
+    )
+}
+
 pub fn overview(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
-        let report = kaeru_core::overview(store).map_err(to_mcp)?;
+        let mut report = kaeru_core::overview(store).map_err(to_mcp)?;
+        if let Some(init) = initiative {
+            report.push_str(&cloud_tail(store, init));
+        }
         Ok(text(&report))
     })
 }
@@ -626,5 +662,44 @@ mod tests {
             out.contains("restart the daemon"),
             "and what to do about an edit: {out}"
         );
+    }
+
+    /// The fail-silent case #57 measured: on a team initiative, `awake` gave a
+    /// complete-looking answer from the local vault alone while the cloud held
+    /// nodes this machine had never seen, and nothing hinted there was
+    /// anywhere else to look. In one such initiative, 18 of 25 reading
+    /// sessions answered "what do we know" from the local graph only.
+    #[test]
+    fn a_shared_initiative_says_the_local_answer_may_be_incomplete() {
+        let store = store_t();
+        kaeru_core::set_share_policy(&store, "t", kaeru_core::SharePolicy::Team).expect("policy");
+
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(out.contains("cloud:"), "{out}");
+        assert!(out.contains("`cloud_recall t`"), "names the verb: {out}");
+        assert!(
+            out.contains("confidently incomplete"),
+            "and says why it matters: {out}"
+        );
+    }
+
+    /// A private initiative has no second tier, so the line would be noise on
+    /// every re-entry of every solo project.
+    #[test]
+    fn a_private_initiative_gets_no_cloud_line() {
+        let store = store_t();
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(!out.contains("cloud:"), "{out}");
+    }
+
+    /// Reading the policy is local, so the line costs no network call inside
+    /// the verb an agent runs first — it says a tier exists, never how much is
+    /// in it.
+    #[test]
+    fn the_cloud_line_claims_no_counts() {
+        let store = store_t();
+        kaeru_core::set_share_policy(&store, "t", kaeru_core::SharePolicy::Team).expect("policy");
+        let out = text_of(awake(&store, Some("t")).unwrap());
+        assert!(out.contains("may hold"), "hedged, not counted: {out}");
     }
 }

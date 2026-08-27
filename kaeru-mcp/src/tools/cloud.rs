@@ -227,6 +227,51 @@ pub async fn share(
     Ok(text(&msg))
 }
 
+/// Lists the initiatives a cloud holds, with node counts.
+///
+/// The REST endpoint always existed and nothing on the agent's surface reached
+/// it, so in a real session the answer to "what's in the cloud?" was the agent
+/// shelling out to `curl` against kaeru's own API — and the user asking why it
+/// wasn't using kaeru. A tool that exists in the transport but not in the verb
+/// set is a tool the agent has to work around.
+///
+/// Not to be confused with `clouds`, which lists the clouds this daemon can
+/// reach. This lists what is *inside* one of them.
+pub async fn cloud_initiatives(cloud: Option<&CloudClient>) -> Result<CallToolResult, McpError> {
+    let cloud = cloud.ok_or_else(not_configured)?;
+    let (code, resp) = cloud
+        .list_initiatives()
+        .await
+        .map_err(|e| McpError::internal_error(format!("cloud list failed: {e}"), None))?;
+    if !(200..300).contains(&code) {
+        return Ok(text(&format!(
+            "cloud `{}`: list failed ({code}): {resp}",
+            cloud.name()
+        )));
+    }
+    let items = serde_json::from_str::<Value>(&resp)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    if items.is_empty() {
+        return Ok(text(&format!(
+            "cloud `{}` holds no initiatives yet.",
+            cloud.name()
+        )));
+    }
+    let mut out = format!("cloud `{}` ({} initiatives):\n", cloud.name(), items.len());
+    for it in &items {
+        let name = it.get("name").and_then(|x| x.as_str()).unwrap_or("");
+        let nodes = it.get("nodes").and_then(|x| x.as_u64()).unwrap_or(0);
+        out.push_str(&format!("  - {name} — {nodes} shared node(s)\n"));
+    }
+    out.push_str(
+        "\n↳ `cloud_recall <initiative>` lists or searches one; an initiative here is \
+         independent of the local one with the same name.",
+    );
+    Ok(text(&out))
+}
+
 /// Withdraws a node from a cloud and returns it to `local`.
 ///
 /// `share` had no inverse at all, which made every mistake permanent: a node
@@ -280,6 +325,7 @@ pub async fn unshare(
 pub async fn cloud_recall(
     cloud: Option<&CloudClient>,
     initiative: &str,
+    query: Option<&str>,
     limit: Option<usize>,
     offset: Option<usize>,
 ) -> Result<CallToolResult, McpError> {
@@ -292,7 +338,7 @@ pub async fn cloud_recall(
     let offset = offset.unwrap_or(0);
 
     let (code, resp) = cloud
-        .list_initiative(initiative, limit, offset)
+        .list_initiative(initiative, limit, offset, query)
         .await
         .map_err(|e| McpError::internal_error(format!("cloud list failed: {e}"), None))?;
     if !(200..300).contains(&code) {
@@ -320,6 +366,16 @@ pub async fn cloud_recall(
         // "Empty" and "not here" used to read identically, which in a
         // multi-cloud setup is the difference between "nobody has shared
         // anything" and "you asked the wrong cloud".
+        if let Some(q) = query {
+            return Ok(text(&format!(
+                "cloud `{}` · `{initiative}`: nothing matching {q:?}{}. \
+                 Drop `query` to list everything shared.",
+                cloud.name(),
+                total
+                    .map(|t| format!(" (of {t} shared)"))
+                    .unwrap_or_default()
+            )));
+        }
         if offset > 0 {
             return Ok(text(&format!(
                 "cloud `{}` · `{initiative}`: no nodes past offset {offset}{}.",
@@ -353,7 +409,16 @@ pub async fn cloud_recall(
     }
 
     let shown = items.len();
+    let scope = query
+        .map(|q| format!(" matching {q:?}"))
+        .unwrap_or_default();
     let header = match total {
+        // With a query the total is the initiative's, not the match count —
+        // say which, rather than implying the filter found that many.
+        Some(t) if query.is_some() => format!(
+            "cloud `{}` · `{initiative}`{scope} ({shown} shown, of {t} shared):\n",
+            cloud.name()
+        ),
         Some(t) => format!(
             "cloud `{}` · `{initiative}` ({}–{} of {t}):\n",
             cloud.name(),
@@ -361,7 +426,7 @@ pub async fn cloud_recall(
             offset + shown
         ),
         None => format!(
-            "cloud `{}` · `{initiative}` ({shown} shared, from {offset}):\n",
+            "cloud `{}` · `{initiative}`{scope} ({shown} shared, from {offset}):\n",
             cloud.name()
         ),
     };
@@ -388,7 +453,8 @@ pub async fn cloud_recall(
             "more".to_string()
         };
         out.push_str(&format!(
-            "\n↳ {rest} — next page: `cloud_recall {initiative} --offset {} --limit {limit}`.",
+            "\n↳ {rest} — next page: `cloud_recall {initiative}{} --offset {} --limit {limit}`.",
+            query.map(|q| format!(" --query {q:?}")).unwrap_or_default(),
             offset + shown
         ));
     }

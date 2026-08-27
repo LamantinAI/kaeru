@@ -28,6 +28,10 @@ pub struct CloudRecallArgs {
     pub limit: Option<usize>,
     #[serde(default)]
     pub offset: Option<usize>,
+    /// Case-insensitive substring over name and excerpt — the cloud had no
+    /// way to be *searched* at all, only listed and fetched by id (#57).
+    #[serde(default)]
+    pub query: Option<String>,
 }
 
 async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
@@ -40,7 +44,12 @@ async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
     };
 
     let (code, resp) = match client
-        .list_initiative(&init, a.limit.unwrap_or(50), a.offset.unwrap_or(0))
+        .list_initiative(
+            &init,
+            a.limit.unwrap_or(50),
+            a.offset.unwrap_or(0),
+            a.query.as_deref(),
+        )
         .await
     {
         Ok(x) => x,
