@@ -42,29 +42,45 @@ pub fn policy(
     store: &Store,
     initiative: &str,
     policy: Option<&str>,
+    clouds: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
-    match policy {
-        Some(p) => {
-            let parsed = SharePolicy::from_str(p).map_err(to_mcp)?;
-            kaeru_core::set_share_policy(store, initiative, parsed).map_err(to_mcp)?;
-            Ok(text(&format!(
-                "share_policy[{initiative}] = {}",
-                parsed.as_str()
-            )))
-        }
-        None => {
-            let cur = kaeru_core::get_share_policy(store, initiative).map_err(to_mcp)?;
-            let note = if cur.permits_share() {
-                "sharing allowed"
-            } else {
-                "sharing blocked"
-            };
-            Ok(text(&format!(
-                "share_policy[{initiative}] = {} ({note})",
-                cur.as_str()
-            )))
-        }
+    // `clouds` is set independently of the policy word, so an initiative can
+    // be restricted without also being re-opened, and re-opened without
+    // losing its restriction.
+    if let Some(list) = clouds {
+        let names: Vec<String> = list
+            .split([',', ' '])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
+        kaeru_core::set_initiative_clouds(store, initiative, &names).map_err(to_mcp)?;
     }
+    if let Some(p) = policy {
+        let parsed = SharePolicy::from_str(p).map_err(to_mcp)?;
+        kaeru_core::set_share_policy(store, initiative, parsed).map_err(to_mcp)?;
+    }
+
+    let cur = kaeru_core::get_share_policy(store, initiative).map_err(to_mcp)?;
+    let allowed = kaeru_core::initiative_clouds(store, initiative).map_err(to_mcp)?;
+    let note = if cur.permits_share() {
+        "sharing allowed"
+    } else {
+        "sharing blocked"
+    };
+    let where_to = if allowed.is_empty() {
+        "any configured cloud".to_string()
+    } else {
+        allowed
+            .iter()
+            .map(|c| format!("`{c}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    Ok(text(&format!(
+        "share_policy[{initiative}] = {} ({note})\nclouds[{initiative}] = {where_to}",
+        cur.as_str()
+    )))
 }
 
 /// Runs both share gates on node `id` and, if they pass, pushes it to the
@@ -79,12 +95,33 @@ pub async fn push_to_cloud(
     initiative: &str,
     force: bool,
 ) -> Result<String, McpError> {
-    // Gate 1 — initiative policy.
+    // Gate 1a — may this initiative leave at all?
     let pol = kaeru_core::get_share_policy(store, initiative).map_err(to_mcp)?;
     if !pol.permits_share() {
         return Ok(format!(
             "not shared: initiative `{initiative}` is `{}` — run `policy {initiative} team` to allow.",
             pol.as_str()
+        ));
+    }
+
+    // Gate 1b — and may it leave to THIS cloud? `team` used to open an
+    // initiative to every configured cloud at once, leaving the destination
+    // entirely to the caller's argument. That is fine with one cloud and is
+    // not a permission model with several of differing trust: a valid cloud
+    // name is accepted whatever the initiative, so naming the wrong one is
+    // still a way out. An initiative with no list is unrestricted, so this
+    // changes nothing until someone asks for it.
+    if !kaeru_core::permits_cloud(store, initiative, cloud.name()).map_err(to_mcp)? {
+        let allowed = kaeru_core::initiative_clouds(store, initiative).map_err(to_mcp)?;
+        return Ok(format!(
+            "not shared: initiative `{initiative}` may only be shared into {} — not `{}`. \
+             Change it with `policy {initiative} team --clouds <names>`.",
+            allowed
+                .iter()
+                .map(|c| format!("`{c}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            cloud.name()
         ));
     }
 
@@ -243,25 +280,53 @@ pub async fn unshare(
 pub async fn cloud_recall(
     cloud: Option<&CloudClient>,
     initiative: &str,
+    limit: Option<usize>,
+    offset: Option<usize>,
 ) -> Result<CallToolResult, McpError> {
+    /// Page size when the caller does not choose one. Deliberately smaller
+    /// than the server's own default: this output lands in a context window.
+    const DEFAULT_LIMIT: usize = 25;
+
     let cloud = cloud.ok_or_else(not_configured)?;
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).max(1);
+    let offset = offset.unwrap_or(0);
 
     let (code, resp) = cloud
-        .list_initiative(initiative)
+        .list_initiative(initiative, limit, offset)
         .await
         .map_err(|e| McpError::internal_error(format!("cloud list failed: {e}"), None))?;
     if !(200..300).contains(&code) {
-        return Ok(text(&format!("cloud list failed ({code}): {resp}")));
+        return Ok(text(&format!(
+            "cloud `{}`: list failed ({code}): {resp}",
+            cloud.name()
+        )));
     }
 
     let arr: Value = serde_json::from_str(&resp)
         .map_err(|e| McpError::internal_error(format!("bad cloud response: {e}"), None))?;
     let items = arr.as_array().cloned().unwrap_or_default();
+
+    // The true total comes from the initiative listing, which already carries
+    // per-initiative counts — so a bounded page can still report honestly how
+    // much there is, without changing the listing's response shape.
+    let total = cloud
+        .list_initiatives()
+        .await
+        .ok()
+        .filter(|(code, _)| (200..300).contains(code))
+        .and_then(|(_, body)| initiative_total(&body, initiative));
+
     if items.is_empty() {
         // "Empty" and "not here" used to read identically, which in a
         // multi-cloud setup is the difference between "nobody has shared
-        // anything" and "you asked the wrong cloud". The cloud already lists
-        // its initiatives, so one extra read settles it.
+        // anything" and "you asked the wrong cloud".
+        if offset > 0 {
+            return Ok(text(&format!(
+                "cloud `{}` · `{initiative}`: no nodes past offset {offset}{}.",
+                cloud.name(),
+                total.map(|t| format!(" (total {t})")).unwrap_or_default()
+            )));
+        }
         let known = cloud
             .list_initiatives()
             .await
@@ -287,11 +352,20 @@ pub async fn cloud_recall(
         )));
     }
 
-    let mut out = format!(
-        "cloud `{}` · `{initiative}` ({} shared):\n",
-        cloud.name(),
-        items.len()
-    );
+    let shown = items.len();
+    let header = match total {
+        Some(t) => format!(
+            "cloud `{}` · `{initiative}` ({}–{} of {t}):\n",
+            cloud.name(),
+            offset + 1,
+            offset + shown
+        ),
+        None => format!(
+            "cloud `{}` · `{initiative}` ({shown} shared, from {offset}):\n",
+            cloud.name()
+        ),
+    };
+    let mut out = header;
     for it in &items {
         let id = it.get("id").and_then(|x| x.as_str()).unwrap_or("");
         let nt = it.get("node_type").and_then(|x| x.as_str()).unwrap_or("");
@@ -301,8 +375,36 @@ pub async fn cloud_recall(
             out.push_str(&format!("    {e}\n"));
         }
     }
-    out.push_str("\nUse `pull <id> <initiative>` to materialise one locally.");
+
+    // Never truncate silently: say a page ended and how to ask for the next.
+    let more = match total {
+        Some(t) if offset + shown < t => Some(t - offset - shown),
+        _ => (shown == limit).then_some(0),
+    };
+    if let Some(rest) = more {
+        let rest = if rest > 0 {
+            format!("{rest} more")
+        } else {
+            "more".to_string()
+        };
+        out.push_str(&format!(
+            "\n↳ {rest} — next page: `cloud_recall {initiative} --offset {} --limit {limit}`.",
+            offset + shown
+        ));
+    }
+    out.push_str("\n↳ `pull <id> <initiative>` materialises one locally.");
     Ok(text(&out))
+}
+
+/// A named initiative's node count out of `GET /api/v1/initiatives`.
+fn initiative_total(body: &str, initiative: &str) -> Option<usize> {
+    serde_json::from_str::<Value>(body)
+        .ok()?
+        .as_array()?
+        .iter()
+        .find(|it| it.get("name").and_then(|x| x.as_str()) == Some(initiative))
+        .and_then(|it| it.get("nodes").and_then(|x| x.as_u64()))
+        .map(|n| n as usize)
 }
 
 /// Pulls a shared node from the cloud into the local vault by id — the

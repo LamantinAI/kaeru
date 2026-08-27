@@ -22,6 +22,12 @@ pub struct CloudRecallArgs {
     pub initiative: Option<String>,
     #[serde(default)]
     pub cloud: Option<String>,
+    /// Page size. Bounded server-side; an unpaged listing on a real corpus
+    /// did not fit in the caller's context at all (#67).
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
@@ -33,7 +39,10 @@ async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
         Err(v) => return v,
     };
 
-    let (code, resp) = match client.list_initiative(&init).await {
+    let (code, resp) = match client
+        .list_initiative(&init, a.limit.unwrap_or(50), a.offset.unwrap_or(0))
+        .await
+    {
         Ok(x) => x,
         Err(e) => return json!({ "error": format!("cloud list failed: {e}") }),
     };

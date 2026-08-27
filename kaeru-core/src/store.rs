@@ -339,6 +339,17 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         pending_report: String? default null,
     }
     "#,
+    // Which clouds an initiative may be shared into. A junction rather than a
+    // column on `initiative`: the natural shape is a set, and an absent set
+    // means "no restriction", which is exactly what an empty junction says
+    // without a sentinel value. Not bi-temporal — permission is current
+    // state, not knowledge history.
+    r#"
+    :create initiative_cloud {
+        initiative: String,
+        cloud: String,
+    }
+    "#,
     "::index create node:by_name { name }",
     "::index create node:by_tier_type { tier, type }",
     "::index create node:by_layer { layer }",

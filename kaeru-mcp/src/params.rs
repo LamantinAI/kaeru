@@ -14,9 +14,17 @@ pub struct PolicyParams {
     /// Initiative whose cloud sharing policy to read or set.
     pub initiative: String,
     /// New policy: `private` (default, never leaves), `team` (shared nodes
-    /// may sync), or `ask`. Omit to read the current policy.
+    /// may sync), or `ask`. Omit to leave it as it is.
     #[serde(default)]
     pub policy: Option<String>,
+    /// Restrict this initiative to named clouds — comma or space separated.
+    /// `policy` says WHETHER an initiative may leave; this says WHERE TO. An
+    /// initiative with no list may go to any configured cloud, which is how
+    /// every initiative behaves until this is set. Pass an empty string to
+    /// clear the restriction. Set independently of `policy`, so restricting
+    /// does not re-open and re-opening does not un-restrict.
+    #[serde(default)]
+    pub clouds: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -59,9 +67,18 @@ pub struct PullParams {
 pub struct CloudRecallParams {
     /// Initiative to list shared cloud nodes for.
     pub initiative: String,
-    /// Cloud name to query in a multi-cloud setup. Omit for the default cloud.
+    /// Cloud name to query in a multi-cloud setup. Required when several are
+    /// configured.
     #[serde(default)]
     pub cloud: Option<String>,
+    /// Page size, default 25, ceiling 500. A shared initiative can hold
+    /// hundreds of nodes — more than a context window — so this read is
+    /// bounded like every other list on the surface.
+    #[serde(default)]
+    pub limit: Option<usize>,
+    /// How many to skip, for the next page. The result says when there is one.
+    #[serde(default)]
+    pub offset: Option<usize>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]

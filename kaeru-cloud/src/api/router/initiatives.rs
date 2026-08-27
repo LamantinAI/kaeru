@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use kaeru_core::{
@@ -113,14 +113,43 @@ pub struct NodeBriefView {
     pub body_excerpt: Option<String>,
 }
 
+/// Default and ceiling for one page of `GET …/nodes`.
+///
+/// The listing was unbounded, and on a real initiative that meant 532 nodes —
+/// 188 KB, 1778 lines — arriving in one response that did not fit in the
+/// caller's context and had to be written to a file before any of it could be
+/// read (#67). The failure mode was not a truncated answer but an unusable
+/// one: the full cost was paid, then the result discarded.
+///
+/// Every other list-shaped read in kaeru is bounded; this is the one most
+/// likely to meet a corpus nobody in the session wrote.
+const DEFAULT_PAGE: usize = 50;
+const MAX_PAGE: usize = 500;
+
+/// `?limit=&offset=` for a node listing. Both optional; out-of-range values
+/// clamp rather than error, since a caller asking for more than the ceiling
+/// wants as much as it can have, not a rejection.
+#[derive(Debug, Deserialize)]
+pub struct PageQuery {
+    #[serde(default)]
+    limit: Option<usize>,
+    #[serde(default)]
+    offset: Option<usize>,
+}
+
 async fn list_nodes(
     _: Authenticated,
     State(store): State<Arc<Store>>,
     Path(name): Path<String>,
+    Query(page): Query<PageQuery>,
 ) -> Result<Json<Vec<NodeBriefView>>, ApiError> {
+    let limit = page.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
+    let offset = page.offset.unwrap_or(0);
     let briefs = nodes_in_initiative(&store, &name)?;
     let views = briefs
         .into_iter()
+        .skip(offset)
+        .take(limit)
         .map(|b| NodeBriefView {
             id: b.id,
             node_type: b.node_type,
@@ -224,5 +253,68 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// The listing was unbounded: a real initiative returned 532 nodes in one
+    /// response that did not fit in the caller's context and had to be spilled
+    /// to a file before any of it could be read.
+    #[tokio::test]
+    async fn the_node_listing_is_paged() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("many");
+        for i in 0..8 {
+            kaeru_core::jot(&store, &format!("node number {i}")).expect("jot");
+        }
+        let app = api_router(AppState {
+            api_token: Arc::from(""),
+            store: Arc::new(store),
+        });
+
+        let page = |q: &str| {
+            Request::builder()
+                .uri(format!("/api/v1/initiatives/many/nodes{q}"))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let count = |resp: axum::response::Response| async {
+            let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+            serde_json::from_slice::<Vec<serde_json::Value>>(&bytes)
+                .unwrap()
+                .len()
+        };
+
+        assert_eq!(
+            count(app.clone().oneshot(page("?limit=3")).await.unwrap()).await,
+            3,
+            "limit bounds the page"
+        );
+        assert_eq!(
+            count(
+                app.clone()
+                    .oneshot(page("?limit=3&offset=6"))
+                    .await
+                    .unwrap()
+            )
+            .await,
+            2,
+            "offset walks to the tail"
+        );
+        assert_eq!(
+            count(
+                app.clone()
+                    .oneshot(page("?limit=3&offset=99"))
+                    .await
+                    .unwrap()
+            )
+            .await,
+            0,
+            "past the end is empty, not an error"
+        );
+        // An out-of-range limit clamps rather than erroring: a caller asking
+        // for more than the ceiling wants everything it can have.
+        assert_eq!(
+            count(app.oneshot(page("?limit=100000")).await.unwrap()).await,
+            8
+        );
     }
 }

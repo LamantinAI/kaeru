@@ -22,45 +22,69 @@ use crate::{KaeruMemory, mem_tool_cloud, target_initiative};
 pub struct PolicyArgs {
     #[serde(default)]
     pub initiative: Option<String>,
-    /// Omit to read; `private` / `team` / `ask` to set.
+    /// Omit to leave as is; `private` / `team` / `ask` to set.
     #[serde(default)]
     pub policy: Option<String>,
+    /// Restrict this initiative to named clouds (comma or space separated).
+    /// `policy` says whether it may leave; this says where to. Empty string
+    /// clears. Set independently of `policy`.
+    #[serde(default)]
+    pub clouds: Option<String>,
 }
 
 async fn do_policy(mem: &KaeruMemory, a: PolicyArgs) -> Value {
     let Some(init) = target_initiative(mem, &a.initiative) else {
         return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
     };
-    match a.policy {
-        Some(p) => {
-            let parsed = match SharePolicy::from_str(&p) {
-                Ok(x) => x,
-                Err(e) => return json!({ "error": format!("bad policy `{p}`: {e}") }),
-            };
-            let init2 = init.clone();
-            let r = mem
-                .blocking(move |s| kaeru_core::set_share_policy(s, &init2, parsed))
-                .await;
-            match r {
-                Ok(()) => json!({ "initiative": init, "policy": parsed.as_str() }),
-                Err(e) => json!({ "error": e.to_string() }),
-            }
-        }
-        None => {
-            let init2 = init.clone();
-            let r = mem
-                .blocking(move |s| kaeru_core::get_share_policy(s, &init2))
-                .await;
-            match r {
-                Ok(cur) => json!({
-                    "initiative": init,
-                    "policy": cur.as_str(),
-                    "permits_share": cur.permits_share(),
-                }),
-                Err(e) => json!({ "error": e.to_string() }),
-            }
+    if let Some(list) = a.clouds {
+        let names: Vec<String> = list
+            .split([',', ' '])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect();
+        let init2 = init.clone();
+        if let Err(e) = mem
+            .blocking(move |s| kaeru_core::set_initiative_clouds(s, &init2, &names))
+            .await
+        {
+            return json!({ "error": e.to_string() });
         }
     }
+    if let Some(p) = a.policy {
+        let parsed = match SharePolicy::from_str(&p) {
+            Ok(x) => x,
+            Err(e) => return json!({ "error": format!("bad policy `{p}`: {e}") }),
+        };
+        let init2 = init.clone();
+        if let Err(e) = mem
+            .blocking(move |s| kaeru_core::set_share_policy(s, &init2, parsed))
+            .await
+        {
+            return json!({ "error": e.to_string() });
+        }
+    }
+
+    let init2 = init.clone();
+    let cur = match mem
+        .blocking(move |s| kaeru_core::get_share_policy(s, &init2))
+        .await
+    {
+        Ok(cur) => cur,
+        Err(e) => return json!({ "error": e.to_string() }),
+    };
+    let init2 = init.clone();
+    let allowed = mem
+        .blocking(move |s| kaeru_core::initiative_clouds(s, &init2))
+        .await
+        .unwrap_or_default();
+    json!({
+        "initiative": init,
+        "policy": cur.as_str(),
+        "permits_share": cur.permits_share(),
+        // Empty means unrestricted — any configured cloud.
+        "clouds": allowed,
+    })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,12 +142,16 @@ mem_tool_cloud!(
     /// `kaeru_policy` — read or set an initiative's cloud sharing policy.
     Policy,
     "kaeru_policy",
-    "Read or set an initiative's cloud sharing policy (Gate 1). Omit `policy` to read. \
-     Values: private (default — never leaves), team (shared nodes may sync), ask.",
+    "Read or set an initiative's cloud sharing policy (Gate 1). Omit both arguments to read. \
+     `policy` says WHETHER it may leave: private (default — never leaves), team (shared nodes \
+     may sync), ask. `clouds` says WHERE TO: a comma-separated list restricting the initiative \
+     to those clouds, empty string to clear. An initiative with no list may go to any configured \
+     cloud.",
     PolicyArgs,
     { "type": "object", "properties": {
         "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
-        "policy": { "type": "string", "description": "private | team | ask (omit to read)" }
+        "policy": { "type": "string", "description": "private | team | ask (omit to leave as is)" },
+        "clouds": { "type": "string", "description": "comma-separated cloud names to restrict to; empty clears" }
     } },
     |mem, a| do_policy(mem, a).await
 );

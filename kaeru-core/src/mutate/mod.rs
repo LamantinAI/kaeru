@@ -52,7 +52,10 @@ pub use initiative::{
 pub use layer::{get_layer, set_layer, set_layer_as};
 pub use metabolism::{forget, improve};
 pub use review::{mark_resolved, mark_under_review, resolve_review};
-pub use sharing::{get_share_policy, get_visibility, set_share_policy, set_visibility};
+pub use sharing::{
+    get_share_policy, get_visibility, initiative_clouds, permits_cloud, set_initiative_clouds,
+    set_share_policy, set_visibility,
+};
 pub use slot::{SlotOutcome, occupy_slot, release_slot, slot_holder, slots_in};
 pub use supersedes::supersedes;
 pub use synthesise::synthesise;

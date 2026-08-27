@@ -75,6 +75,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "0006_initiative_hygiene",
         up: m0006_initiative_hygiene,
     },
+    Migration {
+        name: "0007_initiative_cloud",
+        up: m0007_initiative_cloud,
+    },
 ];
 
 /// Applies pending migrations. `fresh` is `true` when the vault was just
@@ -380,6 +384,22 @@ fn m0006_initiative_hygiene(db: &DbInstance) -> Result<()> {
     if !relation_exists(db, "initiative_hygiene")? {
         db.run_script(
             ":create initiative_hygiene { initiative: String => last_run_at: Float default 0.0, nodes_at_last_run: Int default 0, pending_report: String? default null }",
+            BTreeMap::new(),
+            ScriptMutability::Mutable,
+        )?;
+    }
+    Ok(())
+}
+
+/// Adds `initiative_cloud` — which clouds an initiative may be shared into.
+///
+/// Purely additive: an existing vault gains an empty relation, and an empty
+/// set means "no restriction", so every initiative keeps behaving exactly as
+/// it did. No existing row is read or rewritten.
+fn m0007_initiative_cloud(db: &DbInstance) -> Result<()> {
+    if !relation_exists(db, "initiative_cloud")? {
+        db.run_script(
+            ":create initiative_cloud { initiative: String, cloud: String }",
             BTreeMap::new(),
             ScriptMutability::Mutable,
         )?;

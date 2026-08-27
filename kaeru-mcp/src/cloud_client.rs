@@ -166,8 +166,19 @@ impl CloudClient {
         self.get(&url).await
     }
 
-    pub async fn list_initiative(&self, initiative: &str) -> Result<(u16, String), String> {
-        let url = format!("{}/api/v1/initiatives/{initiative}/nodes", self.base_url);
+    /// One page of an initiative's shared briefs. The listing is bounded
+    /// server-side — an unpaged one meant 188 KB arriving in a single response
+    /// that did not fit in the caller's context (#67).
+    pub async fn list_initiative(
+        &self,
+        initiative: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Result<(u16, String), String> {
+        let url = format!(
+            "{}/api/v1/initiatives/{initiative}/nodes?limit={limit}&offset={offset}",
+            self.base_url
+        );
         self.get(&url).await
     }
 

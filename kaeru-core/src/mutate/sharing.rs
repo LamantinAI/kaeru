@@ -105,6 +105,66 @@ pub fn get_share_policy(store: &Store, initiative: &str) -> Result<SharePolicy> 
 }
 
 #[cfg(test)]
+mod cloud_permission_tests {
+    use super::{initiative_clouds, permits_cloud, set_initiative_clouds};
+    use crate::store::Store;
+
+    /// An initiative that never asked for a restriction keeps behaving exactly
+    /// as it did — the empty set means "no restriction" rather than "nothing
+    /// permitted", which is what makes this additive.
+    #[test]
+    fn an_unrestricted_initiative_permits_every_cloud() {
+        let store = Store::open_in_memory().expect("open");
+        assert!(initiative_clouds(&store, "t").expect("read").is_empty());
+        assert!(permits_cloud(&store, "t", "anything").expect("check"));
+    }
+
+    /// The gap #65 could not close: with several clouds configured a caller
+    /// must name one, but any valid name is accepted whatever the initiative.
+    /// This is where an initiative says which names are valid *for it*.
+    #[test]
+    fn a_restricted_initiative_permits_only_its_own_clouds() {
+        let store = Store::open_in_memory().expect("open");
+        set_initiative_clouds(&store, "t", &["work".into(), "archive".into()]).expect("set");
+
+        assert!(permits_cloud(&store, "t", "work").expect("check"));
+        assert!(permits_cloud(&store, "t", "archive").expect("check"));
+        assert!(!permits_cloud(&store, "t", "personal").expect("check"));
+        assert_eq!(
+            initiative_clouds(&store, "t").expect("read"),
+            vec!["archive".to_string(), "work".to_string()],
+            "sorted, so the list reads the same every time"
+        );
+    }
+
+    /// Setting replaces rather than accumulates, and an empty list clears —
+    /// otherwise a restriction could only ever be widened.
+    #[test]
+    fn setting_replaces_and_empty_clears() {
+        let store = Store::open_in_memory().expect("open");
+        set_initiative_clouds(&store, "t", &["work".into()]).expect("set");
+        set_initiative_clouds(&store, "t", &["archive".into()]).expect("replace");
+        assert_eq!(
+            initiative_clouds(&store, "t").expect("read"),
+            vec!["archive"]
+        );
+
+        set_initiative_clouds(&store, "t", &[]).expect("clear");
+        assert!(initiative_clouds(&store, "t").expect("read").is_empty());
+        assert!(permits_cloud(&store, "t", "anywhere").expect("check"));
+    }
+
+    /// One initiative's restriction is not another's.
+    #[test]
+    fn restrictions_are_per_initiative() {
+        let store = Store::open_in_memory().expect("open");
+        set_initiative_clouds(&store, "locked", &["work".into()]).expect("set");
+        assert!(!permits_cloud(&store, "locked", "personal").expect("check"));
+        assert!(permits_cloud(&store, "open", "personal").expect("check"));
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::{get_share_policy, get_visibility, set_share_policy, set_visibility};
     use crate::graph::{Layer, SharePolicy, Visibility};
@@ -186,4 +246,83 @@ mod tests {
         assert!(!SharePolicy::Private.permits_share());
         assert!(!SharePolicy::Ask.permits_share());
     }
+}
+
+/// Restricts an initiative to a named set of clouds, replacing whatever it had.
+/// An **empty** list clears the restriction — the initiative may then go to any
+/// configured cloud, which is how every initiative behaves before this is ever
+/// called.
+///
+/// This is the second half of the first share gate. `share_policy` says
+/// *whether* an initiative may leave; this says *where to*. Until it existed,
+/// `team` opened an initiative to every cloud the daemon could reach at once,
+/// and the choice of destination lived entirely in the caller's argument —
+/// fine with one cloud, and not a permission model with several of differing
+/// trust.
+pub fn set_initiative_clouds(store: &Store, initiative: &str, clouds: &[String]) -> Result<()> {
+    let mut clear: BTreeMap<String, DataValue> = BTreeMap::new();
+    clear.insert("init".to_string(), DataValue::Str(initiative.into()));
+    store.db_ref().run_script(
+        r#"
+        ?[initiative, cloud] := *initiative_cloud{initiative, cloud}, initiative = $init
+        :rm initiative_cloud {initiative, cloud}
+        "#,
+        clear,
+        ScriptMutability::Mutable,
+    )?;
+
+    for cloud in clouds {
+        let name = cloud.trim();
+        if name.is_empty() {
+            continue;
+        }
+        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+        p.insert("init".to_string(), DataValue::Str(initiative.into()));
+        p.insert("cloud".to_string(), DataValue::Str(name.into()));
+        store.db_ref().run_script(
+            r#"
+            ?[initiative, cloud] <- [[$init, $cloud]]
+            :put initiative_cloud {initiative, cloud}
+            "#,
+            p,
+            ScriptMutability::Mutable,
+        )?;
+    }
+
+    write_audit(
+        store.db_ref(),
+        "set_initiative_clouds",
+        "system",
+        &[initiative.to_string()],
+    )?;
+    Ok(())
+}
+
+/// The clouds an initiative is restricted to, sorted. Empty means unrestricted.
+pub fn initiative_clouds(store: &Store, initiative: &str) -> Result<Vec<String>> {
+    let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+    p.insert("init".to_string(), DataValue::Str(initiative.into()));
+    let rows = store.db_ref().run_script(
+        r#"
+        ?[cloud] := *initiative_cloud{initiative, cloud}, initiative = $init
+        :order cloud
+        "#,
+        p,
+        ScriptMutability::Immutable,
+    )?;
+    Ok(rows
+        .rows
+        .iter()
+        .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
+        .collect())
+}
+
+/// Whether `initiative` may be shared into `cloud`.
+///
+/// Unrestricted initiatives permit everything, so this is `true` for every
+/// initiative that has not opted into a list — the behaviour before the
+/// relation existed, preserved by construction rather than by a default value.
+pub fn permits_cloud(store: &Store, initiative: &str, cloud: &str) -> Result<bool> {
+    let allowed = initiative_clouds(store, initiative)?;
+    Ok(allowed.is_empty() || allowed.iter().any(|c| c == cloud))
 }

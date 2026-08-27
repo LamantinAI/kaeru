@@ -402,10 +402,15 @@ impl KaeruServer {
 
     // ----- Cloud sharing & recall ---------------------------------------
     #[tool(
-        description = "Read or set an initiative's cloud sharing policy (Gate 1). Omit `policy` to read. Values: private (default — never leaves), team (shared nodes may sync), ask. Default for any initiative is private."
+        description = "Read or set an initiative's cloud sharing policy (Gate 1). Omit both arguments to read. `policy` says WHETHER it may leave: private (default for any initiative — never leaves), team (shared nodes may sync), ask. `clouds` says WHERE TO: a comma-separated list restricting the initiative to those clouds, empty string to clear. An initiative with no list may go to any configured cloud, so this changes nothing until you ask for it."
     )]
     fn policy(&self, Parameters(p): Parameters<PolicyParams>) -> Result<CallToolResult, McpError> {
-        tools::cloud::policy(&self.store, &p.initiative, p.policy.as_deref())
+        tools::cloud::policy(
+            &self.store,
+            &p.initiative,
+            p.policy.as_deref(),
+            p.clouds.as_deref(),
+        )
     }
 
     #[tool(
@@ -442,13 +447,19 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "List shared nodes the cloud holds for an initiative — discovery for cross-session / cross-user recall. Then `pull` one to bring it into the local vault. In a multi-cloud setup pass `cloud` to target a specific cloud."
+        description = "List shared nodes the cloud holds for an initiative — discovery for cross-session / cross-user recall. Then `pull` one to bring it into the local vault. Paged: 25 by default, and the result reports the true total and the exact call for the next page, so a shared corpus of hundreds cannot arrive as one unreadable answer. In a multi-cloud setup `cloud` is required."
     )]
     async fn cloud_recall(
         &self,
         Parameters(p): Parameters<CloudRecallParams>,
     ) -> Result<CallToolResult, McpError> {
-        tools::cloud::cloud_recall(Some(self.cloud_for(p.cloud.as_deref())?), &p.initiative).await
+        tools::cloud::cloud_recall(
+            Some(self.cloud_for(p.cloud.as_deref())?),
+            &p.initiative,
+            p.limit,
+            p.offset,
+        )
+        .await
     }
 
     #[tool(

@@ -215,6 +215,24 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 - The MCP server surfaces errors directly from `kaeru-core::Result`. No re-wrapping.
 - The substrate is single-process embedded — no server, no network. Adapters wrap the in-process API; they do not expose a separate persistence path.
 
+## Sharing & Cloud — the two questions of the first gate
+
+Sharing is gated twice: the initiative's policy, then the pre-share secret
+guard (`force=true` bypasses only the second). The first gate asks **two**
+questions, and both must pass:
+
+- `share_policy` — *may this initiative leave at all?* (`private` / `team` /
+  `ask`, default `private`).
+- `initiative_cloud` — *may it leave to THIS cloud?* An initiative with no row
+  is unrestricted, which is how every initiative behaves until someone sets a
+  list, so the relation is additive in the strict sense: an existing vault
+  gains an empty relation and changes no behaviour.
+
+The second question exists because #65 closed accidental misrouting (with
+several clouds configured, one must be named) but not deliberate-looking
+misrouting: a valid cloud name is accepted whatever the initiative. Naming
+where an initiative may go is the only thing that catches that.
+
 ## Sharing & Cloud — how correction and withdrawal work
 
 - **`POST /api/v1/nodes` is an upsert.** Re-posting the same id asserts a new

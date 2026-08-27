@@ -74,6 +74,31 @@ async fn share_node(
         ));
     }
 
+    // Gate 1b — and to THIS cloud? An initiative with no list is
+    // unrestricted, so this changes nothing until someone asks for it.
+    let init1b = initiative.clone();
+    let cloud_name = client.name().to_string();
+    let permitted = mem
+        .blocking(move |s| kaeru_core::permits_cloud(s, &init1b, &cloud_name))
+        .await
+        .map_err(|e| e.to_string())?;
+    if !permitted {
+        let init1c = initiative.clone();
+        let allowed = mem
+            .blocking(move |s| kaeru_core::initiative_clouds(s, &init1c))
+            .await
+            .unwrap_or_default();
+        return Ok(format!(
+            "not shared: initiative `{initiative}` may only be shared into {} — not `{}`.",
+            allowed
+                .iter()
+                .map(|c| format!("`{c}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            client.name()
+        ));
+    }
+
     // Read the node.
     let id2 = id.clone();
     let full = match mem
