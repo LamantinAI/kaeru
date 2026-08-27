@@ -8,7 +8,7 @@
 //! empty *expected* token as auth-disabled).
 
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
@@ -217,6 +217,15 @@ impl CloudClient {
 pub struct CloudRegistry {
     clients: HashMap<String, CloudClient>,
     default: Option<String>,
+    /// Unix seconds when this registry was built — i.e. when `clouds.toml`
+    /// was last read. `None` for a registry assembled in a test.
+    ///
+    /// Carried because the file is read once, at daemon startup, and a client
+    /// reconnect does not respawn the process: an edited TOML keeps producing
+    /// errors about the old configuration with nothing to suggest the file was
+    /// never re-read. Half an hour went into exactly that. Saying when the
+    /// config was loaded turns a baffling error into an obvious one.
+    loaded_at: Option<f64>,
 }
 
 impl CloudRegistry {
@@ -231,7 +240,20 @@ impl CloudRegistry {
                 None
             }
         });
-        Self { clients, default }
+        let loaded_at = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs() as f64);
+        Self {
+            clients,
+            default,
+            loaded_at,
+        }
+    }
+
+    /// When `clouds.toml` was read, as unix seconds — see [`Self::loaded_at`].
+    pub fn loaded_at(&self) -> Option<f64> {
+        self.loaded_at
     }
 
     /// No clouds configured at all — cloud tools should report "not configured".
@@ -297,7 +319,9 @@ impl CloudRegistry {
         match name {
             Some(n) => self.clients.get(n).ok_or_else(|| {
                 format!(
-                    "no cloud named `{n}` is configured. Available: {}.",
+                    "no cloud named `{n}` is configured. Available: {}. (`clouds.toml` is read \
+                     once at daemon startup — if you just edited it, restart the daemon; a client \
+                     reconnect does not respawn it.)",
                     self.names().join(", ")
                 )
             }),

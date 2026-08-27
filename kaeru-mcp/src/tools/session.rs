@@ -9,7 +9,7 @@ use rmcp::model::CallToolResult;
 
 use crate::cloud_client::CloudRegistry;
 use crate::utils::{
-    brief_suffix, parse_duration_secs, resolve_name_or_id, text, to_mcp, with_initiative,
+    brief_suffix, fmt_ts, parse_duration_secs, resolve_name_or_id, text, to_mcp, with_initiative,
 };
 
 /// How many rows each read-back section prints before deferring to the verb
@@ -602,6 +602,19 @@ mod tests {
         assert!(
             out.contains("read \n             at startup") || out.contains("at startup"),
             "{out}"
+        );
+    }
+
+    /// The half-hour bug: `clouds.toml` is read once at startup, a client
+    /// reconnect does not respawn the daemon, and nothing said so — the errors
+    /// just kept naming the old configuration.
+    #[test]
+    fn the_clouds_verb_says_when_the_config_was_read() {
+        let out = text_of(super::clouds(&registry(&["alpha"], None)).unwrap());
+        assert!(out.contains("config read at"), "{out}");
+        assert!(
+            out.contains("restart the daemon"),
+            "and what to do about an edit: {out}"
         );
     }
 }
