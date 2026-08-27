@@ -168,6 +168,50 @@ under-review). `overview` answers "what does this project know"
 (epistemic state — categorical breakdown, provenance forests, open
 questions). Run both.
 
+## Exit ritual (do this when a piece of work ends)
+
+There is an entry ritual and, for a long time, nothing symmetric at the other
+end. A session does not finish, it stops — so the moment "this is done, tidy
+up" belongs to never arrives on its own, and the instruction to promote
+knowledge *when it stops changing* points at something only visible between
+sessions.
+
+The fix is not discipline, it is picking a moment that actually occurs. Three
+do:
+
+- **A task closes** — `done <name>`
+- **A review closes** — `close_review <target>`
+- **A claim gets its verdict** — `confirm` / `refute` / `inconclusive`
+
+All three now answer with what still converges on the thing that just closed,
+and ask what the work concluded. When they do, spend one more call:
+
+```bash
+settle <name>                       # one node hardened in place
+synthesise from=a,b,c --name <x>    # several converged into one outcome
+```
+
+And before you stop for the day, or when the conversation is about to be
+compacted:
+
+```bash
+reflect                             # the maintenance work-list, with how to act on each part
+```
+
+`reflect` names overdue tasks, open reviews, claims whose text already answers
+them, stale chains, and settled work still sitting in the operational tier. It
+is a read — nothing changes until you act on it.
+
+**On automating it.** The honest state today is that this ritual is
+agent-side: `reflect` is an MCP verb, reachable only through a JSON-RPC
+session, so a cron job or a shell hook cannot call it with one command. The
+daemon's HTTP API (`/v1/…`) is the surface that would make a scheduled pass
+possible, and `reflect` is not on it yet.
+
+Until it is, the moment to lean on is the one that already occurs: the
+terminal verbs above ask their question by themselves, at exactly the point
+the work ends.
+
 ## Cadence — habits that keep the graph useful
 
 These are the moves that turn kaeru from "saved markdown with

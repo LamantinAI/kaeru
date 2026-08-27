@@ -908,7 +908,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Reflect on the store: a computed maintenance work-list with how to act on each part — orphans to link, open reviews to resolve, chains gone stale (rechain), settled operational nodes to promote into cortex, and shared/cloud items that need YOUR sign-off (never auto-rebalanced). Good for a periodic tidy pass (e.g. a cron)."
+        description = "Reflect on the store: a computed maintenance work-list with how to act on each part — orphans to link, open reviews to resolve, chains gone stale (rechain), settled operational nodes to promote into cortex, and shared/cloud items that need YOUR sign-off (never auto-rebalanced). Run it when a piece of work ends, and before a session stops — that is the moment nothing else marks."
     )]
     fn reflect(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         tools::lint::reflect(&self.store, p.initiative.as_deref())

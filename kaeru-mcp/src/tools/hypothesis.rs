@@ -27,8 +27,8 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
 use crate::utils::{
-    capture_result, claim_verdict_hint, derive_auto_name, parse_layer, resolve_name,
-    resolve_name_or_id, text, to_mcp, with_initiative,
+    arc_closed_hint, capture_result, claim_verdict_hint, derive_auto_name, parse_layer,
+    resolve_name, resolve_name_or_id, text, to_mcp, with_initiative,
 };
 
 /// `↳ …` for a verdict recorded with nothing to point at.
@@ -172,6 +172,7 @@ fn verdict(
             .map_err(to_mcp)?;
 
         let mut msg = format!("{label}: {hypothesis}");
+        msg.push_str(&arc_closed_hint(store, &hyp_id));
         // Inconclusive writes no verdict edge by design, so it is not missing
         // one — only supported/refuted can be left uncited.
         if by_id.is_none() && status != HypothesisStatus::Inconclusive {

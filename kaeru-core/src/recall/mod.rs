@@ -27,7 +27,7 @@ pub mod tagged;
 pub mod under_review;
 pub mod walk;
 
-pub use between::{EdgeRow, between, cloud_links, edges_of};
+pub use between::{EdgeRow, between, cloud_links, edges_of, operational_neighbours};
 pub use board::{
     BoardColumn, BoardStatus, BoardTask, BoardView, board_view, board_view_at, effective_statuses,
     effective_statuses_at,

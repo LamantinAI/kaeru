@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
+use super::{NodeBrief, parse_brief};
 use crate::errors::Result;
 use crate::graph::NodeId;
 use crate::store::Store;
@@ -156,4 +157,42 @@ pub fn cloud_links(
         })
         .collect();
     Ok(links)
+}
+/// The **operational** nodes joined to `node_id` by any edge valid at NOW.
+///
+/// The read behind the end-of-arc hint. kaeru has an entry ritual and no exit
+/// one: a session simply stops, so "this work is finished" never arrives as a
+/// moment, and the instruction to promote knowledge "when it stops changing"
+/// points at something only visible *between* sessions. In the audit, ~97% of
+/// all hygiene traffic came from a handful of threads where a user explicitly
+/// asked for a tidy-up, and not one spontaneous consolidation was found.
+///
+/// The moments that *do* occur are the terminal verbs — `done`, `close_review`,
+/// a verdict. This answers the question worth asking at exactly those moments:
+/// what operational work converges on the thing that just closed?
+///
+/// Excludes audit events, and the node itself when an edge is a self-loop.
+pub fn operational_neighbours(store: &Store, node_id: &NodeId) -> Result<Vec<NodeBrief>> {
+    let excerpt_chars = store.config().body_excerpt_chars;
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
+    let script = r#"
+        near[other] := *edge{src: $nid, dst: other, edge_type @ 'NOW'}
+        near[other] := *edge{src: other, dst: $nid, edge_type @ 'NOW'}
+        ?[id, type, name, body, validity] :=
+            near[id],
+            id != $nid,
+            *node{id, type, name, body, tier, validity @ 'NOW'},
+            tier = 'operational',
+            type != 'audit_event'
+        :order validity
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .iter()
+        .map(|r| parse_brief(r, excerpt_chars))
+        .collect())
 }

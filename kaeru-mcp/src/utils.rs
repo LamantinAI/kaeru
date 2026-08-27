@@ -199,6 +199,55 @@ pub fn claim_verdict_hint(name: &str) -> String {
     )
 }
 
+/// `↳ that closes an arc — …` for the moment a piece of work actually ends.
+///
+/// kaeru has an entry ritual and no exit one. A session stops rather than
+/// finishes, so "this is done, let me tidy up" never arrives: in the audit,
+/// ~97% of all hygiene traffic came from a handful of threads where a user
+/// asked for a cleanup in so many words, and not one spontaneous consolidation
+/// was found anywhere. A five-episode arc ending in an episode that literally
+/// reported production verification left all five nodes operational forever.
+///
+/// The instruction "move things to archival when they stop changing" points at
+/// something unobservable — "stopped changing" is only visible *between*
+/// sessions. But the terminal verbs are observable, and they are the moment:
+/// `done`, `close_review`, a verdict. This asks the question that belongs
+/// there — what did the work conclude? — and names the two verbs that answer
+/// it.
+///
+/// Fires only past two operational neighbours: one is a detail, several are an
+/// arc. Best-effort; a read error suppresses it rather than failing a verb
+/// that has already done its work.
+pub fn arc_closed_hint(store: &Store, id: &NodeId) -> String {
+    const MIN_ARC: usize = 2;
+    const NAMED: usize = 3;
+
+    let Ok(near) = kaeru_core::operational_neighbours(store, id) else {
+        return String::new();
+    };
+    if near.len() < MIN_ARC {
+        return String::new();
+    }
+    let names: Vec<String> = near
+        .iter()
+        .take(NAMED)
+        .map(|b| format!("`{}`", b.name))
+        .collect();
+    let more = near.len().saturating_sub(NAMED);
+    let tail = if more > 0 {
+        format!(", +{more} more")
+    } else {
+        String::new()
+    };
+    format!(
+        "\n↳ that closes an arc — {} operational nodes still converge here ({}{tail}). \
+         What did the work conclude? `settle <name>` promotes one in place; \
+         `synthesise from=a,b,c` converges several into one outcome.",
+        near.len(),
+        names.join(", ")
+    )
+}
+
 pub fn to_mcp(e: Error) -> McpError {
     McpError::internal_error(e.to_string(), None)
 }

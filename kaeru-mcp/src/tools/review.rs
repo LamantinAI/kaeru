@@ -4,7 +4,7 @@ use kaeru_core::Store;
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
-use crate::utils::{resolve_name, text, to_mcp, with_initiative};
+use crate::utils::{arc_closed_hint, resolve_name, text, to_mcp, with_initiative};
 
 pub fn flag(
     store: &Store,
@@ -52,9 +52,8 @@ pub fn close_review(
         } else {
             ""
         };
-        Ok(text(&format!(
-            "closed {} review(s) on {target}{note}",
-            closed.len()
-        )))
+        let mut msg = format!("closed {} review(s) on {target}{note}", closed.len());
+        msg.push_str(&arc_closed_hint(store, &target_id));
+        Ok(text(&msg))
     })
 }
