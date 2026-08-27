@@ -7,6 +7,7 @@ use kaeru_core::{Layer, Store};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
+use crate::cloud_client::CloudRegistry;
 use crate::utils::{
     brief_suffix, parse_duration_secs, resolve_name_or_id, text, to_mcp, with_initiative,
 };
@@ -221,12 +222,81 @@ pub fn unpin(
     })
 }
 
-pub fn config(store: &Store) -> Result<CallToolResult, McpError> {
+/// Renders the configured clouds, marking the default.
+///
+/// `config` printed the vault path and every cap and said nothing at all
+/// about clouds, so the only way to learn what was connected — or which one
+/// an unnamed call would have used — was to read the TOML by hand, from
+/// outside the agent's surface (#65).
+pub fn render_clouds(clouds: &CloudRegistry) -> String {
+    let names = clouds.names();
+    if names.is_empty() {
+        return "clouds               = (none configured)\n".to_string();
+    }
+    let default = clouds.default_name();
+    let listed = names
+        .iter()
+        .map(|n| {
+            if Some(*n) == default {
+                format!("{n} (default)")
+            } else {
+                (*n).to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut out = format!("clouds               = {listed}\n");
+    if names.len() > 1 {
+        out.push_str(
+            "                       (several configured — cloud verbs require an explicit \
+             `cloud`)\n",
+        );
+    }
+    out
+}
+
+/// `clouds` — what this daemon can reach, and where.
+///
+/// Separate from `config` because it is the answer to a question an agent
+/// asks on its own ("which clouds are there?"), not a dump of settings. Shows
+/// the endpoint too: an error naming a URL was, until now, the only reliable
+/// way to tell which cloud a call had actually gone to.
+pub fn clouds(clouds: &CloudRegistry) -> Result<CallToolResult, McpError> {
+    let names = clouds.names();
+    if names.is_empty() {
+        return Ok(text(
+            "(no clouds configured — add one to `clouds.toml` and restart the daemon; it is read \
+             at startup only)",
+        ));
+    }
+    let default = clouds.default_name();
+    let mut out = format!("clouds ({}):\n", names.len());
+    for n in &names {
+        let mark = if Some(*n) == default {
+            " (default)"
+        } else {
+            ""
+        };
+        let url = clouds.get(Some(n)).map(|c| c.base_url()).unwrap_or("");
+        out.push_str(&format!("  - {n}{mark} — {url}\n"));
+    }
+    if names.len() > 1 {
+        out.push_str(
+            "\n↳ with more than one cloud, `share` / `pull` / `cloud_recall` and the initiative \
+             verbs need `cloud` named explicitly — nothing is routed to a default you did not \
+             choose.",
+        );
+    }
+    Ok(text(&out))
+}
+
+pub fn config(store: &Store, clouds: &CloudRegistry) -> Result<CallToolResult, McpError> {
     let c = store.config();
     let out = format!(
-        "kaeru {}\nvault_path           = {}\nactive_window_size   = {}\nrecent_episodes_cap  = {}\nawake_window_secs    = {}\nsummary_children_cap = {}\nbody_excerpt_chars   = {}\nprovenance_max_hops  = {}\ndefault_max_hops     = {}\nmax_hops_cap         = {}\n",
+        "kaeru {}\nvault_path           = {}\n{}active_window_size   = {}\nrecent_episodes_cap  = {}\nawake_window_secs    = {}\nsummary_children_cap = {}\nbody_excerpt_chars   = {}\nprovenance_max_hops  = {}\ndefault_max_hops     = {}\nmax_hops_cap         = {}\n",
         kaeru_core::version(),
         c.vault_path.display(),
+        render_clouds(clouds),
         c.active_window_size,
         c.recent_episodes_cap,
         c.awake_default_window_secs,
@@ -462,6 +532,76 @@ mod tests {
         assert!(
             out.contains("⚠ OVERDUE 2000-01-01"),
             "the deadline outranks the chores: {out}"
+        );
+    }
+
+    fn registry(names: &[&str], default: Option<&str>) -> crate::cloud_client::CloudRegistry {
+        use std::collections::HashMap;
+
+        use crate::cloud_client::{CloudClient, CloudRegistry};
+        let clients: HashMap<String, CloudClient> = names
+            .iter()
+            .map(|n| {
+                (
+                    n.to_string(),
+                    CloudClient::new(n.to_string(), format!("https://{n}.test"), String::new()),
+                )
+            })
+            .collect();
+        CloudRegistry::new(clients, default.map(str::to_string))
+    }
+
+    /// The configuration was invisible from inside: `config` printed the vault
+    /// path and every cap and said nothing about clouds, so which one an
+    /// unnamed call would use could only be learned by reading the TOML by
+    /// hand — from outside the agent's surface.
+    #[test]
+    fn config_names_the_clouds_and_the_default() {
+        let store = store_t();
+        let out =
+            text_of(super::config(&store, &registry(&["alpha", "beta"], Some("beta"))).unwrap());
+        assert!(out.contains("clouds"), "{out}");
+        assert!(
+            out.contains("beta (default)"),
+            "the default is marked: {out}"
+        );
+        assert!(out.contains("alpha"), "and the others listed: {out}");
+        assert!(
+            out.contains("require an explicit"),
+            "and says the rule that follows from there being several: {out}"
+        );
+    }
+
+    /// With one cloud there is no ambiguity to warn about, so the note stays
+    /// out of the way.
+    #[test]
+    fn a_single_cloud_gets_no_warning() {
+        let store = store_t();
+        let out = text_of(super::config(&store, &registry(&["only"], None)).unwrap());
+        assert!(out.contains("only (default)"), "{out}");
+        assert!(!out.contains("require an explicit"), "{out}");
+    }
+
+    /// `clouds` answers the question an agent asks on its own, and shows the
+    /// endpoint — until now, an error naming a URL was the only reliable way
+    /// to tell which cloud a call had actually reached.
+    #[test]
+    fn the_clouds_verb_shows_endpoints() {
+        let out = text_of(super::clouds(&registry(&["alpha", "beta"], Some("alpha"))).unwrap());
+        assert!(out.contains("https://alpha.test"), "{out}");
+        assert!(out.contains("alpha (default)"), "{out}");
+        assert!(out.contains("nothing is routed to a default"), "{out}");
+    }
+
+    /// No clouds is a configuration state, not an error, and says how to fix
+    /// it — including that the file is read once at startup.
+    #[test]
+    fn no_clouds_says_how_to_add_one() {
+        let out = text_of(super::clouds(&registry(&[], None)).unwrap());
+        assert!(out.contains("clouds.toml"), "{out}");
+        assert!(
+            out.contains("read \n             at startup") || out.contains("at startup"),
+            "{out}"
         );
     }
 }

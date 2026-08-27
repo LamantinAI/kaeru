@@ -91,7 +91,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .map(|(name, ep)| {
             (
                 name.clone(),
-                CloudClient::new(ep.url.clone(), ep.token.clone()),
+                CloudClient::new(name.clone(), ep.url.clone(), ep.token.clone()),
             )
         })
         .collect();
@@ -105,8 +105,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         } else {
             mcp_config.default_cloud.clone()
         };
+        let folded = legacy_name.clone();
         clients.entry(legacy_name).or_insert_with(|| {
-            CloudClient::new(mcp_config.cloud_url.clone(), mcp_config.cloud_token.clone())
+            CloudClient::new(
+                folded,
+                mcp_config.cloud_url.clone(),
+                mcp_config.cloud_token.clone(),
+            )
         });
     }
 

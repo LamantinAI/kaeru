@@ -20,7 +20,7 @@ use rmcp::model::{
 use rmcp::{ErrorData as McpError, ServerHandler, tool, tool_handler, tool_router};
 use tokio_util::sync::CancellationToken;
 
-use crate::cloud_client::CloudRegistry;
+use crate::cloud_client::{CloudClient, CloudRegistry};
 use crate::hygiene::HygieneScheduler;
 use crate::params::*;
 use crate::tools;
@@ -103,6 +103,52 @@ impl KaeruServer {
     }
 }
 
+impl KaeruServer {
+    /// The cloud an operation should act on, or a refusal the caller can hand
+    /// straight back to the agent.
+    ///
+    /// Every cloud-touching tool goes through here rather than
+    /// `clouds.get(None)`, so that "which cloud" is answered in one place and
+    /// answered out loud — see `CloudRegistry::resolve`.
+    fn cloud_for(&self, name: Option<&str>) -> Result<&CloudClient, McpError> {
+        self.clouds
+            .resolve(name)
+            .map_err(|msg| McpError::invalid_params(msg, None))
+    }
+
+    /// The cloud a capture verb should publish to — resolved **only** when the
+    /// caller actually asked to share.
+    ///
+    /// A plain local capture must not be refused for failing to name a cloud
+    /// it was never going to touch; a `visibility=shared` capture must not be
+    /// published to a cloud nobody named. Resolving lazily is what keeps both
+    /// true.
+    fn cloud_when_sharing(
+        &self,
+        visibility: Option<&str>,
+        name: Option<&str>,
+    ) -> Result<Option<&CloudClient>, McpError> {
+        if !crate::utils::parse_wants_shared(visibility)? {
+            return Ok(None);
+        }
+        self.cloud_for(name).map(Some)
+    }
+
+    /// The cloud an initiative-wide verb should also act on, or `None` for
+    /// local-only.
+    ///
+    /// These used to take `cloud: bool`, which could only ever mean "and the
+    /// default one" — an implicit target for the two operations whose own
+    /// descriptions say "team-wide" and "removes it for everyone". A name is
+    /// required instead, and omitting it means local-only rather than "guess".
+    fn cloud_when_named(&self, name: Option<&str>) -> Result<Option<&CloudClient>, McpError> {
+        match name {
+            None => Ok(None),
+            Some(n) => self.cloud_for(Some(n)).map(Some),
+        }
+    }
+}
+
 #[tool_router]
 impl KaeruServer {
     // ----- Re-entry / session -------------------------------------------
@@ -146,10 +192,17 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Show resolved configuration: vault path and every cap (initiative not relevant)."
+        description = "Show resolved configuration: vault path, the configured clouds and which is default, and every cap (initiative not relevant)."
     )]
     fn config(&self) -> Result<CallToolResult, McpError> {
-        tools::session::config(&self.store)
+        tools::session::config(&self.store, &self.clouds)
+    }
+
+    #[tool(
+        description = "List the clouds this daemon can reach, with their endpoints and which one is default. Ask this before any cloud verb in an unfamiliar setup: with more than one cloud configured, `share` / `pull` / `cloud_recall` and the initiative verbs require `cloud` named explicitly, and nothing is routed to a default you did not choose."
+    )]
+    fn clouds(&self) -> Result<CallToolResult, McpError> {
+        tools::session::clouds(&self.clouds)
     }
 
     #[tool(
@@ -210,7 +263,7 @@ impl KaeruServer {
     ) -> Result<CallToolResult, McpError> {
         let result = tools::capture::episode(
             &self.store,
-            self.clouds.get(None),
+            self.cloud_when_sharing(p.visibility.as_deref(), p.cloud.as_deref())?,
             &p.name,
             &p.body,
             p.layer.as_deref(),
@@ -227,7 +280,7 @@ impl KaeruServer {
     async fn jot(&self, Parameters(p): Parameters<JotParams>) -> Result<CallToolResult, McpError> {
         let result = tools::capture::jot(
             &self.store,
-            self.clouds.get(None),
+            self.cloud_when_sharing(p.visibility.as_deref(), p.cloud.as_deref())?,
             &p.body,
             p.layer.as_deref(),
             p.visibility.as_deref(),
@@ -335,7 +388,7 @@ impl KaeruServer {
     ) -> Result<CallToolResult, McpError> {
         let result = tools::capture::cite(
             &self.store,
-            self.clouds.get(None),
+            self.cloud_when_sharing(p.visibility.as_deref(), p.cloud.as_deref())?,
             &p.name,
             p.url.as_deref(),
             &p.body,
@@ -364,7 +417,7 @@ impl KaeruServer {
     ) -> Result<CallToolResult, McpError> {
         tools::cloud::share(
             &self.store,
-            self.clouds.get(p.cloud.as_deref()),
+            Some(self.cloud_for(p.cloud.as_deref())?),
             &p.name,
             &p.initiative,
             p.force,
@@ -379,7 +432,7 @@ impl KaeruServer {
         &self,
         Parameters(p): Parameters<CloudRecallParams>,
     ) -> Result<CallToolResult, McpError> {
-        tools::cloud::cloud_recall(self.clouds.get(p.cloud.as_deref()), &p.initiative).await
+        tools::cloud::cloud_recall(Some(self.cloud_for(p.cloud.as_deref())?), &p.initiative).await
     }
 
     #[tool(
@@ -391,7 +444,7 @@ impl KaeruServer {
     ) -> Result<CallToolResult, McpError> {
         tools::cloud::pull(
             &self.store,
-            self.clouds.get(p.cloud.as_deref()),
+            Some(self.cloud_for(p.cloud.as_deref())?),
             &p.id,
             &p.initiative,
         )
@@ -437,31 +490,26 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Rename an initiative — moves all its nodes, edges, and sharing policy to the new name (fails if the new name already exists). Local by default; pass cloud=true to ALSO rename it in the shared cloud (team-wide, affects everyone)."
+        description = "Rename an initiative — moves all its nodes, edges, and sharing policy to the new name (fails if the new name already exists). Local by default. Pass `cloud=\"<name>\"` to ALSO rename it in that shared cloud, which is team-wide and affects everyone; with several clouds configured the name is required, because this cannot be undone in the wrong one."
     )]
     async fn rename_initiative(
         &self,
         Parameters(p): Parameters<RenameInitiativeParams>,
     ) -> Result<CallToolResult, McpError> {
-        tools::initiative::rename_initiative(
-            &self.store,
-            self.clouds.get(None),
-            &p.old,
-            &p.new,
-            p.cloud,
-        )
-        .await
+        let cloud = self.cloud_when_named(p.cloud.as_deref())?;
+        tools::initiative::rename_initiative(&self.store, cloud, &p.old, &p.new, cloud.is_some())
+            .await
     }
 
     #[tool(
-        description = "Delete an initiative — drops its scoping and forgets nodes exclusive to it (bi-temporal: recoverable via `at` at a past time). Nodes shared with other initiatives only lose this membership. Local by default; pass cloud=true to ALSO delete it from the shared cloud (team-wide, removes it for everyone)."
+        description = "Delete an initiative — drops its scoping and forgets nodes exclusive to it (bi-temporal: recoverable via `at` at a past time). Nodes shared with other initiatives only lose this membership. Local by default. Pass `cloud=\"<name>\"` to ALSO delete it from that shared cloud, which removes it for everyone and CANNOT be undone there; with several clouds configured the name is required rather than defaulted."
     )]
     async fn delete_initiative(
         &self,
         Parameters(p): Parameters<DeleteInitiativeParams>,
     ) -> Result<CallToolResult, McpError> {
-        tools::initiative::delete_initiative(&self.store, self.clouds.get(None), &p.name, p.cloud)
-            .await
+        let cloud = self.cloud_when_named(p.cloud.as_deref())?;
+        tools::initiative::delete_initiative(&self.store, cloud, &p.name, cloud.is_some()).await
     }
 
     #[tool(

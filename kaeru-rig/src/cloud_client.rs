@@ -26,13 +26,21 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// client (cheap to clone — it shares a connection pool internally).
 #[derive(Clone)]
 pub struct CloudClient {
+    name: String,
     base_url: String,
     token: String,
     client: reqwest::Client,
 }
 
 impl CloudClient {
-    pub fn new(base_url: String, token: String) -> Self {
+    /// The cloud's configured name — what every message about this client
+    /// should call it, so an answer can never be mistaken for one about a
+    /// different cloud.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn new(name: String, base_url: String, token: String) -> Self {
         // `Client::builder()` only fails when TLS/system config is broken;
         // fall back to the default client rather than panicking — a cloud
         // client without timeouts still beats no client at all.
@@ -42,6 +50,7 @@ impl CloudClient {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
+            name,
             base_url: base_url.trim_end_matches('/').to_string(),
             token,
             client,
@@ -172,6 +181,34 @@ impl CloudRegistry {
             None => self.default.as_ref().and_then(|d| self.clients.get(d)),
         }
     }
+
+    /// Resolves the cloud an operation should act on, refusing to guess when
+    /// a guess could be wrong. Mirrors the daemon's rule exactly (#65): one
+    /// cloud resolves silently, several require the caller to name one, and
+    /// the default is never applied to an operation that could not be undone
+    /// in the wrong place.
+    pub fn resolve(&self, name: Option<&str>) -> Result<&CloudClient, String> {
+        if self.clients.is_empty() {
+            return Err("no cloud is configured for this memory".to_string());
+        }
+        match name {
+            Some(n) => self.clients.get(n).ok_or_else(|| {
+                format!(
+                    "no cloud named `{n}` is configured. Available: {}.",
+                    self.names().join(", ")
+                )
+            }),
+            None => match self.clients.len() {
+                1 => Ok(self.clients.values().next().expect("len == 1")),
+                _ => Err(format!(
+                    "several clouds are configured ({}) — name the one you mean with `cloud`. \
+                     Nothing is routed to a default: an operation that reaches the wrong cloud \
+                     cannot be undone there.",
+                    self.names().join(", ")
+                )),
+            },
+        }
+    }
 }
 
 #[cfg(test)]
@@ -186,7 +223,7 @@ mod tests {
             .map(|n| {
                 (
                     n.to_string(),
-                    CloudClient::new(format!("http://{n}.test"), String::new()),
+                    CloudClient::new(n.to_string(), format!("http://{n}.test"), String::new()),
                 )
             })
             .collect::<HashMap<_, _>>();

@@ -158,6 +158,24 @@ pub async fn push_to_cloud(
     ))
 }
 
+/// Initiative names out of a cloud's `GET /api/v1/initiatives` payload.
+/// Best-effort: a shape we do not recognise yields nothing rather than an
+/// error, since this only ever enriches a message.
+fn initiative_names(body: &str) -> Vec<String> {
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|it| {
+            it.get("name")
+                .or_else(|| it.get("initiative"))
+                .and_then(|x| x.as_str())
+                .map(String::from)
+        })
+        .collect()
+}
+
 /// Shares an existing node by name/id to the team cloud (both gates → push).
 pub async fn share(
     store: &Store,
@@ -192,12 +210,40 @@ pub async fn cloud_recall(
         .map_err(|e| McpError::internal_error(format!("bad cloud response: {e}"), None))?;
     let items = arr.as_array().cloned().unwrap_or_default();
     if items.is_empty() {
+        // "Empty" and "not here" used to read identically, which in a
+        // multi-cloud setup is the difference between "nobody has shared
+        // anything" and "you asked the wrong cloud". The cloud already lists
+        // its initiatives, so one extra read settles it.
+        let known = cloud
+            .list_initiatives()
+            .await
+            .ok()
+            .and_then(|(code, body)| (200..300).contains(&code).then(|| initiative_names(&body)));
+        let tail = match known {
+            Some(names) if !names.iter().any(|n| n == initiative) => {
+                let listed = if names.is_empty() {
+                    "it holds none at all".to_string()
+                } else {
+                    format!("it holds: {}", names.join(", "))
+                };
+                format!(
+                    " — in fact cloud `{}` has no initiative by that name; {listed}.",
+                    cloud.name()
+                )
+            }
+            _ => String::new(),
+        };
         return Ok(text(&format!(
-            "cloud initiative `{initiative}` has no shared nodes yet"
+            "cloud `{}`: initiative `{initiative}` has no shared nodes yet{tail}",
+            cloud.name()
         )));
     }
 
-    let mut out = format!("cloud `{initiative}` ({} shared):\n", items.len());
+    let mut out = format!(
+        "cloud `{}` · `{initiative}` ({} shared):\n",
+        cloud.name(),
+        items.len()
+    );
     for it in &items {
         let id = it.get("id").and_then(|x| x.as_str()).unwrap_or("");
         let nt = it.get("node_type").and_then(|x| x.as_str()).unwrap_or("");

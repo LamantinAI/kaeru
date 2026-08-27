@@ -19,7 +19,7 @@ The ritual at the start of a session: process state, then epistemic state.
 | `overview` | A readable map of what the project's memory knows (subgraph). |
 | `recent` | Episodes asserted within a recent window. |
 | `pin` / `unpin` | Persist / release a node in the active-window set across restarts. |
-| `config` | Read effective daemon configuration. |
+| `config` | Read effective daemon configuration — vault path, the configured clouds and which is default, and every cap. |
 
 ## Capture — match the verb to epistemic status
 
@@ -90,7 +90,7 @@ All capture verbs take `layer` (default `warm`) and `visibility: shared` (captur
 | `delete_initiative` | Drop scoping; forget nodes exclusive to it (recoverable via `at`). |
 | `attach` | Give a node a second home in another initiative — additive multi-membership, the repair for fragmentation. |
 
-Local by default; `cloud=true` on rename/delete applies team-wide.
+Local by default; `cloud="<name>"` on rename/delete also applies it in that cloud, team-wide. The cloud is never defaulted for these two — they affect everyone and the cloud has no undo.
 
 ## Sharing — the team cloud
 
@@ -103,9 +103,16 @@ Explicit, gated (initiative policy + secret guard); nothing leaves automatically
 | `cloud_recall` | List what the team has shared. |
 | `pull` | Bring a shared node into the local graph. |
 | `link_cloud` / `cloud_links` | Reference a cloud node from a local one without copying, resolved on demand. |
+| `clouds` | What this daemon can reach: names, endpoints, which is default. |
 | `sync_review` | Batch-split still-local nodes into propose-share vs keep-local. |
 
-A single daemon can target several named clouds via `clouds.toml`; cloud verbs take an optional `cloud:`.
+A single daemon can target several named clouds via `clouds.toml`; cloud verbs take a `cloud:` argument.
+
+**With one cloud configured it is optional** — there is nothing to disambiguate. **With several it is required**: an unnamed call is refused rather than routed to the default, and the refusal lists the choices. The default was invisible in both directions — a read answered by one cloud while the nodes lived in another looked exactly like an empty answer, and the same silence sat under `delete_initiative`. A refusal costs one retry; a cloud write cannot be undone in the wrong place.
+
+Every cloud result and error names the cloud it touched, and an empty `cloud_recall` distinguishes "this initiative is empty here" from "this cloud has never heard of it".
+
+`clouds.toml` is read once, at daemon startup. An edited file does not take effect until the process restarts — a client-side reconnect does not respawn it.
 
 ## Maintenance & export
 

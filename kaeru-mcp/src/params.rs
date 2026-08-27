@@ -89,20 +89,23 @@ pub struct RenameInitiativeParams {
     pub old: String,
     /// New initiative name (must not already exist).
     pub new: String,
-    /// Also rename it in the shared cloud — team-wide, affects everyone.
-    /// Default false (local only).
+    /// Name of a cloud to ALSO rename this initiative in — team-wide, and it
+    /// affects everyone using it. Omit for a local-only rename. Never
+    /// defaulted: with several clouds configured, an unnamed cloud rename
+    /// would be a guess at which team it disrupts.
     #[serde(default)]
-    pub cloud: bool,
+    pub cloud: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct DeleteInitiativeParams {
     /// Initiative to delete.
     pub name: String,
-    /// Also delete it from the shared cloud — team-wide, removes it for
-    /// everyone. Default false (local only).
+    /// Name of a cloud to ALSO delete this initiative from — removes it for
+    /// everyone, and the cloud has no undo. Omit for a local-only delete.
+    /// Never defaulted.
     #[serde(default)]
-    pub cloud: bool,
+    pub cloud: Option<String>,
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
@@ -207,6 +210,11 @@ pub struct EpisodeParams {
     /// this one call. Defaults to `local` (stays private).
     #[serde(default)]
     pub visibility: Option<String>,
+    /// Which cloud `visibility=shared` publishes to. Only consulted when
+    /// sharing. Required when several clouds are configured — the push is
+    /// refused rather than sent to a default you did not name.
+    #[serde(default)]
+    pub cloud: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -224,6 +232,11 @@ pub struct JotParams {
     /// this one call. Defaults to `local` (stays private).
     #[serde(default)]
     pub visibility: Option<String>,
+    /// Which cloud `visibility=shared` publishes to. Only consulted when
+    /// sharing. Required when several clouds are configured — the push is
+    /// refused rather than sent to a default you did not name.
+    #[serde(default)]
+    pub cloud: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -582,6 +595,11 @@ pub struct CiteParams {
     /// this one call. Defaults to `local` (stays private).
     #[serde(default)]
     pub visibility: Option<String>,
+    /// Which cloud `visibility=shared` publishes to. Only consulted when
+    /// sharing. Required when several clouds are configured — the push is
+    /// refused rather than sent to a default you did not name.
+    #[serde(default)]
+    pub cloud: Option<String>,
     #[serde(default)]
     pub initiative: Option<String>,
 }

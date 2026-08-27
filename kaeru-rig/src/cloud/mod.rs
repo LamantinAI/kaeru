@@ -29,17 +29,17 @@ pub use policy::{Policy, PolicyArgs, SyncReview, SyncReviewArgs};
 pub use pull::{CloudRecall, CloudRecallArgs, Pull, PullArgs};
 pub use share::{Share, ShareArgs};
 
-/// Resolves the target [`CloudClient`] (by explicit name, else the default), or
-/// an error `Value` naming what's configured.
+/// Resolves the target [`CloudClient`], or an error `Value` naming what is
+/// configured and why it will not guess.
 pub(super) fn cloud_or_err(mem: &KaeruMemory, name: Option<&str>) -> Result<CloudClient, Value> {
-    mem.cloud(name).cloned().ok_or_else(|| {
-        let names = mem.clouds().names().join(", ");
-        json!({
-            "error": format!(
-                "cloud not configured (configured: [{names}]) — pass a valid `cloud`, or set a default"
-            )
-        })
-    })
+    // Through `resolve`, not `get`: with several clouds configured an unnamed
+    // call is refused rather than sent to the default. See the daemon-side
+    // rule this mirrors (#65) — a cloud write cannot be undone in the wrong
+    // place, so the cost of guessing is not symmetric with the cost of asking.
+    mem.clouds()
+        .resolve(name)
+        .cloned()
+        .map_err(|error| json!({ "error": error }))
 }
 
 /// A guard hit as `rule: "fragment"`. The fragment is `GuardHit.matched`, which
@@ -152,8 +152,44 @@ mod tests {
             out["error"]
                 .as_str()
                 .unwrap_or("")
-                .contains("cloud not configured"),
+                .contains("no cloud is configured"),
             "no-cloud share is not-configured; got {out}"
         );
+    }
+
+    /// The rule this mirrors from the daemon (#65): with several clouds
+    /// configured, an unnamed call is refused rather than routed to a default.
+    /// A cloud write cannot be undone in the wrong place, so the cost of
+    /// guessing is not symmetric with the cost of asking.
+    #[tokio::test]
+    async fn several_clouds_refuse_an_unnamed_share() {
+        use std::collections::HashMap;
+
+        use crate::cloud_client::{CloudClient, CloudRegistry};
+
+        let store = Arc::new(Store::open_in_memory().expect("open"));
+        let clients: HashMap<String, CloudClient> = ["alpha", "beta"]
+            .iter()
+            .map(|n| {
+                (
+                    n.to_string(),
+                    CloudClient::new(n.to_string(), format!("http://{n}.test"), String::new()),
+                )
+            })
+            .collect();
+        let mem = KaeruMemory::with_clouds(
+            store,
+            "t",
+            CloudRegistry::new(clients, Some("alpha".to_string())),
+        );
+
+        let out = mem
+            .share()
+            .call(args::<ShareArgs>(json!({ "name": "whatever" })))
+            .await
+            .unwrap();
+        let err = out["error"].as_str().unwrap_or("");
+        assert!(err.contains("alpha, beta"), "lists the choices; got {out}");
+        assert!(err.contains("cannot be undone"), "says why; got {out}");
     }
 }

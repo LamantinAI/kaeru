@@ -21,17 +21,39 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// instead of waiting out the OS connect timeout.
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Holds the cloud base URL, the bearer token, and a reusable reqwest
-/// client (cheap to clone — it shares a connection pool internally).
+/// Holds the cloud's configured name, its base URL, the bearer token, and a
+/// reusable reqwest client (cheap to clone — it shares a connection pool
+/// internally).
+///
+/// `Debug` prints the name and endpoint but never the bearer token — a client
+/// ends up in error text and log lines, and a credential should not ride
+/// along.
+///
+/// The **name** is carried here rather than passed alongside because every
+/// result and error has to be able to say which cloud it touched, and a
+/// parameter threaded through a dozen signatures is a parameter some call
+/// site will forget. In a multi-cloud setup an answer that does not name its
+/// cloud is indistinguishable from an answer about a different one — that is
+/// the whole of #65.
 #[derive(Clone)]
 pub struct CloudClient {
+    name: String,
     base_url: String,
     token: String,
     client: reqwest::Client,
 }
 
+impl std::fmt::Debug for CloudClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CloudClient")
+            .field("name", &self.name)
+            .field("base_url", &self.base_url)
+            .finish_non_exhaustive()
+    }
+}
+
 impl CloudClient {
-    pub fn new(base_url: String, token: String) -> Self {
+    pub fn new(name: String, base_url: String, token: String) -> Self {
         // `Client::builder()` only fails when TLS/system config is broken;
         // fall back to the default client rather than panicking the daemon —
         // a cloud client without timeouts still beats no daemon at all.
@@ -41,10 +63,23 @@ impl CloudClient {
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
+            name,
             base_url: base_url.trim_end_matches('/').to_string(),
             token,
             client,
         }
+    }
+
+    /// The cloud's configured name — what every message about this client
+    /// should call it.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The endpoint, for a diagnostic that needs to be unambiguous about
+    /// *where* rather than only *which*.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
     }
 
     /// `POST /api/v1/nodes` — push a shared node.
@@ -104,6 +139,14 @@ impl CloudClient {
     }
 
     /// `GET /api/v1/initiatives/{name}/nodes` — list shared briefs.
+    /// `GET /api/v1/initiatives` — every initiative the cloud knows, with its
+    /// node counts. Used to tell "this initiative is empty here" apart from
+    /// "this cloud has never heard of it".
+    pub async fn list_initiatives(&self) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/initiatives", self.base_url);
+        self.get(&url).await
+    }
+
     pub async fn list_initiative(&self, initiative: &str) -> Result<(u16, String), String> {
         let url = format!("{}/api/v1/initiatives/{initiative}/nodes", self.base_url);
         self.get(&url).await
@@ -216,10 +259,63 @@ impl CloudRegistry {
     /// Resolves a client by explicit name, or the default when `name` is
     /// `None` (the common single-cloud / "just use my default" case).
     /// Returns `None` when the name is unknown or no default resolves.
+    ///
+    /// Prefer [`Self::resolve`] for anything that acts on a cloud — this one
+    /// silently picks the default, which is the behaviour #65 is about.
     pub fn get(&self, name: Option<&str>) -> Option<&CloudClient> {
         match name {
             Some(n) => self.clients.get(n),
             None => self.default.as_ref().and_then(|d| self.clients.get(d)),
+        }
+    }
+
+    /// Resolves the cloud an operation should act on, refusing to guess when
+    /// a guess could be wrong.
+    ///
+    /// With one cloud configured there is nothing to disambiguate, so an
+    /// unnamed call resolves silently — that is the overwhelmingly common
+    /// setup and adding ceremony to it would buy nothing. With **several**,
+    /// an unnamed call is refused rather than routed to the default.
+    ///
+    /// The reason is that the default was invisible in both directions: a read
+    /// answered by one cloud while the nodes lived in another is
+    /// indistinguishable from an empty answer, and the same silence sits under
+    /// `delete_initiative`, whose own description says "team-wide, removes it
+    /// for everyone". A refusal costs one retry; a misrouted destructive verb
+    /// costs a team's initiative, and the cloud has no undo.
+    ///
+    /// The error is a finished sentence rather than a code, because every
+    /// caller would otherwise write the same one slightly differently.
+    pub fn resolve(&self, name: Option<&str>) -> Result<&CloudClient, String> {
+        if self.clients.is_empty() {
+            return Err(
+                "no cloud is configured — add one to `clouds.toml` (the daemon reads it at \
+                 startup) and restart the daemon."
+                    .to_string(),
+            );
+        }
+        match name {
+            Some(n) => self.clients.get(n).ok_or_else(|| {
+                format!(
+                    "no cloud named `{n}` is configured. Available: {}.",
+                    self.names().join(", ")
+                )
+            }),
+            None => match (self.clients.len(), self.default.as_ref()) {
+                // One cloud: nothing to disambiguate.
+                (1, _) => Ok(self.clients.values().next().expect("len == 1")),
+                (_, Some(d)) => Err(format!(
+                    "several clouds are configured ({}) — name the one you mean with `cloud`. \
+                     Not defaulting to `{d}`: an operation that reaches the wrong cloud cannot \
+                     be undone there.",
+                    self.names().join(", ")
+                )),
+                (_, None) => Err(format!(
+                    "several clouds are configured ({}) and none is the default — name the one \
+                     you mean with `cloud`.",
+                    self.names().join(", ")
+                )),
+            },
         }
     }
 }
@@ -236,7 +332,7 @@ mod tests {
             .map(|n| {
                 (
                     n.to_string(),
-                    CloudClient::new(format!("http://{n}.test"), String::new()),
+                    CloudClient::new(n.to_string(), format!("http://{n}.test"), String::new()),
                 )
             })
             .collect::<HashMap<_, _>>();
@@ -283,5 +379,55 @@ mod tests {
         // A `default` naming a cloud that isn't configured is ignored.
         let r = reg(&["family", "work"], Some("ghost"));
         assert!(r.default_name().is_none(), "unknown default dropped");
+    }
+
+    /// One cloud means no ambiguity — an unnamed call must not acquire
+    /// ceremony it cannot benefit from.
+    #[test]
+    fn a_single_cloud_resolves_without_being_named() {
+        let r = reg(&["only"], None);
+        assert!(r.resolve(None).is_ok());
+        assert_eq!(r.resolve(None).unwrap().name(), "only");
+    }
+
+    /// The case #65 is about: with several clouds an unnamed call is refused
+    /// rather than sent to the default, and the refusal lists the choices.
+    #[test]
+    fn several_clouds_refuse_to_be_guessed() {
+        let r = reg(&["alpha", "beta"], Some("alpha"));
+        let err = r.resolve(None).unwrap_err();
+        assert!(err.contains("alpha, beta"), "{err}");
+        assert!(err.contains("cannot"), "says why it refuses: {err}");
+        // Naming one still works.
+        assert_eq!(r.resolve(Some("beta")).unwrap().name(), "beta");
+    }
+
+    /// An unknown name is a different mistake from an unnamed call, and gets
+    /// a different answer.
+    #[test]
+    fn an_unknown_name_lists_what_exists() {
+        let r = reg(&["alpha", "beta"], Some("alpha"));
+        let err = r.resolve(Some("gamma")).unwrap_err();
+        assert!(err.contains("`gamma`"), "{err}");
+        assert!(err.contains("alpha, beta"), "{err}");
+    }
+
+    /// No clouds at all is a configuration problem, and says so.
+    #[test]
+    fn no_clouds_says_it_is_unconfigured() {
+        let r = reg(&[], None);
+        assert!(
+            r.resolve(None)
+                .unwrap_err()
+                .contains("no cloud is configured")
+        );
+    }
+
+    /// A client knows its own name, which is what lets every message say
+    /// which cloud it touched without threading a parameter everywhere.
+    #[test]
+    fn a_client_carries_its_name() {
+        let r = reg(&["work"], None);
+        assert_eq!(r.get(None).unwrap().name(), "work");
     }
 }
