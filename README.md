@@ -25,19 +25,20 @@ Every node and edge is **bi-temporal** — the substrate stores assertion / retr
 
 Per-initiative subgraphs through a junction-relation pattern: one substrate, many initiatives, multi-membership. An agent working on project A asks "what was I doing here last time?" and gets an answer scoped to A. The same node can belong to several initiatives at once.
 
-`kaeru` is a **facilitator, not an enforcer**. The curator API exposes ~40 primitives (`awake`, `recall`, `drill`, `claim`, `synthesise`, `at`, `history`, `settle`, …) as available tools. The agent and user choose when to invoke them; the daemon hints but doesn't block.
+`kaeru` is a **facilitator, not an enforcer**. The curator API exposes ~70 primitives (`awake`, `recall`, `drill`, `claim`, `synthesise`, `at`, `history`, `settle`, …) as available tools. The agent and user choose when to invoke them; the daemon hints but doesn't block.
 
 ## Features
 
 - **Two-tier graph** — operational (cognitive / hippocampus) for active thinking; archival (recollection / cortex) for settled knowledge. `settle` promotes across the boundary, preserving provenance.
 - **Bi-temporal** — native assertion / retraction history. `at` reads a node in full as it is now or as-of any past moment; conflicts are non-destructive (the old version is invalidated, not deleted).
 - **Per-initiative scoping + layered re-entry** — one substrate, many projects. `awake` restores a project's working set by memory layer (Core → Hot → Warm) and surfaces the archival **cortex** (settled knowledge) alongside it, so durable facts re-enter every session; `surface` reaches the archived Cold / Frozen on demand.
-- **Reasoning chains** — `chain` saves the load-bearing weighted path between two nodes as a recallable trail with an agent-authored summary; `chains` triages by name + summary, duplicates are folded at creation, and `rechain` refreshes a trail after the graph changes (re-links, re-weights).
+- **Reasoning chains** — `chain` saves the load-bearing weighted path between two nodes as a recallable trail with an agent-authored summary; `why` reads a trail — give it a chain for its ordered steps, or any node to reach the chain it belongs to. Duplicates are folded at creation, and `rechain` refreshes a trail after the graph changes (re-links, re-weights).
 - **Self-maintenance** — `reflect` computes a tidy-up work-list: orphan nodes to link, overdue tasks, chains gone stale, settled work to promote into cortex, and shared/cloud items whose rebalancing is escalated to the user. The agent calls it at the end of a piece of work; layer tidying runs on its own in the background (`hygiene`).
 - **Role slots** — `slot` gives an initiative a role held by exactly one live node (`handoff`, `entrypoint`, `queue`). Filling it archives the previous holder to Cold and links `supersedes`, so a project cannot drift into three "current" handoffs. Nothing is deleted; the predecessor stays reachable through `at` / `surface`.
 - **Automatic hygiene** — a background pass keeps a project's layers honest: old unreferenced journal entries move to Cold, untouched unreferenced Core nodes drop one step, heavily-referenced nodes rise one step. It triggers on accumulation (writes, Core growth, elapsed time) rather than on a schedule, runs off the reactor in batches so it never stalls a tool call, and only ever changes a node's layer — every move reverses with one `layer` call. Opt-in: set `KAERU_MCP_HYGIENE_ENABLE=1` to let passes run (embedding via `kaeru-rig`? `KaeruMemory::with_hygiene()` does the same there). `hygiene <initiative>` shows exactly what the next pass would move — run it first on a vault you care about, then switch it on.
-- **Cross-agent sharing** — local-first by default; an optional `kaeru-cloud` tier lets a trusted team share settled knowledge through two safety gates (initiative policy + a deterministic secret guard). See [Local & cloud](#local--cloud--sharing-memory-across-a-team).
-- **Structural recall** — exact name lookup, typed `walk` / `drill` / `trace`, `between`, FTS fuzzy fallback. Every read also carries when each node was asserted. Recall is structural + full-text; there is no vector/embedding layer today.
+- **Cross-agent sharing** — local-first by default; an optional `kaeru-cloud` tier lets a trusted team share settled knowledge through two safety gates (initiative policy, which names both *whether* an initiative may leave and *which clouds* it may reach, plus a deterministic secret guard). `cloud_recall` searches the shared tier, `unshare` withdraws a mistake, and with several clouds configured an unnamed call is refused rather than routed to a default. See [Local & cloud](#local--cloud--sharing-memory-across-a-team).
+- **Structural recall** — exact name lookup, typed `walk` / `drill` / `trace`, `between`, FTS fuzzy fallback. Every read carries when each node was asserted, and a read that stops short points at the verb that goes further: an excerpt names `at`, a changed node names `history`, a node inside a saved trail names `why`. A name that fails to resolve says which of three things happened — it lives in another initiative, something close exists, or it is nowhere.
+- **Read-back on re-entry** — `awake` restores what was *touched* and also what is still *owed*: open tasks with overdue ones first, claims awaiting a verdict, and the saved trails with their summaries. On a shared initiative it says the local answer may be incomplete.
 - **Initiative management** — `rename` / `delete` an initiative (locally or team-wide), or `attach` a node to another initiative to repair fragmentation after the fact.
 - **Markdown export** — Obsidian-friendly snapshot of any initiative.
 
@@ -49,7 +50,7 @@ Per-initiative subgraphs through a junction-relation pattern: one substrate, man
 - **Per-initiative scope through junction relations** rather than column filtering — RocksDB prefix-scan gives O(log n + k) on the active initiative.
 - **Retrieval is structural-first** — explicit name lookup, typed graph traversal, summary views. Cozo FTS for fuzzy fallback when an exact name is forgotten. No vector/embedding layer today: Cozo supports HNSW, but kaeru wires none of it — a vector fallback is possible future work, not a current feature.
 - **Two-tier with explicit promotion** — `settle <name>` moves a node that stopped changing into the archival tier as a deliberate, logged operation, carrying its name, body and manual tags over unchanged (`unsettle` mirrors it back). Provenance (`derived_from`) survives the tier boundary.
-- **Single binary, embedded substrate** — `kaeru` runs in-process with the agent. No server, no network. Vault on disk under a platform-specific default (Linux `$XDG_DATA_HOME/kaeru`, macOS `~/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`); override with `KAERU_VAULT_PATH`.
+- **Single binary, embedded substrate** — the substrate runs in-process with the daemon; the vault is a local file tree, not a service. The daemon speaks MCP to the agent and, optionally, HTTP to a `kaeru-cloud`. Vault on disk under a platform-specific default (Linux `$XDG_DATA_HOME/kaeru`, macOS `~/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`); override with `KAERU_VAULT_PATH`.
 
 ## Layout
 
@@ -93,8 +94,13 @@ search (initiative: "auth-rewrite", query: "expiry")
 drill (initiative: "auth-rewrite", name: "noticed-token-expiry-differs-across-...")
 
 # Hypothesis cycle:
-claim (initiative: "auth-rewrite", body: "platform-aware policy is correct", about: "<node>")
-test (initiative: "auth-rewrite", hypothesis: "<hyp>", method: "compared iOS / Android TTL")
+# You normally reach memory AFTER the check has run, so record the verdict
+# with the claim — one call, and the status lands where every read can see it:
+claim (initiative: "auth-rewrite", text: "platform-aware policy is correct",
+       verdict: "supported", by: "<evidence>")
+# Or the prospective path, when the question is genuinely still open:
+claim (initiative: "auth-rewrite", text: "platform-aware policy is correct", about: "<node>")
+evidence (initiative: "auth-rewrite", hypothesis: "<hyp>", method: "compared iOS / Android TTL")
 confirm (initiative: "auth-rewrite", hypothesis: "<hyp>", by: "<experiment>")
 
 # Time-travel:
@@ -105,6 +111,7 @@ history (initiative: "auth-rewrite", name: "<name>")
 # (link the load-bearing edges with strong: true first):
 path (initiative: "auth-rewrite", from: "<a>", to: "<b>")    # preview the trail
 chain (initiative: "auth-rewrite", from: "<a>", to: "<b>")   # save it as a recallable chain
+why (initiative: "auth-rewrite", name_or_id: "<a>")          # read the trail a node sits in
 
 # Roles — one live node each. Writing the next handoff archives the last one:
 slot (initiative: "auth-rewrite", slot: "handoff", name: "handoff-tuesday")

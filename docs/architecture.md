@@ -216,9 +216,10 @@ materialised as a first-class `chain` node plus an ordered `chain_member` list.
 
 - `path` previews the trail; `chain(from, to)` saves it. An agent-authored
   `summary` explains *why* the trail matters and becomes the chain's body.
-- `chains(node)` lists the chains a node is in **with their summaries**, so an
-  agent triages the menu instead of reading every trail; `why` reads one
-  in full.
+- `why` takes either end of that. Given a chain it reads the ordered steps;
+  given any node it reads the chain it belongs to — directly when there is one,
+  as a menu triaged by name and summary when there are several. The two-call
+  version (list, then read) is what stopped the trails being read at all.
 - **Dedup at creation.** The path is deterministic, so a repeated `chain(a, b)`
   reuses the existing identical chain instead of duplicating it (a repeat with a
   new summary refreshes the metadata).
@@ -287,6 +288,38 @@ All graph reads/writes go through `kaeru-core` primitives; adapters never issue
 raw Cozo queries.
 
 ---
+
+## 10a. The HTTP surface — a route is a verb
+
+The daemon has spoken HTTP since it grew a streamable MCP transport, but that
+transport carries JSON-RPC, which only an MCP client can use. Everything else —
+the visualizer, a browser, a scheduled job — was handed a side door
+(`/graph.json`) that corresponded to no verb and grew its own config.
+
+`/v1/` replaces the side door with the front one, on one rule: **a route is a
+verb.** `GET /v1/export`, `/v1/board`, `/v1/at`, `/v1/chain` map onto the
+curator verbs of the same name. There is deliberately no `POST /call/{verb}`
+tunnel: a named GET can be cached, opened in a browser and read in a log, and
+an RPC tunnel can do none of the three. The MCP tools and these routes are two
+transports over one implementation, not two implementations to keep in step.
+
+Three things are fixed in the shape rather than left to each handler:
+
+- **`/v1/` on every path** — free now, a breaking change later.
+- **A `Principal` on every handler.** One variant today, carrying nothing;
+  that is the point. The expensive part of introducing a caller identity is
+  not the type, it is touching every handler that never took one.
+- **`egress` on the way out**, so redaction and scope live in one auditable
+  place — and it asks **two** questions. The operator's initiative ceiling and
+  the node's visibility are halves of one rule, and a handler that asks only
+  the first does not fail: it succeeds, serving `local` nodes that the verbs
+  asking both correctly refuse. Since `local` is the default visibility, the
+  blast radius of that mistake is an ordinary vault. The question is asked
+  before a node is read, described **or followed** — a node filtered after its
+  edges are walked still leaves its id and the graph's shape in the response.
+
+The whole surface is opt-in and off unless the operator enables it, and an
+unconfigured allow-list exports nothing.
 
 ## 11. Design stance — facilitator, not enforcer
 

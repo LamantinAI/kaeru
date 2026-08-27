@@ -1,8 +1,7 @@
 ---
 name: kaeru
 user-invocable: true
-description: Cognitive memory layer for LLM agents — typed graph + bi-temporal substrate + curator API. Use when the user wants to capture, recall, reason, or trace persistent thoughts across sessions; when re-entering a multi-session project; or when the user explicitly asks to "remember", "save", "note", "look up what I thought about X", "what's in project Y".
-allowed-tools: Bash
+description: Cognitive memory layer for LLM agents — typed graph + bi-temporal substrate + curator API, reached through the kaeru MCP server. Use when the user wants to capture, recall, reason, or trace persistent thoughts across sessions; when re-entering a multi-session project; or when the user explicitly asks to "remember", "save", "note", "look up what I thought about X", "what's in project Y".
 ---
 
 # kaeru — agent memory
@@ -13,14 +12,19 @@ archival tier (recollection / cortex) is settled long-term knowledge.
 Every node and edge is bi-temporal — assertions and retractions live
 side-by-side, time-travel is native.
 
-You interact through the MCP server. Substrate location is
-read from `KAERU_VAULT_PATH` (or the Linux default
-`~/.local/share/kaeru`); platform defaults handle macOS / Windows.
+**There is no CLI.** kaeru is reached through its MCP server, as tools.
+Everything below is written the way you actually call them —
+`verb(param=value)` — not as shell commands. If you find yourself
+reaching for a terminal to talk to kaeru, that is the wrong door.
 
-**Cardinal rule (initiative):** every meaningful action must pass
-`--initiative <name>`. Without it, mutations stay un-tagged and reads
-are cross-initiative — almost never what you want. Use the repo /
-project / topic name as the initiative when in doubt.
+The vault location comes from `KAERU_VAULT_PATH` (Linux default
+`~/.local/share/kaeru`); platform defaults handle macOS / Windows. Call
+`config()` to see what actually resolved.
+
+**Cardinal rule (initiative):** pass `initiative` on every meaningful
+call. Without it, mutations stay un-tagged and reads span every project
+— almost never what you want. Use the repo / project / topic name when
+in doubt.
 
 **Cardinal rule (language):** the vault is in the user's native
 language. If they capture in Russian, store and search in Russian;
@@ -66,7 +70,7 @@ kaeru, every session.
 
 **2. Migrate existing notes, leave pointers.** For each note already in
 the built-in store, `cite` it into kaeru (persona/project facts are
-exactly what archival `cite` is for — no `--url` needed), then reduce
+exactly what archival `cite` is for — `url` is optional), then reduce
 the original file to a one-line pointer at the kaeru node so nothing is
 lost and nothing is dual-maintained.
 
@@ -100,7 +104,7 @@ above) — write the reminder in the user's language.
 
 ## Personas — same primitives, different uses
 
-The verb taxonomy looks research-flavoured (`claim` / `test` /
+The verb taxonomy looks research-flavoured (`claim` / `evidence` /
 `confirm` / `synthesise`) but the underlying primitives are general.
 Three example personas of how the same kaeru maps to different daily
 workflows:
@@ -108,26 +112,26 @@ workflows:
 ### Researcher / engineer
 
 The "default" use case. Captures observations as `jot` /
-`episode`, formalizes hunches via `claim`, validates with `test` +
+`episode`, formalizes hunches via `claim`, records what was checked with `evidence` +
 `confirm` / `refute`, settles findings with `synthesise` →
 `settle` (operational draft → archival outcome). External sources
-go through `cite --url ...`. Initiative is the project name.
+go through `cite(name=…, url=…)`. Initiative is the project name.
 
 ### Personal manager / assistant
 
 The agent helps with daily life — todos, people, plans, journal.
 
-- **Tasks** with deadlines: `task "купить молоко" --due 2d`,
-  `task "позвонить маме" --due weekend`. Mark complete with
+- **Tasks** with deadlines: `task(body="купить молоко", due="2d")`,
+  `task(body="позвонить маме", due="weekend")`. Mark complete with
   `done <task-name>`.
 - **People / places / things** without URLs: `cite "Анна"
-  --body "врач семейной клиники, рекомендация Маши"` — same `cite`
-  verb, no `--url` needed. Persona records live in archival tier
+  body="врач семейной клиники, рекомендация Маши")` — same `cite`
+  verb, `url` optional. Persona records live in the archival tier
   ("cortex"), so things like "who is my user" stick around forever.
 - **Plans / intentions / decisions**: just `jot` (`role:jot`,
   `kind:observation`). Slice later with `tagged "topic:план"` etc.
 - **Daily journal**: `jot` whatever's on the agent / user's mind;
-  `recent --since 24h` for "what happened today", `recent --since 7d`
+  `recent(since="24h")` for "what happened today", `recent(since="7d")`
   for the week.
 
 Initiative for personal use is typically a single name like
@@ -138,8 +142,8 @@ Initiative for personal use is typically a single name like
 
 Things that should outlive any specific project — `who is my user`,
 `my preferences`, `repeated correspondents`, persistent locations.
-Capture as `cite "<name>" --body "..."` (no URL) **without
-`--initiative`**, or under a stable initiative like `cortex`. The
+Capture as `cite(name="<name>", body="…")` (no URL) **without an
+`initiative`**, or under a stable one like `cortex`. The
 archival tier means these aren't surfaced by a project's `awake` /
 `overview` and aren't crowded out by recent thoughts; they're
 retrievable on demand via `drill <name>` / `tagged "kind:reference"`.
@@ -157,10 +161,10 @@ User-invocable via `/kaeru`.
 
 ## Re-entry ritual (do this first when picking up a project)
 
-```bash
-kaeru initiatives                              # see existing projects
-kaeru --initiative <name> awake                # what was open last time
-kaeru --initiative <name> overview             # what does this project know
+```
+initiatives()                          # which projects exist
+awake(initiative="<name>")             # what was open last time
+overview(initiative="<name>")          # what this project knows
 ```
 
 `awake` answers "what was I doing" (process state — pinned, recent,
@@ -186,16 +190,17 @@ do:
 All three now answer with what still converges on the thing that just closed,
 and ask what the work concluded. When they do, spend one more call:
 
-```bash
-settle <name>                       # one node hardened in place
-synthesise from=a,b,c --name <x>    # several converged into one outcome
+```
+settle(source="<name>", initiative="X")                    # one node hardened in place
+synthesise(from=["a","b","c"], new_name="<x>",
+           new_body="…", initiative="X")                   # several → one outcome
 ```
 
 And before you stop for the day, or when the conversation is about to be
 compacted:
 
-```bash
-reflect                             # the maintenance work-list, with how to act on each part
+```
+reflect(initiative="X")                # the work-list, with how to act on each part
 ```
 
 `reflect` names overdue tasks, open reviews, claims whose text already answers
@@ -220,7 +225,7 @@ something once" and "next session can find it via three different paths".
 
 - **Capture the user's ask as a `task`.** When the user says
   "build X and report back" or "fix Y by tomorrow", that's literally
-  what `task` was designed for: `task "<body>" --due 1h`, `done <name>`
+  what `task` was designed for: `task(body="…", due="1h")`, then `done`
   when finished. The task node is what survives into next session as
   "what was being worked on" — `board` shows it in its column, and
   `set_status` moves it as work progresses. (`awake` does *not* list
@@ -231,11 +236,11 @@ something once" and "next session can find it via three different paths".
 
 - **Cite, then link.** When you `cite` a new node that's conceptually
   adjacent to one you saw earlier in this session (via `search` /
-  `drill`), `link` them — `--type causal` if one causes the other,
-  `--type derived-from` if one is a refinement, `--type refers-to`
+  `drill`), `link` them — `edge_type="causal"` if one causes the other,
+  `"derived_from"` if one is a refinement, `"refers_to"`
   for a plain "see also". Edges are how recall walks the graph; without
   them every cite is an island and only exact-name lookups will find
-  it. Costs one CLI call per edge. Pays off every time someone
+  it. Costs one call per edge. Pays off every time someone
   navigates in.
 
 - **Know the three read depths.** `recall <name>` returns just the id;
@@ -243,7 +248,7 @@ something once" and "next session can find it via three different paths".
   `at <name>` reads the node **in full** — the whole untruncated body and
   every field (type, tier, layer, visibility, tags). `drill` / `search` /
   `recall` all truncate the body, so when you actually need a node's
-  complete content, reach for `at`. (Add `--when 5m` / `2h` / a date to
+  complete content, reach for `at`. (Add `when="5m"` / `"2h"` / a date to
   see how it looked at a past moment.) Don't re-`search` words you just
   `recalled` — it queries a different index for the same answer.
 
@@ -262,56 +267,79 @@ something once" and "next session can find it via three different paths".
 
 ## Capture (write thoughts)
 
-```bash
-# Quick fleeting thought — auto-named, low-significance:
-kaeru --initiative X jot "noticed token expiry differs across platforms"
+Match the verb to the **epistemic status** of the content, not its
+length. This is the single most consequential choice on the write side:
+a note captured as the wrong kind is findable but not usable.
 
-# Load-bearing observation / decision — pick a deliberate name:
-kaeru --initiative X episode 'auth-decision' 'platform-aware expiry policy'
-
-# Todo with deadline (auto-named, kind:task, status:open):
-kaeru --initiative X task "купить молоко" --due 2d
-kaeru --initiative X task "созвон с командой" --due 2026-05-15
-kaeru --initiative X done <task-name>          # mark complete (RMW: status:done)
-
-# External source OR persona/entity — both via `cite`:
-kaeru --initiative X cite "transformer-paper" --url https://... --body "..."
-kaeru --initiative X cite "Анна" --body "врач, рекомендация Маши"
-# When using --url, point at the canonical artifact (the actual PDF,
-# the release-asset download URL, the dashboard panel) — not the API
-# endpoint or metadata URL. Future `drill` exposes that URL to the next
-# agent, which wants to fetch, not introspect.
-
-# Connect two named nodes:
-kaeru --initiative X link from-name to-name --type causal
-# Edge types: refers-to (default), causal, derived-from, contradicts,
-# part-of, blocks, targets, supersedes, verifies, falsifies,
-# temporal, consolidated-to.
-
-# Weight the link by how strong the connection is (0.0–1.0). This is
-# YOUR judgment of strength, not a semantic score — it steers knowledge
-# chains (below): strong edges are the ones chains thread through.
-kaeru --initiative X link a b --strong          # = weight 1.0 (load-bearing)
-kaeru --initiative X link a b --weight 0.3      # weak/tentative link
-# Default weight is 0.5 when neither flag is given.
 ```
+# Fleeting thought — auto-named, low significance:
+jot(body="noticed token expiry differs across platforms", initiative="X")
+
+# Load-bearing observation or decision — a name you will recall by:
+episode(name="auth-decision", body="platform-aware expiry policy", initiative="X")
+
+# Todo with a deadline (auto-named; kind:task, status:open):
+task(body="купить молоко", due="2d", initiative="X")
+task(body="созвон с командой", due="2026-05-15", initiative="X")
+done(name_or_id="<task-name>", initiative="X")
+
+# Settled document kept verbatim — ADRs, specs, glossaries, persona
+# records. `url` is OPTIONAL: this is for "my own settled doc" as much
+# as for an external source. Goes straight to the archival tier.
+cite(name="transformer-paper", url="https://…", body="…", initiative="X")
+cite(name="Анна", body="врач, рекомендация Маши", initiative="X")
+
+# A falsifiable claim. If you ALREADY know how it turned out — the
+# usual case, since you reach memory after the check has run — say so
+# in the same call and it lands settled:
+claim(text="the cache pays for itself", verdict="refuted",
+      by="<evidence-node>", initiative="X")
+```
+
+When using `url`, point at the canonical artifact — the actual PDF, the
+release-asset download, the dashboard panel — not an API endpoint or a
+metadata URL. A later `drill` hands that URL to the next agent, which
+wants to fetch, not to introspect.
+
+**Then connect it.** A node nobody linked is findable only by its exact
+name, which means it is findable only by someone who already knows it
+exists.
+
+```
+link(from="from-name", to="to-name", edge_type="causal", initiative="X")
+
+# Weight is YOUR judgement of how load-bearing the connection is
+# (0.0–1.0, default 0.5) — not a semantic score. It steers knowledge
+# chains: a chain threads through strong edges.
+link(from="a", to="b", strong=true, initiative="X")     # = 1.0
+link(from="a", to="b", weight=0.3, initiative="X")      # tentative
+```
+
+Edge types are a closed vocabulary: `refers_to` (default), `causal`,
+`derived_from`, `contradicts`, `part_of`, `blocks`, `targets`,
+`supersedes`, `verifies`, `falsifies`, `temporal`, `consolidated_to`.
 
 ## Inquire (read)
 
-```bash
-kaeru --initiative X recall <name>            # name → id (exact match)
-kaeru --initiative X drill <name>             # name + 1-hop drill-down (body excerpt)
-kaeru --initiative X at <name>                # read the node IN FULL (whole body + all fields)
-kaeru --initiative X at <name> --when 2h      # ...as it was 2h ago (time-travel)
-kaeru --initiative X search "<query>"         # FTS across name+body
-kaeru --initiative X search "<query>*"        # prefix-match (handles word forms)
-kaeru --initiative X trace <name>             # walk derived_from ancestors
-kaeru --initiative X recent --since 3h        # episodes in last 3h
-kaeru --initiative X ideas                    # archival ideas
-kaeru --initiative X outcomes                 # archival outcomes
-kaeru --initiative X overview                 # full subgraph map
-kaeru --initiative X tagged "<tag>"           # slice by tag — see below
 ```
+recall(name="<name>", initiative="X")          # exact name → id, nothing else
+drill(name="<name>", initiative="X")           # the node + one hop of neighbours
+at(name="<name>", initiative="X")              # the node IN FULL — whole body, all fields
+at(name="<name>", when="2h", initiative="X")   # …as it stood two hours ago
+search(query="<query>", initiative="X")        # full-text over name + body
+search(query="<query>*", initiative="X")       # prefix — handles word forms
+trace(name="<name>", initiative="X")           # walk derived_from to the sources
+why(name_or_id="<name>", initiative="X")       # the saved reasoning trail
+recent(since="3h", initiative="X")             # episodes in the last 3h
+ideas(initiative="X")                          # archival ideas
+outcomes(initiative="X")                       # archival outcomes — what the work concluded
+overview(initiative="X")                       # the subgraph map
+tagged(tag="<tag>", initiative="X")            # slice by tag — see below
+board(initiative="X")                          # tasks by column
+```
+
+**`drill` and `search` return excerpts; `at` returns the text.** If a
+body matters, `at` it — the excerpt is for deciding whether to.
 
 `drill` is the most-used: replaces `recall <name>` + `summary <id>`
 with one round-trip.
@@ -340,12 +368,12 @@ Every captured node automatically gets these tags:
 - `status:<state>` — hypotheses (`status:open`, `status:supported`, `status:refuted`, `status:inconclusive`) and tasks (`status:open`, `status:done`, or the initiative's own board vocabulary).
 
 Examples:
-```bash
-kaeru --initiative X tagged "kind:experiment"     # all experiments
-kaeru --initiative X tagged "sig:high"            # high-significance only
-kaeru --initiative X tagged "topic:auth"          # everything mentioning "auth"
-kaeru --initiative X tagged "lang:ru"             # only Russian-language nodes
-kaeru --initiative X tagged "status:open"         # open hypotheses
+```
+tagged(tag="kind:experiment", initiative="X")   # all experiments
+tagged(tag="sig:high", initiative="X")          # high-significance only
+tagged(tag="topic:auth", initiative="X")        # everything about auth
+tagged(tag="lang:ru", initiative="X")           # Russian-language nodes
+tagged(tag="status:open", initiative="X")       # claims still awaiting a verdict
 ```
 
 Topic tags use the **exact form from the body** — same as `search`,
@@ -359,26 +387,26 @@ tells you what to ask for instead.
 
 ## Reason (hypothesis cycle)
 
-```bash
+```
 # You normally reach memory AFTER the check has run, so record the answer
 # with the claim — one call, and the status lands on the tag where every
 # read surface can see it:
-kaeru --initiative X claim "weekend deploys cause flaky tests" \
-  --verdict refuted --by <evidence-name>
+claim(text="weekend deploys cause flaky tests",
+      verdict="refuted", by="<evidence-name>", initiative="X")
 
 # Genuinely open question — no verdict yet. Keeps surfacing in `awake`:
-kaeru --initiative X claim "weekend deploys cause flaky tests" --about <related-name>
+claim(text="weekend deploys cause flaky tests", about="<related-name>", initiative="X")
 
-kaeru --initiative X evidence <hypothesis> --method "compared 100 runs each"
+evidence(hypothesis="<name>", method="compared 100 runs each", initiative="X")
 # → writes the result up as an experiment node with a `targets` edge.
-kaeru --initiative X evidence <hypothesis> --node <existing-episode>
+evidence(hypothesis="<name>", node="<existing-episode>", initiative="X")
 # → registers something you already captured instead.
 
-kaeru --initiative X confirm <hypothesis> [--by <evidence-name>]
-# → status = Supported, edge `verifies` when `--by` is given.
-kaeru --initiative X refute <hypothesis> [--by <counterexample-name>]
+confirm(hypothesis="<name>", by="<evidence-name>", initiative="X")
+# → status = Supported, edge `verifies` when `by` is given.
+refute(hypothesis="<name>", by="<counterexample-name>", initiative="X")
 # → status = Refuted, edge `falsifies`.
-kaeru --initiative X inconclusive <hypothesis>
+inconclusive(hypothesis="<name>", initiative="X")
 # → the check ran and did not decide. A verdict, not a missing answer.
 ```
 
@@ -389,135 +417,178 @@ Dijkstra over `link` weights, where a strong edge is a short hop. Use it
 when two ideas are connected through several intermediate steps and you
 want the whole trail, not an isolated endpoint.
 
-```bash
+```
 # Preview the path without saving anything:
-kaeru --initiative X path from-name to-name      # → a → b → d (the trail)
+path(from="from-name", to="to-name", initiative="X")   # preview, writes nothing
 
 # Materialize that path as a first-class `chain` node:
-kaeru --initiative X chain from-name to-name [--name auth-trail]
+chain(from="from-name", to="to-name", name="auth-trail",
+      summary="why this line of work went the way it did", initiative="X")
 
-# Which chains is a node part of?
-kaeru --initiative X chains <name>
-
-# Read a saved chain's ordered members in full:
-kaeru --initiative X read-chain <chain-name|id>
+# `why` takes either, and dispatches:
+why(name_or_id="<chain-name>", initiative="X")   # → the chain's ordered steps
+why(name_or_id="<node>", initiative="X")         # → its chain, read directly when
+                                                 #   there is one; a menu when several
 ```
 
-Weights are what make this useful: `link --strong` the edges that
+Weights are what make this useful: `link(strong=true)` on the edges that
 genuinely carry reasoning, leave incidental links at the default, and
 `path`/`chain` will thread the load-bearing route rather than the
 shortest hop-count. Chains are initiative-scoped and `local`.
 
 ## Review-flow
 
-```bash
+```
 # Flag a node you doubt — non-destructive, attaches a contradicts edge:
-kaeru --initiative X flag <target> --reason "second look needed"
+flag(target="<name>", reason="second look needed", initiative="X")
 
 # Close an open question by recording the answer:
-kaeru --initiative X resolve <question> --by <answer-name>
+resolve(question="<name>", by="<answer-name>", initiative="X")
 ```
 
 ## Evolve (graph metabolism)
 
-```bash
-# Promote a node that stopped changing → archival (preserves provenance).
-# The name alone is enough: name, body and manual tags carry over, and the
-# type is derived (episode/task → outcome, draft/scratch → idea).
-kaeru --initiative X settle <name> [--as idea] [--name <new>] [--body "..."]
+```
+# Promote a node that stopped changing → archival (provenance survives).
+# The name ALONE is enough: name, body and manual tags carry over, and
+# the type is derived (episode/task/experiment/hypothesis → outcome,
+# draft/scratch → idea). Everything it defaulted is printed back.
+settle(source="<name>", initiative="X")
+settle(source="<name>", new_type="idea", new_name="<new>", initiative="X")
 
-# Bring archival back to operational for revision (same in-place defaults):
-kaeru --initiative X unsettle <name> [--as draft]
+# Back to operational when settled knowledge turns out to still be in
+# flight — same in-place defaults, no type heuristic:
+unsettle(source="<name>", initiative="X")
 
-# Many-to-one consolidation:
-kaeru --initiative X synthesise --from a,b,c --as summary \
-  --name combined --body "..."
+# Many-to-one: several seeds converge into one durable node, each
+# joined by derived_from so `trace` walks back to them.
+synthesise(from=["a","b","c"], new_type="summary",
+           new_name="combined", new_body="…", initiative="X")
 
 # Rewrite a node's body (and/or rename):
-kaeru --initiative X revise <name> --body "<new body>" [--rename <new-name>]
+revise(name="<name>", body="<new body>", rename="<new-name>", initiative="X")
 
 # Bi-temporal forget — retracts node + edges, history preserved:
-kaeru --initiative X forget <name>
+forget(name_or_id="<name>", initiative="X")
 ```
 
 ## Time-travel (the killer feature)
 
-```bash
+```
 # What did this look like at a moment?
-kaeru --initiative X at <name> --when 5m              # 5 minutes ago
-kaeru --initiative X at <name> --when 2h              # 2 hours ago
-kaeru --initiative X at <name> --when 1746549601      # unix seconds
-kaeru --initiative X at <name> --when 2026-05-06T12:00:00Z
+at(name="<name>", when="5m", initiative="X")                    # 5 minutes ago
+at(name="<name>", when="2h", initiative="X")                    # 2 hours ago
+at(name="<name>", when="1746549601", initiative="X")            # unix seconds
+at(name="<name>", when="2026-05-06T12:00:00Z", initiative="X")
 
 # Every assertion / retraction recorded for a node:
-kaeru --initiative X history <name>
+history(name="<name>", initiative="X")
 ```
 
 ## Snapshot / share
 
-```bash
+```
 # Obsidian-friendly markdown vault (README + INDEX + LOG + pages):
-kaeru --initiative X export /tmp/kaeru-snap
+export(path="/tmp/kaeru-snap", initiative="X")
 ```
 
 Useful when the user wants to read offline, share a frozen view, or
-when you want a flat-file overview without doing many CLI calls.
+when you want a flat-file overview without walking the graph call by call.
 
 ## Local vs cloud (team sharing)
 
-Two-tier memory: your **local** vault (personal, default) and an
-optional **team cloud**. There is no auto-routing — you decide which
-tools to call. Routing policy:
+Two tiers of a different kind: your **local** vault, which is the
+default and where everything starts, and an optional **team cloud**.
+Nothing syncs in the background — every crossing is a call you make.
 
-- **Read.** `awake` / `search` see the **local** graph only. Team
-  knowledge lives in the cloud and is invisible until you fetch it: on
-  re-entry to a team initiative also run `cloud_recall <initiative>` to
-  discover shared nodes, then `pull <id> <initiative>` to bring one
-  local. Don't recreate something the team already shared — pull it.
-- **Write — keep local by default.** Personal, draft, exploratory, or
-  half-formed thoughts stay local (the default `local` visibility). Do
-  not share them.
-- **Write — share what's settled and useful to the team.** Capture with
-  `visibility: shared` (on `episode` / `jot` / `cite`), or `share <name>
-  <initiative>` an existing node. Once per initiative, enable it with
-  `policy <initiative> team`.
-- **Layer at creation.** Pass `layer: core|hot|warm|cold|frozen` by
-  importance when you capture; `awake` loads core→hot→warm, reach
-  archived `cold`/`frozen` on demand with `surface`.
+**The cloud is not visible to a local read.** `awake`, `search` and
+`overview` answer from the vault on this machine, so on a shared
+initiative a complete-looking answer can be quietly missing whatever
+the team put in the cloud. `awake` says so when the initiative permits
+sharing; believe it.
 
-Fail-safe by design: default is `local`, and `share` runs two gates —
-the initiative policy and a secret scanner — so a wrong call errors
-safe (worst case you don't pull something; secrets/personal don't
-leak). Sharing and recall are always explicit tool calls; nothing
-syncs in the background.
+```
+clouds()                                        # which clouds this daemon can reach
+cloud_initiatives(cloud="team")                 # what one of them holds
+cloud_recall(initiative="X", query="proxy",
+             cloud="team")                      # SEARCH the team's tier
+pull(id="<uuid>", initiative="X", cloud="team") # bring one node local
+```
 
-**Multiple clouds.** A daemon can be configured with several named
-clouds (e.g. `family`, `work`). When so, `share` / `pull` /
-`cloud_recall` / `link_cloud` take an optional `cloud: <name>`; omit it
-to use the configured default. A soft link remembers which cloud it
-points at, and `cloud_links` resolves each against the right one. If
-only one cloud is configured, ignore `cloud` entirely — the default
-just works.
+`cloud_recall` is the cloud's `search`. It is paged (25 by default) and
+tells you the true total and the exact call for the next page.
+
+**Writing.** Local by default — personal, exploratory and half-formed
+thoughts stay on the machine. Share what is settled and useful to
+someone else:
+
+```
+policy(initiative="X", policy="team", cloud="team")   # once per initiative
+share(name="<node>", initiative="X", cloud="team")
+unshare(name="<node>", initiative="X", cloud="team")  # withdraw a mistake
+```
+
+`policy` asks two questions and both must pass: **whether** an
+initiative may leave (`private` / `team` / `ask`) and **where to** (the
+`clouds` list; an initiative with no list may go to any configured
+cloud). A capture can share in one call with `visibility="shared"`,
+which also takes `cloud`.
+
+**Correcting and withdrawing.** A share is not permanent. Re-sharing a
+corrected node updates the cloud copy in place — the push is an upsert
+under the same id, so `revise` then `share` again. `unshare` retracts
+it: the node leaves `cloud_recall` and the listings while its history
+survives, which is the same "mark, don't delete" model the local graph
+uses.
+
+**Naming the cloud.** With one cloud configured you can omit `cloud`
+entirely. With **several**, name it — an unnamed call is refused rather
+than routed to a default, because a write that reaches the wrong cloud
+cannot be undone there. The refusal lists your choices.
+
+**Fail-safe by design.** Default visibility is `local`; `share` runs
+both gates — the initiative's policy and a secret scanner — so a wrong
+call errors safe. Worst case you fail to pull something; secrets and
+personal notes do not leak by accident.
+
+**Soft links, when a copy would be wrong.** `pull` copies a node into
+your vault, and the copy goes stale silently when its owner revises it.
+`link_cloud` points at it instead, and `cloud_links` resolves the
+pointer live. Pull when you need the content; link when you need the
+citation.
 
 ## Conventions and gotchas
 
 - **One initiative per project.** Mixing initiatives makes `awake`
   noisy. Prefer narrower scopes (`auth-rewrite`, not just `work`).
-- **Names matter.** `recall` is exact-match. `search` is FTS but
-  doesn't stem (search "token" doesn't find "tokens"). When in doubt
-  use `search "<word>"`.
+- **Names matter.** `recall` is exact-match, nothing else. `search` is
+  full-text but does not stem — `"token"` does not find `"tokens"`, so
+  reach for `search "token*"`. A name that fails to resolve tells you
+  which of three things happened: it is in another initiative (named),
+  something close exists (listed), or it is nowhere.
 - **`jot` vs `episode`.** Use `jot` for stream-of-consciousness; the
   auto-name handles uniqueness via id-suffix. Use `episode` only when
   you'll want to recall by exact name later.
-- **Prefer `drill` over `recall + summary`.** One round-trip.
+- **Prefer `drill` over `recall` then a read.** One round-trip, and it
+  says when the node sits in a saved trail.
 - **Mutations are auto-tagged with the active initiative**, but reads
   are also scoped — searching under one initiative won't surface
   other initiatives' nodes.
-- **`config` is your friend** — `kaeru config` shows resolved
-  vault_path and caps. Run if anything feels off.
-- **All commands return human-readable text now** — JSON output
-  is a future addition. Parse the human text robustly (look for
-  patterns, not exact whitespace).
+- **`config()` is your friend** — resolved vault path, the configured
+  clouds and which is default, and every cap. Run it when anything
+  feels off.
+- **Settle in place.** `settle(source=…)` needs nothing else: the node
+  keeps its name, its full body and its manual tags, and only the tier
+  moves. Do not demote finished work to a `cold` layer instead — a
+  layer is how eagerly a node loads, a tier is whether it is still in
+  flight.
+- **Record the verdict with the claim.** You almost always reach memory
+  *after* the check has run, so `claim(text=…, verdict=…, by=…)` in one
+  call beats an open claim whose body says "REFUTED" in prose that
+  nothing can query.
+- **Every verb answers in human-readable text**, not JSON. Read it for
+  meaning rather than parsing exact whitespace — and read the `↳` lines:
+  they are where a result tells you the verb that goes further.
 
 ## When NOT to use
 
@@ -528,5 +599,7 @@ just works.
 
 ## Help
 
-`kaeru --help` shows the typical workflow + ENVIRONMENT vars.
-`kaeru <command> --help` shows full per-command docs.
+There is no `--help`: the tool descriptions in the MCP server are the
+reference, and they are not truncated the way the server instructions
+are. `config()` shows the resolved vault path, the configured clouds
+and every cap. When something feels off, start there.

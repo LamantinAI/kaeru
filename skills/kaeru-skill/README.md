@@ -1,15 +1,13 @@
 # kaeru-skill
 
-A portable agent skill that teaches an LLM the kaeru verb taxonomy and the
-re-entry ritual — capture, recall, reasoning, time-travel.
+A portable agent skill that teaches an LLM how to *use* kaeru: which verb
+carries which kind of knowledge, the rituals at both ends of a session, and
+the habits that turn a pile of notes into a graph worth reading.
 
-> **Status.** The body still shows the verbs in a `kaeru <verb>` shell form
-> from when kaeru shipped a CLI. There is no CLI today: kaeru is the
-> `kaeru-mcp` daemon, and MCP-aware runtimes get the verbs natively through
-> `tools/list` — the call is `awake (initiative: "x")`, not
-> `kaeru --initiative x awake`. The *taxonomy, cadence and discipline* the
-> skill teaches are current; only the invocation syntax is stale. Read it as
-> "which verb, when and why", not as literal commands.
+There is no CLI — kaeru is the `kaeru-mcp` daemon, and the skill is written
+in the form the verbs are actually called: `awake(initiative="x")`. An
+MCP-aware runtime discovers the verbs themselves through `tools/list`; what
+this skill adds is the *when and why*, which no tool schema can carry.
 
 `SKILL.md` is the source of truth. The frontmatter is in Anthropic's
 Claude Code skill format; the body is platform-neutral and can be
@@ -73,8 +71,10 @@ themselves through `tools/list`, and the daemon ships a compact ontology in
 its server instructions — so the tools work without this skill.
 
 What the skill still adds is judgement the tool list can't carry: which verb
-matches which epistemic state, the re-entry ritual, the habit of linking and
-chaining after a capture. Install it if you want that discipline taught
+matches which epistemic state, the rituals at both ends of a session, the
+habit of linking and chaining after a capture. The daemon's own instructions
+are capped at 2048 characters by the client — the skill is where the rest of
+the reasoning lives. Install it if you want that discipline taught
 explicitly; skip it if the built-in instructions are enough.
 
 ## Updating
@@ -88,7 +88,12 @@ field — every commit on `main` is the current canonical version.
 
 An agent that only sees the tool list knows *what exists*, not *when to
 reach for what*. The skill supplies the re-entry ritual
-(`initiatives → awake → overview`), the verb mental model
-(capture / inquire / reason / evolve / time-travel), and the `initiative`
-discipline up front — the difference between a graph that accumulates and
-one that stays navigable.
+(`initiatives → awake → overview`), its counterpart at the other end (the
+terminal verbs, then `settle` / `synthesise`, then `reflect`), the verb
+mental model (capture / inquire / reason / evolve / time-travel), and the
+`initiative` discipline up front.
+
+That is the difference between a graph that accumulates and one that stays
+navigable — and it is mostly about the moments a tool schema cannot describe:
+when a thought is worth a name, when work has stopped changing, when a local
+answer is confidently incomplete.

@@ -42,8 +42,9 @@ kaeru-core/src/
 ├── recall/               ← READ side
 │   ├── by_name.rs        ← recall_id_by_name (+ _global), node_brief_by_id, read_node_full
 │   ├── layered.rs        ← recall_by_layer / _in_tier  (the layer + tier split awake uses)
-│   ├── path.rs           ← shortest_path, chains_of, read_chain, chain_membership
+│   ├── path.rs           ← shortest_path, chains_of, read_chain, chain_membership, chains_in_scope
 │   ├── open_work.rs      ← open_tasks (overdue-aware) + open_claims  (awake's read-back)
+│   ├── board.rs          ← status registry + bucketed board view
 │   ├── reflect.rs        ← reflect → ReflectionReport (the maintenance work-list)
 │   ├── lint.rs           ← orphans + unresolved reviews
 │   ├── overview.rs       ← terminal-readable subgraph map
@@ -61,6 +62,8 @@ kaeru-core/src/
     ├── review.rs         ← mark_resolved / mark_under_review
     ├── synthesise.rs     ← synthesise (converge seeds → durable insight)
     ├── consolidate.rs    ← consolidate_out / consolidate_in (tier promotion)
+    ├── sharing.rs        ← visibility, share_policy, and which clouds an initiative may reach
+    ├── board.rs          ← set_status + the board's status registry
     ├── supersedes.rs, metabolism.rs (forget / improve), layer.rs, task.rs
     └── mod.rs            ← shared helpers (now_validity_seconds, attach_node_to_initiative, …)
 ```
@@ -80,8 +83,14 @@ kaeru-mcp/src/
 ├── settings.rs           ← KaeruMcpConfig (KAERU_MCP_* env + clouds.toml)
 ├── server.rs             ← KaeruServer + #[tool_router]; one #[tool] per verb + the agent instructions
 ├── params.rs             ← Parameters<T> structs the tools deserialize
-├── utils.rs              ← output builders + input parsing (with_initiative, ts_suffix, CAPTURE_NUDGE …)
-├── cloud_client.rs       ← async reqwest client + CloudRegistry (named multi-cloud)
+├── utils.rs              ← output builders + input parsing, and the hint family:
+│                           the deepen-lane pointers, the read-side nudges, arc_closed_hint
+├── cloud_client.rs       ← async reqwest client + CloudRegistry (named multi-cloud;
+│                           `resolve` refuses to guess when several are configured)
+├── api/                  ← the HTTP surface — a route is a verb
+│   ├── egress.rs         ← the ceiling + node visibility: nothing leaves without both
+│   ├── principal.rs      ← who is asking (one variant today, deliberately)
+│   └── v1/               ← at, board, chain, export
 └── tools/                ← one module per verb group: capture, chain, session, lookup,
                              cloud, initiative, hypothesis, lint (lint + reflect), review, …
 ```

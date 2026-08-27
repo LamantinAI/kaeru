@@ -1,6 +1,6 @@
 # The curator API
 
-The agent-facing surface: ~40 verbs, grouped by what they do. The taxonomy is
+The agent-facing surface: ~70 verbs, grouped by what they do. The taxonomy is
 meant to map to how an agent already reasons — capture what you notice, link it,
 test claims, settle what holds, recall structurally, tidy up — rather than expose
 raw graph operations. Every verb takes an optional `initiative` scope.
@@ -123,3 +123,15 @@ Every cloud result and error names the cloud it touched, and an empty `cloud_rec
 | `lint` | Orphan nodes (no edges) + unresolved reviews — the raw hygiene list. |
 | `reflect` | The computed maintenance work-list: orphans to link, overdue tasks, claims whose text already answers them, stale chains to `rechain`, settled work to promote into cortex, and shared/cloud items escalated to the user. Call it when a piece of work ends, and before a session stops. |
 | `export` | Snapshot an initiative to an Obsidian-friendly markdown vault. |
+| `import` | The bulk-load playbook, read first: scope by initiative, pick the verb by epistemic status, stamp the layer at creation, link after capturing. |
+| `hygiene` | What the automatic layer pass would move next, and whether one is due. Read-only unless `force`. |
+
+## Roles and the board
+
+| Verb | Does |
+|---|---|
+| `slot` / `slots` / `unslot` | A role an initiative holds exactly one live node for — `handoff`, `entrypoint`, `queue`. Taking a slot archives the previous holder to `cold` and links `supersedes`, so a project cannot end up with three current handoffs. Nothing is deleted. |
+| `board` | The initiative's tasks bucketed into its status columns, empty ones included. `when` rewinds columns and cards together. |
+| `set_status` | Move a task to another column. Validated against the registry — a typo must not spawn a phantom column. |
+| `board_status` | Edit the registry itself: add, relabel, reorder or remove a status. |
+| `close_review` | Close an open review on a node, optionally recording how it was settled. The counterpart to `flag`. |
