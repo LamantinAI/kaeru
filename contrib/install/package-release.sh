@@ -53,6 +53,13 @@ if [[ -z "${SDKROOT:-}" ]]; then
     fi
 fi
 
+# Cross-linking RocksDB's C++ with zig's libc++ does not survive LTO: the
+# musl link dies on a thousand `std::__cxx11::` symbols that are present but
+# unmatched. Set here rather than left to the caller, because passing it is
+# exactly the sort of thing that gets dropped between attempts — it did,
+# and cost an hour of chasing the wrong cause.
+export CARGO_PROFILE_RELEASE_LTO=false
+
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT"
 
@@ -62,7 +69,26 @@ mkdir -p "$DIST"
 
 for target in "${TARGETS[@]}"; do
     echo "==> building $target"
-    cargo zigbuild --release --target "$target" --bin kaeru-mcp
+
+    # Scope differs per target, and both halves are load-bearing.
+    #
+    # darwin needs `-p kaeru-mcp`: without it cargo unifies features across
+    # the workspace, `kaeru-rig`'s rig-core pulls in aws-lc-rs, and aws-lc's
+    # assembly makes zig's Mach-O linker fail with no message at all — only
+    # "exit status 1" and an empty note. Scoped to the package we ship, that
+    # dependency is not in the graph and kaeru-mcp reaches rustls via `ring`.
+    #
+    # musl needs the opposite: scoped, the C++ side of cozorocks links
+    # against libc++ while RocksDB was compiled for the GNU ABI, and the
+    # link dies on a thousand `std::__cxx11::` symbols. The workspace-wide
+    # feature set is what pulls libstdc++ in.
+    #
+    # Neither is elegant. Both are the difference between a binary and no
+    # binary, and the alternative is discovering it again next release.
+    scope=()
+    [[ "$target" == aarch64-apple-darwin ]] && scope=(-p kaeru-mcp)
+
+    cargo zigbuild --release --target "$target" "${scope[@]}" --bin kaeru-mcp
 
     stage=$(mktemp -d)
     cp "target/$target/release/kaeru-mcp" "$stage/"
