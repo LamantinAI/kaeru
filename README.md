@@ -124,6 +124,26 @@ hygiene (initiative: "auth-rewrite")
 export (initiative: "auth-rewrite", path: "/tmp/auth-snapshot")
 ```
 
+
+## Building without network access
+
+Some machines cannot reach crates.io. The dependencies for each release are
+vendored into a separate repository, [`LamantinAI/kaeru-vendor`](https://github.com/LamantinAI/kaeru-vendor),
+one tag per release:
+
+```bash
+git checkout v0.7.0
+./contrib/offline/fetch-vendor.sh     # ~600 MB, needs network once
+# carry the whole directory across, then:
+cargo build --release --offline -p kaeru-mcp
+```
+
+Rust alone is not enough on either side of that line — cozo builds RocksDB from
+C++ and zstd/lz4 from C, so a C++ toolchain and `libclang` are needed whether or
+not you are offline. See [docs/offline-build.md](docs/offline-build.md) for the
+per-platform requirements and the Windows line-ending trap that fails every
+checksum at once.
+
 ## Connecting to an MCP-aware agent
 
 `kaeru-mcp` is a long-lived HTTP service: **one daemon per machine** owns the substrate, any number of agent sessions (Claude Code, Opencode, Cursor, …) connect concurrently. This is intentional — RocksDB is single-writer, so a stdio MCP that forks a subprocess per session would hit lock contention. See `kaeru-mcp/README.md` for systemd / launchd unit templates and the full HTTP config.

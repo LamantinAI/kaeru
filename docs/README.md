@@ -20,6 +20,10 @@ this folder is the deeper "how it's built and why" reference.
   turns the existing `task` nodes into a customizable tracker, why a card's
   column is a tag while the column *order* is a registry, and the JSON contract a
   UI builds a board (and a time scrubber) on.
+- **[offline-build.md](offline-build.md)** — building with no network access:
+  where the vendored dependencies live (a separate repo, one tag per release),
+  what the fetch script checks, the C++ toolchain kaeru needs regardless, and
+  the Windows line-ending trap that fails every checksum at once.
 - **[curator-api.md](curator-api.md)** — the verb taxonomy: the ~70 curator
   primitives grouped by what they do (re-entry, capture, link & chain, recall,
   time-travel, evolve, initiatives, sharing, maintenance), with the epistemic

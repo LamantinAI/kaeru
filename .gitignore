@@ -6,3 +6,8 @@
 .idea/
 .vscode/
 .intentionally-empty-file.*
+
+# Offline build: fetched by contrib/offline/fetch-vendor.sh, never committed
+# here — the vendor tree lives in LamantinAI/kaeru-vendor, one tag per release.
+/vendor/
+/.cargo/config.toml
