@@ -245,7 +245,7 @@ store works out what actually needs tending in the active scope:
 - **shared / cloud** — shared nodes whose rebalancing is escalated to the user,
   never auto-applied.
 
-Each item ships with *how* to act on it. It's built for a periodic (cron) tidy
+Each item ships with *how* to act on it. It's meant for an end-of-work tidy
 pass and is deliberately **not** wired into the re-entry instructions — reflection
 is a maintenance beat, not something to nag a coding agent about mid-task.
 

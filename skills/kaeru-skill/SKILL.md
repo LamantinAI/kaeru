@@ -202,15 +202,14 @@ reflect                             # the maintenance work-list, with how to act
 them, stale chains, and settled work still sitting in the operational tier. It
 is a read — nothing changes until you act on it.
 
-**On automating it.** The honest state today is that this ritual is
-agent-side: `reflect` is an MCP verb, reachable only through a JSON-RPC
-session, so a cron job or a shell hook cannot call it with one command. The
-daemon's HTTP API (`/v1/…`) is the surface that would make a scheduled pass
-possible, and `reflect` is not on it yet.
+**`reflect` is yours to call**, by design — it reads and proposes, it never
+acts, so the judgement about what to settle and what to leave stays with the
+agent that has the context. Two moments deserve it: when a piece of work ends,
+and before a session stops.
 
-Until it is, the moment to lean on is the one that already occurs: the
-terminal verbs above ask their question by themselves, at exactly the point
-the work ends.
+The one thing that does run by itself is layer tidying (`hygiene`), because
+moving a node between recall bands is reversible and needs no judgement.
+Anything that changes what the graph *says* stays a decision.
 
 ## Cadence — habits that keep the graph useful
 

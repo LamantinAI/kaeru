@@ -121,5 +121,5 @@ Every cloud result and error names the cloud it touched, and an empty `cloud_rec
 | Verb | Does |
 |---|---|
 | `lint` | Orphan nodes (no edges) + unresolved reviews — the raw hygiene list. |
-| `reflect` | The computed maintenance work-list: orphans to link, stale chains to `rechain`, settled work to promote into cortex, and shared/cloud items escalated to the user. Built for a periodic (cron) pass. |
+| `reflect` | The computed maintenance work-list: orphans to link, overdue tasks, claims whose text already answers them, stale chains to `rechain`, settled work to promote into cortex, and shared/cloud items escalated to the user. Call it when a piece of work ends, and before a session stops. |
 | `export` | Snapshot an initiative to an Obsidian-friendly markdown vault. |
