@@ -47,6 +47,10 @@ pub struct BoardTask {
     pub body_excerpt: Option<String>,
     pub due: Option<String>,
     pub ts: Option<f64>,
+    /// `local` or `shared`. Carried because a consumer that sends a board
+    /// anywhere has to decide whether each card may go, and asking per card
+    /// would be one query each — the row is already being read here.
+    pub visibility: String,
 }
 
 /// One column: its status plus the tasks bucketed into it.
@@ -198,9 +202,9 @@ pub fn board_view_at(store: &Store, initiative: &str, at: Option<f64>) -> Result
     params.insert("init".to_string(), DataValue::Str(initiative.into()));
     let script = format!(
         r#"
-        ?[id, name, body, tags, validity] :=
+        ?[id, name, body, tags, visibility, validity] :=
             *node_initiative{{initiative, node_id: id}}, initiative = $init,
-            *node{{id, type, name, body, tags, validity @ {at}}}, type = 'task'
+            *node{{id, type, name, body, tags, visibility, validity @ {at}}}, type = 'task'
     "#,
         at = at_expr(at)
     );
@@ -250,7 +254,12 @@ pub fn board_view_at(store: &Store, initiative: &str, at: Option<f64>) -> Result
             .iter()
             .find_map(|t| t.strip_prefix("due:"))
             .map(String::from);
-        let ts = validity_seconds(row.get(4));
+        let visibility = row
+            .get(4)
+            .and_then(|v| v.get_str())
+            .map(String::from)
+            .unwrap_or_else(|| "local".to_string());
+        let ts = validity_seconds(row.get(5));
 
         let col = index.get(status).copied().unwrap_or(0);
         if let Some(c) = columns.get_mut(col) {
@@ -260,6 +269,7 @@ pub fn board_view_at(store: &Store, initiative: &str, at: Option<f64>) -> Result
                 body_excerpt,
                 due,
                 ts,
+                visibility,
             });
         }
     }

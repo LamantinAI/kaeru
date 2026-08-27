@@ -5,26 +5,61 @@
 // describes: one board per initiative, a card's column is the `status:<key>`
 // tag on the task itself, columns come from the initiative's registry.
 //
-// Read-only, deliberately. `/graph.json` carries the `status:*` tags but not
-// `properties`, so the column registry can't reach the browser yet and the
-// built-in vocabulary is what we render. Moving a card is `set_status`, a
-// write the viz endpoint doesn't have — so the board shows the command instead
-// of performing it.
+// Read-only, deliberately. Moving a card is `set_status`, a write the API does
+// not expose yet — so the board shows the command instead of performing it.
+//
+// The columns, though, are the initiative's own: `/v1/board` is the `board`
+// verb over HTTP, and it carries the registry that the whole-graph export
+// cannot (the registry lives in the Board node's `properties`, which the
+// export does not select). Without the daemon — a baked snapshot — we fall
+// back to the built-in vocabulary and say so by simply showing three columns.
 //
 // Within a column the order is *rot*, not recency: overdue first, then age,
 // then isolation. A task that has been open two months with nothing linked to
 // it is not "todo", it is the thing this room exists to surface.
 
 // The built-in vocabulary `write_task` stamps, in registry order (board.md).
-// Once the export carries `properties`, this is what the Board node replaces.
-import { loadFullBodies } from './bodies.js'
+// The fallback when there is no daemon to ask — an initiative that customized
+// its board replaces this wholesale.
+import { bodiesFor } from './bodies.js'
 
-const COLUMNS = [
+const BUILT_IN = [
   { key: 'open', label: 'Open' },
   { key: 'in-progress', label: 'In Progress' },
   { key: 'done', label: 'Done' },
 ]
 const DAY = 86400
+
+// ── the registry ──────────────────────────────────────────────────────────
+// `/v1/board` is the `board` verb over HTTP, and it carries the one thing the
+// whole-graph export cannot: the initiative's own column registry, which lives
+// in the Board node's `properties`. The export selects name, tags, body and
+// the rest — not properties — so before this endpoint existed the browser had
+// no way to know an initiative had renamed a column or added one.
+//
+// Failure is silent and total. A baked snapshot has no daemon behind it, and a
+// board that refused to draw because it could not reach one would be worse
+// than a board drawing three sensible columns.
+const registries = new Map()
+
+async function registryFor(initiative) {
+  if (registries.has(initiative)) return registries.get(initiative)
+  let cols = null
+  try {
+    // `columns=true`: the cards are already here from the export, and asking
+    // for them again — once per initiative for the union view — was 130 KB to
+    // learn a handful of column names.
+    const r = await fetch(`/v1/board?initiative=${encodeURIComponent(initiative)}&columns=true`)
+    if (r.ok) {
+      const b = await r.json()
+      if (Array.isArray(b.columns) && b.columns.length) {
+        cols = b.columns.map((c) => ({ key: c.key, label: c.label }))
+      }
+    }
+  } catch (_) { /* no daemon reachable — the built-in vocabulary stands */ }
+  registries.set(initiative, cols)
+  return cols
+}
 
 const $ = (id) => document.getElementById(id)
 const esc = (s) => (s || '').replace(/[&<>"']/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]))
@@ -50,13 +85,14 @@ export function createBoard(data, { onOpenNode }) {
     const near = (LINKS[n.id] || []).filter((id) => N[id])
     // provenance: what the task fell out of — an episode when there is one
     const src = near.find((id) => N[id].type === 'episode') || near[0] || null
-    // A status the registry doesn't know falls into the first column rather
-    // than disappearing — same rule the `board` verb applies (board.md).
+    // The raw tag is what the card carries; which column that *is* depends on
+    // the registry, which arrives later and can change under us. Resolving at
+    // draw time (see `keyOf`) is what lets the columns be refreshed without
+    // rebuilding every card.
     const raw = (tagged(n, 'status:') || '').slice(7)
-    const key = COLUMNS.some((c) => c.key === raw) ? raw : COLUMNS[0].key
     const text = (n.body || '').trim() || deslug(n.name)
     return {
-      id: n.id, name: n.name, key, age, due, overdue, src,
+      id: n.id, name: n.name, raw, age, due, overdue, src,
       island: near.length === 0,
       init: (n.initiatives || [])[0] || null,
       text,
@@ -65,8 +101,61 @@ export function createBoard(data, { onOpenNode }) {
     }
   })
 
-  // initiatives that actually own a task, busiest first
-  const OWNERS = [...CARDS.reduce((m, c) => m.set(c.init, (m.get(c.init) || 0) + (c.key === 'done' ? 0 : 1)), new Map())]
+  // The registry in force. Starts as the built-in vocabulary and is replaced
+  // by the initiative's own as soon as `/v1/board` answers.
+  let columns = BUILT_IN
+
+  // A status the registry doesn't know falls into the first column rather than
+  // disappearing — the same rule the `board` verb applies (board.md). This is
+  // why it has to be a function: the registry is not known when a card is
+  // built, and a card that resolved early would be stuck in the wrong column.
+  const keyOf = (c) => (columns.some((x) => x.key === c.raw) ? c.raw : columns[0].key)
+
+  // Which column means "finished". `done` by name when the registry keeps it,
+  // otherwise the last column — a registry orders its statuses, and the end of
+  // that order is where work stops being owed.
+  const doneKey = () => (columns.some((x) => x.key === 'done') ? 'done' : columns[columns.length - 1].key)
+
+  // Across every initiative at once there is no single registry, so the
+  // columns are the union of them all — deduped by key, terminal column last.
+  // A card still lands where it belongs because a status key is a plain
+  // string: `waiting` is `waiting` whoever defined it.
+  async function registryForScope(scope) {
+    if (scope !== ALL) return (await registryFor(scope)) || BUILT_IN
+    // Ask one before asking fifteen. A daemon without the API answers every
+    // one of them the same way, and the only thing sixteen identical failures
+    // buy over one is sixteen red lines in the console.
+    const [first, ...rest] = OWNERS.map(([name]) => name)
+    if (first === undefined) return BUILT_IN
+    const head = await registryFor(first)
+    const found = head ? [head, ...(await Promise.all(rest.map(registryFor)))] : []
+    const seen = new Map()
+    for (const cols of [BUILT_IN, ...found.filter(Boolean)]) {
+      for (const c of cols) if (!seen.has(c.key)) seen.set(c.key, c)
+    }
+    const merged = [...seen.values()]
+    const end = merged.findIndex((c) => c.key === 'done')
+    if (end >= 0) merged.push(merged.splice(end, 1)[0])
+    return merged
+  }
+
+  // Fetches the registry for the current scope and repaints if it is still the
+  // current scope by the time it lands — a fast click through the picker must
+  // not leave one initiative's columns over another's cards.
+  function applyRegistry() {
+    const asked = init
+    registryForScope(asked).then((cols) => {
+      if (init !== asked) return
+      columns = cols
+      drawColumns(); drawDetail()
+    })
+  }
+
+  // initiatives that actually own a task, busiest first. Counted against the
+  // literal `done` because this runs before any registry has been fetched —
+  // it labels a dropdown, and being one card out is cheaper than making the
+  // picker wait on the network.
+  const OWNERS = [...CARDS.reduce((m, c) => m.set(c.init, (m.get(c.init) || 0) + (c.raw === 'done' ? 0 : 1)), new Map())]
     .filter(([k]) => k).sort((a, b) => b[1] - a[1])
 
   const ALL = '*'          // every initiative at once
@@ -85,7 +174,7 @@ export function createBoard(data, { onOpenNode }) {
     { key: 'overdue', label: 'past due', f: (c) => c.overdue },
     { key: 'island', label: 'no provenance', f: (c) => c.island },
     { key: 'old', label: 'over a month', f: (c) => c.age > 30 },
-    { key: 'owed', label: 'not done', f: (c) => c.key !== 'done' },
+    { key: 'owed', label: 'not done', f: (c) => keyOf(c) !== doneKey() },
   ]
   const inScope = () => (init === ALL ? CARDS : CARDS.filter((c) => c.init === init))
   const passes = (c) =>
@@ -143,9 +232,9 @@ export function createBoard(data, { onOpenNode }) {
   }
   // A column nothing has ever reached is not "empty", it is unused — and since
   // this room cannot move a card, saying so is more use than saying nothing.
-  const everUsed = new Set(CARDS.map((c) => c.key))
+  const everUsed = new Set(CARDS.map((c) => c.raw))
   function emptyCol(col) {
-    if (everUsed.has(col.key) || col.key === COLUMNS[0].key) {
+    if (everUsed.has(col.key) || col.key === columns[0].key) {
       return `<p class="none">${col.label} is empty.</p>`
     }
     return `<p class="none">Nothing has ever been in ${col.label}. The board reads;
@@ -156,10 +245,10 @@ export function createBoard(data, { onOpenNode }) {
   function drawColumns() {
     const scoped = inScope()
     const mine = scoped.filter(passes)
-    $('bcols').innerHTML = COLUMNS.map((col) => {
-      const rows = mine.filter((c) => c.key === col.key)
+    $('bcols').innerHTML = columns.map((col) => {
+      const rows = mine.filter((c) => keyOf(c) === col.key)
         // rot orders what is still owed; a finished card is just newest-first
-        .sort((a, b) => (col.key === 'done' ? (b.age == null) - (a.age == null) || a.age - b.age : b.rot - a.rot))
+        .sort((a, b) => (col.key === doneKey() ? (b.age == null) - (a.age == null) || a.age - b.age : b.rot - a.rot))
       return `<section class="col" aria-labelledby="col-${col.key}">
         <header class="colhead"><h2 id="col-${col.key}">${col.label}</h2><span class="n">${rows.length}</span></header>
         <div class="stack">${rows.length ? rows.map(card).join('') : emptyCol(col)}</div>
@@ -169,8 +258,9 @@ export function createBoard(data, { onOpenNode }) {
       $('bcols').innerHTML = `<p class="nohits">No cards match ${esc(describeFilters())}.
         <button type="button" class="btn" id="bClear2">Clear filters</button></p>`
     }
-    const owed = mine.filter((c) => c.key !== 'done').length
-    const over = mine.filter((c) => c.overdue && c.key !== 'done').length
+    const done = doneKey()
+    const owed = mine.filter((c) => keyOf(c) !== done).length
+    const over = mine.filter((c) => c.overdue && keyOf(c) !== done).length
     const shown = filtering() ? `${mine.length} of ${scoped.length} cards · ` : ''
     $('bcount').textContent = mine.length
       ? `${shown}${owed} owed${over ? `, ${over} past due` : ''} · sorted by rot — deadline, then age, then isolation`
@@ -190,14 +280,23 @@ export function createBoard(data, { onOpenNode }) {
     const strip = $('bdetail')
     strip.hidden = !c
     if (!c) return
-    const col = COLUMNS.find((x) => x.key === c.key)
+    // The cards read fine on excerpts. The strip is the one place the whole
+    // text belongs, and it shows one card — so fetch one body, when it is
+    // opened, instead of every body in the vault on the way in.
+    if (!c.whole) {
+      c.whole = true
+      bodiesFor([c.id]).then((full) => {
+        if (full[c.id] && full[c.id] !== c.text) { c.text = full[c.id]; if (picked === c.id) drawDetail() }
+      })
+    }
+    const col = columns.find((x) => x.key === keyOf(c))
     const from = c.island
       ? `<span class="isle">nothing links to this card yet</span>`
       : `<button type="button" class="nodelink" data-open="${esc(c.src)}">${esc(deslug(N[c.src] ? N[c.src].name : ''))}</button>`
     strip.tabIndex = -1
     strip.innerHTML = `
       <header id="bdhead">
-        <span class="k">card</span><span class="colname">${col ? col.label : c.key}</span>
+        <span class="k">card</span><span class="colname">${col ? col.label : keyOf(c)}</span>
         <button type="button" class="btn x" data-close="1" aria-label="Close card">✕</button>
       </header>
       <div id="bdbody">
@@ -278,12 +377,12 @@ export function createBoard(data, { onOpenNode }) {
 
   const pickInit = $('bInit')
   buildSieves()
-  const owedAll = CARDS.filter((c) => c.key !== 'done').length
+  const owedAll = CARDS.filter((c) => keyOf(c) !== doneKey()).length
   pickInit.innerHTML = `<option value="${ALL}">all initiatives (${owedAll} open)</option>` +
     OWNERS.map(([k, n]) => `<option value="${esc(k)}">${esc(k)} (${n} open)</option>`).join('')
   pickInit.addEventListener('change', () => {
     init = pickInit.value; picked = null
-    drawColumns(); drawDetail()
+    drawColumns(); drawDetail(); applyRegistry()
   })
 
   return {
@@ -294,14 +393,7 @@ export function createBoard(data, { onOpenNode }) {
       pickInit.value = init
       if (pickInit._sync) pickInit._sync()
       picked = null
-      drawColumns(); drawDetail()
-      // The cards read fine on excerpts; the detail strip is where the whole
-      // text belongs, so fetch it in the background and repaint if it lands.
-      loadFullBodies().then((full) => {
-        let grew = false
-        for (const c of CARDS) if (full[c.id] && full[c.id] !== c.text) { c.text = full[c.id]; grew = true }
-        if (grew) { drawColumns(); drawDetail() }
-      })
+      drawColumns(); drawDetail(); applyRegistry()
       return true
     },
     initiative: () => init,

@@ -615,10 +615,11 @@ pub(crate) fn attach_node_to_initiative_named(
 /// `node_initiative` junction. The junction is append-only, so this also
 /// answers for retracted nodes — which is exactly what consolidation needs
 /// when it inherits memberships from a node it just retracted.
-/// Public because a not-found has to answer "does it exist somewhere else?"
-/// before it can say anything useful, and the answer is written in
-/// initiatives. It lives in `mutate` because consolidation needed it first;
-/// nothing about it writes.
+/// Public because two different reads need it. A not-found has to answer
+/// "does it exist somewhere else?" before it can say anything useful, and a
+/// node-addressed read on the HTTP surface has to answer "may this leave" —
+/// and both answers are written in initiatives. It lives in `mutate` because
+/// consolidation needed it first; nothing about it writes.
 pub fn initiatives_of_node(store: &Store, node_id: &NodeId) -> Result<Vec<String>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));

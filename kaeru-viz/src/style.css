@@ -40,6 +40,24 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   font-family: var(--serif); overflow: hidden;
   transition: background-color .3s ease, color .3s ease; }
 [hidden] { display: none !important; }
+
+/* ── scrollbars, once ─────────────────────────────────────
+ * Every scroller in the app wears the same bar. It used to be written out per
+ * scroller, which is why the board's columns and the manuscript still had the
+ * browser's default — wide, pale, and lit like a control on a near-black
+ * ground, where the point of this surface is that nothing is louder than the
+ * content.
+ *
+ * The standard properties, and only them. `scrollbar-color` inherits but
+ * `scrollbar-width` does not, so this has to be `*` rather than `:root`. And
+ * `::-webkit-scrollbar` is not a fallback to keep alongside them: setting
+ * either standard property makes the browser ignore the pseudo-elements
+ * entirely, so writing both means writing one that never applies.
+ *
+ * The colours are theme tokens, so the bar follows the ground it sits on
+ * rather than the operating system's idea of one.
+ */
+* { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 #graph { position: fixed; inset: 0; }
 
 /* ── masthead ─────────────────────────────────────────── */
@@ -125,14 +143,19 @@ select.ctl { appearance: none; padding-right: 26px; max-width: 280px;
 .dd-caret { flex: none; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
   border-top: 5px solid var(--dim); }
 .dd-trigger.open .dd-caret { border-top: 0; border-bottom: 5px solid var(--seal); }
-.dd.down .dd-menu { top: calc(100% + 5px); bottom: auto; }
-.dd-menu { position: absolute; left: 0; bottom: calc(100% + 5px); z-index: 30; min-width: 100%; width: max-content;
-  max-width: 440px; max-height: 300px; overflow-y: auto; overflow-x: hidden; background: var(--panel);
-  border: 1px solid var(--line-2); border-radius: 4px;
-  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
-.dd-menu::-webkit-scrollbar { width: 8px; }
-.dd-menu::-webkit-scrollbar-track { background: transparent; }
-.dd-menu::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; border: 2px solid var(--panel); }
+/* Positioned against the viewport rather than the trigger — `place()` in
+   main.js sets left/top/bottom/min-width/max-height on open.
+   The console has to clip: `#panel` carries `overflow-x: auto` as a last
+   resort for very narrow windows, and CSS will not let one axis scroll while
+   the other stays visible — `overflow-y` computes to `auto` alongside it. A
+   menu opening upward sits outside the panel's box, so it was being cut off
+   at the panel's own edge. A fixed element is not clipped by an ancestor's
+   overflow, which is the whole reason for the change; nothing between here
+   and the viewport carries a transform, filter or containment that would
+   trap it. */
+.dd-menu { position: fixed; z-index: 30; width: max-content;
+  max-width: 440px; overflow-y: auto; overflow-x: hidden; background: var(--panel);
+  border: 1px solid var(--line-2); border-radius: 4px; }
 .dd-opt { position: relative; display: flex; align-items: center; gap: 14px;
   padding: 7px 12px 7px 13px; border-top: 1px solid var(--line);
   font-family: var(--mono); font-size: 12px; color: var(--fg); cursor: pointer; }
@@ -230,8 +253,24 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
   overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 /* ── right rail: find a node, or narrow to one project ─── */
-#rail { position: fixed; right: 22px; top: 96px; bottom: 96px; width: 236px; z-index: 9;
-  display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+/* The rail is chrome laid over the galaxy, so its background is not a surface
+   — it is the galaxy. `pointer-events: none` lets a drag through the gaps to
+   the canvas underneath, the same way `#hud` does; the controls inside take
+   their events back. Without it the 12px gap between the search box and the
+   list, and the padding strip beside the rows, were dead zones: a drag started
+   there did not turn the galaxy, it swept a text selection across the page. */
+/* No `bottom`: the rail is as tall as what is in it. Anchoring both edges made
+   it the height of the window, so twenty-eight projects became a wall down the
+   right side of the galaxy — the list was not long, the box was. */
+#rail { position: fixed; right: 22px; top: 96px; width: 236px; z-index: 9;
+  display: flex; flex-direction: column; align-items: stretch; gap: 12px;
+  pointer-events: none; }
+#find, #projects { pointer-events: auto; }
+
+/* This is an instrument panel, not prose. Selecting it serves nobody, and a
+   drag that begins on it should move the galaxy rather than highlight the
+   page. Text meant to be read — a card, a manuscript — keeps its selection. */
+#hud, #rail, #panel, #legend, #readout, .dd-menu, #bbar, #bfilter, #bsieves { user-select: none; }
 
 #find { flex: none; position: relative; }
 #findInput { width: 100%; height: 30px; background: var(--ctl-bg); color: var(--fg);
@@ -242,8 +281,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 #findInput::-webkit-search-cancel-button { -webkit-appearance: none; }
 #findHits { position: absolute; top: calc(100% + 5px); left: 0; right: 0; z-index: 12;
   max-height: 46vh; overflow-y: auto; background: var(--panel);
-  border: 1px solid var(--line-2); border-radius: 3px;
-  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+  border: 1px solid var(--line-2); border-radius: 3px; }
 #findHits .hit { padding: 8px 11px; border-top: 1px solid var(--line); cursor: pointer; }
 #findHits .hit:first-child { border-top: 0; }
 #findHits .hit:hover, #findHits .hit.on { background: var(--ctl-bg); }
@@ -254,10 +292,13 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 #findHits .none { padding: 9px 11px; font-family: var(--mono); font-size: 11px; color: var(--dim); }
 
 /* the colour key doubles as the project menu — click a row to narrow the galaxy */
-#projects { flex: 1 1 auto; min-height: 0; overflow-y: auto; text-align: right;
-  scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
-#projects::-webkit-scrollbar { width: 8px; }
-#projects::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+/* The list is capped at a whole number of rows — `max-height` comes from
+   main.js, which measures a row rather than guessing at one, so the cut always
+   falls between two rows and never through one. A row sliced across the middle
+   reads as breakage; a clean edge that fades reads as "there is more", which
+   is what `.more` says while anything is still below. */
+#projects { flex: 0 1 auto; min-height: 0; overflow-y: auto; text-align: right; }
+#projects.more { mask-image: linear-gradient(to bottom, #000 calc(100% - 34px), transparent); }
 #projects .pr { display: flex; align-items: center; justify-content: flex-end; gap: 9px; width: 100%;
   padding: 4px 2px 4px 8px; border: 0; background: 0; border-radius: 3px; cursor: pointer;
   font-family: var(--mono); font-size: 10.5px; letter-spacing: .03em; color: var(--dim);

@@ -31,7 +31,7 @@ kaeru-core/src/
 ├── store.rs              ← Store: in-memory + on-disk constructors; use_initiative / scoped (scope guard)
 ├── session.rs            ← awake, pin / unpin, active_window  (re-entry bundle: layered + cortex)
 ├── export.rs             ← Obsidian-friendly markdown snapshot
-├── export_json.rs        ← whole-graph JSON export (feeds kaeru-viz / /graph.json)
+├── export_json.rs        ← whole-graph JSON export (feeds `GET /v1/export`)
 ├── migrate.rs            ← forward-only migration_journal
 ├── guard.rs              ← deterministic pre-share secret guard
 ├── graph/                ← SCHEMA layer
