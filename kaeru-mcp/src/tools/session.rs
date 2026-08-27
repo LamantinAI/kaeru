@@ -280,6 +280,16 @@ pub fn clouds(clouds: &CloudRegistry) -> Result<CallToolResult, McpError> {
         let url = clouds.get(Some(n)).map(|c| c.base_url()).unwrap_or("");
         out.push_str(&format!("  - {n}{mark} — {url}\n"));
     }
+    // `clouds.toml` is read once, at startup. Printing when answers the
+    // question that is otherwise unanswerable from inside the daemon: whether
+    // an edit has taken effect. A client reconnect does not respawn it.
+    if let Some(ts) = clouds.loaded_at() {
+        out.push_str(&format!(
+            "\nconfig read at {} — `clouds.toml` is read once at daemon startup; restart the \
+             daemon to pick up an edit (a client reconnect does not).\n",
+            fmt_ts(ts)
+        ));
+    }
     if names.len() > 1 {
         out.push_str(
             "\n↳ with more than one cloud, `share` / `pull` / `cloud_recall` and the initiative \
