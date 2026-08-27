@@ -27,7 +27,7 @@ mod share;
 pub use links::{CloudLinks, CloudLinksArgs, LinkCloud, LinkCloudArgs};
 pub use policy::{Policy, PolicyArgs, SyncReview, SyncReviewArgs};
 pub use pull::{CloudRecall, CloudRecallArgs, Pull, PullArgs};
-pub use share::{Share, ShareArgs};
+pub use share::{Share, ShareArgs, Unshare, UnshareArgs};
 
 /// Resolves the target [`CloudClient`], or an error `Value` naming what is
 /// configured and why it will not guess.

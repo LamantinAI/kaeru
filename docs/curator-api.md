@@ -99,7 +99,8 @@ Explicit, gated (initiative policy + secret guard); nothing leaves automatically
 | Verb | Does |
 |---|---|
 | `policy` | Read / set an initiative's `share_policy` (`private` / `team`). |
-| `share` | Push a node to the shared cloud (runs the two gates). |
+| `share` | Push a node to the shared cloud (runs the two gates). Re-sharing a corrected node updates the cloud copy in place — the push is an upsert under the same id. |
+| `unshare` | Withdraw a node from a cloud: retracts the cloud copy (bi-temporally — history survives) and marks it `local` again. `share`'s inverse. |
 | `cloud_recall` | List what the team has shared. |
 | `pull` | Bring a shared node into the local graph. |
 | `link_cloud` / `cloud_links` | Reference a cloud node from a local one without copying, resolved on demand. |

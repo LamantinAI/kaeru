@@ -95,6 +95,22 @@ impl CloudClient {
         Ok((code, text))
     }
 
+    /// `DELETE /api/v1/nodes/{id}` — retract a node from the cloud.
+    /// Bi-temporal on the far side and idempotent; mirrors the daemon client.
+    pub async fn delete_node(&self, id: &str) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/nodes/{id}", self.base_url);
+        let resp = self
+            .client
+            .delete(&url)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok((code, text))
+    }
+
     /// `GET /api/v1/initiatives/{name}/nodes` — list shared briefs.
     pub async fn list_initiative(&self, initiative: &str) -> Result<(u16, String), String> {
         let url = format!("{}/api/v1/initiatives/{initiative}/nodes", self.base_url);

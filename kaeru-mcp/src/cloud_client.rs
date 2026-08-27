@@ -139,6 +139,25 @@ impl CloudClient {
     }
 
     /// `GET /api/v1/initiatives/{name}/nodes` — list shared briefs.
+    /// `DELETE /api/v1/nodes/{id}` — retract a node from the cloud.
+    ///
+    /// Bi-temporal on the far side: the node leaves every read at NOW while
+    /// its history stays intact. Idempotent, so a retry after a dropped
+    /// connection is not reported as a failure.
+    pub async fn delete_node(&self, id: &str) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/nodes/{id}", self.base_url);
+        let resp = self
+            .client
+            .delete(&url)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok((code, text))
+    }
+
     /// `GET /api/v1/initiatives` — every initiative the cloud knows, with its
     /// node counts. Used to tell "this initiative is empty here" apart from
     /// "this cloud has never heard of it".

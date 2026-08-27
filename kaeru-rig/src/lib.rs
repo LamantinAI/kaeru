@@ -497,6 +497,9 @@ impl KaeruMemory {
     pub fn share(&self) -> Share {
         Share(self.clone())
     }
+    pub fn unshare(&self) -> Unshare {
+        Unshare(self.clone())
+    }
     pub fn cloud_recall(&self) -> CloudRecall {
         CloudRecall(self.clone())
     }
@@ -613,6 +616,7 @@ impl KaeruMemory {
             [
                 policy,
                 share,
+                unshare,
                 cloud_recall,
                 pull,
                 link_cloud,

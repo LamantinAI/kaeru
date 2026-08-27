@@ -175,3 +175,76 @@ mem_tool_cloud!(
     }, "required": ["name"] },
     |mem, a| do_share(mem, a).await
 );
+
+#[derive(Debug, Deserialize)]
+pub struct UnshareArgs {
+    pub name: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
+    #[serde(default)]
+    pub cloud: Option<String>,
+}
+
+/// Withdraws a node from a cloud and marks it local again — `share`'s inverse,
+/// which did not exist. See the daemon-side verb for the reasoning (#66); the
+/// local half runs even when the remote one fails, because a node still marked
+/// `shared` while the cloud no longer holds it makes every later "re-share to
+/// update" promise false.
+async fn do_unshare(mem: &KaeruMemory, a: UnshareArgs) -> Value {
+    let Some(init) = target_initiative(mem, &a.initiative) else {
+        return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
+    };
+    let client = match cloud_or_err(mem, a.cloud.as_deref()) {
+        Ok(c) => c,
+        Err(e) => return e,
+    };
+    let name = a.name.clone();
+    let id = mem
+        .blocking_in(Some(init.clone()), move |s| resolve(s, &name))
+        .await;
+
+    let remote = client.delete_node(&id).await;
+    let local_id = id.clone();
+    let local = mem
+        .blocking_in(Some(init), move |s| {
+            kaeru_core::set_visibility(s, &local_id, kaeru_core::Visibility::Local)
+        })
+        .await;
+    if let Err(e) = local {
+        return json!({ "unshared": false, "error": e.to_string() });
+    }
+
+    match remote {
+        Ok((code, _)) if (200..300).contains(&code) => json!({
+            "unshared": true, "id": id, "cloud": client.name(),
+            "note": "retracted from the cloud and marked local again; the cloud keeps its history"
+        }),
+        Ok((code, body)) => json!({
+            "unshared": "local-only", "id": id, "cloud": client.name(),
+            "error": format!("cloud answered {code}: {body}"),
+            "note": "marked local again, but the cloud may still serve it — retry when reachable"
+        }),
+        Err(e) => json!({
+            "unshared": "local-only", "id": id, "cloud": client.name(), "error": e,
+            "note": "marked local again, but the cloud may still serve it — retry when reachable"
+        }),
+    }
+}
+
+mem_tool_cloud!(
+    /// `kaeru_unshare` — withdraw a node from the cloud.
+    Unshare,
+    "kaeru_unshare",
+    "Withdraw a node from a cloud: retracts the cloud copy and marks the node local again. The \
+     inverse of kaeru_share. Use it for a node sent to the wrong cloud, one the pre-share guard \
+     should have caught, or anything that should not have left the machine. The cloud retraction \
+     is bi-temporal — the node leaves cloud_recall while its history stays. To CORRECT a shared \
+     node instead, revise it and share again: the push is an upsert under the same id.",
+    UnshareArgs,
+    { "type": "object", "properties": {
+        "name": { "type": "string", "description": "node name or id to withdraw" },
+        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
+        "cloud": { "type": "string", "description": "named cloud to withdraw from" }
+    }, "required": ["name"] },
+    |mem, a| do_unshare(mem, a).await
+);

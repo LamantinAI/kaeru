@@ -215,6 +215,24 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 - The MCP server surfaces errors directly from `kaeru-core::Result`. No re-wrapping.
 - The substrate is single-process embedded — no server, no network. Adapters wrap the in-process API; they do not expose a separate persistence path.
 
+## Sharing & Cloud — how correction and withdrawal work
+
+- **`POST /api/v1/nodes` is an upsert.** Re-posting the same id asserts a new
+  version under it, so correcting a shared node is `revise` then `share`
+  again — not a second node beside the first. There is deliberately no `PUT`.
+- **`DELETE /api/v1/nodes/{id}` retracts, bi-temporally.** The node leaves
+  every read at NOW and the initiative listings; a read at a past moment still
+  returns it. `unshare` is the agent-facing verb: it retracts the cloud copy
+  and marks the local node `local` again. The local half runs even when the
+  remote half fails, because a node still marked `shared` while the cloud no
+  longer holds it makes every later "re-share to update" promise false.
+- **A node must name an initiative.** A POST without one is refused: the
+  substrate accepts it, and then nothing that walks initiatives can ever see
+  it again — including `cloud_recall`.
+- **Whole-second caveat.** A node retracted inside the same second it was
+  ingested carries an assert and a retract that cannot be ordered, and may
+  still read until the next write. Retrying a second later settles it.
+
 ## Sharing & Cloud — Known Limitations
 
 These are deliberate gaps in the local/cloud split, not bugs — documented so

@@ -426,6 +426,22 @@ impl KaeruServer {
     }
 
     #[tool(
+        description = "Withdraw a node from a cloud: retracts the cloud copy and marks the node local again. The inverse of `share`, which had none. Use it for a node sent to the wrong cloud, one the pre-share guard should have caught, or anything that should not have left the machine. The cloud retraction is bi-temporal — the node leaves `cloud_recall` and the listings while its history stays intact. To CORRECT a shared node instead of withdrawing it, `revise` it and `share` again: the push is an upsert under the same id."
+    )]
+    async fn unshare(
+        &self,
+        Parameters(p): Parameters<UnshareParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::cloud::unshare(
+            &self.store,
+            Some(self.cloud_for(p.cloud.as_deref())?),
+            &p.name,
+            &p.initiative,
+        )
+        .await
+    }
+
+    #[tool(
         description = "List shared nodes the cloud holds for an initiative — discovery for cross-session / cross-user recall. Then `pull` one to bring it into the local vault. In a multi-cloud setup pass `cloud` to target a specific cloud."
     )]
     async fn cloud_recall(

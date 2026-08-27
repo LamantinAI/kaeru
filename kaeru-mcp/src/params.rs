@@ -34,6 +34,17 @@ pub struct ShareParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct UnshareParams {
+    /// Node name or UUIDv7 id to withdraw from the cloud.
+    pub name: String,
+    /// Initiative scope — required, same as `share`.
+    pub initiative: String,
+    /// Which cloud to withdraw from. Required when several are configured.
+    #[serde(default)]
+    pub cloud: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct PullParams {
     /// UUIDv7 id of the cloud node to materialise into the local vault.
     pub id: String,

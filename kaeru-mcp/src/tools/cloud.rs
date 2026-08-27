@@ -190,6 +190,54 @@ pub async fn share(
     Ok(text(&msg))
 }
 
+/// Withdraws a node from a cloud and returns it to `local`.
+///
+/// `share` had no inverse at all, which made every mistake permanent: a node
+/// sent to the wrong cloud, a body the pre-share guard should have caught, an
+/// experiment that should never have left the machine. The only removal the
+/// cloud offered was deleting the whole initiative around it.
+///
+/// Both halves run, and the local half runs even if the remote one fails: a
+/// node still marked `shared` locally while the cloud no longer holds it would
+/// make `revise` promise a re-share that has nothing to update, and the local
+/// vault is the copy the agent actually reads. The result says plainly which
+/// halves happened.
+pub async fn unshare(
+    store: &Store,
+    cloud: Option<&CloudClient>,
+    name: &str,
+    initiative: &str,
+) -> Result<CallToolResult, McpError> {
+    let cloud = cloud.ok_or_else(not_configured)?;
+    let id = with_initiative(store, Some(initiative), || resolve_name_or_id(store, name))?;
+
+    let remote = cloud.delete_node(&id).await;
+    with_initiative(store, Some(initiative), || {
+        kaeru_core::set_visibility(store, &id, Visibility::Local).map_err(to_mcp)
+    })?;
+
+    let msg = match remote {
+        Ok((code, _)) if (200..300).contains(&code) => format!(
+            "unshared: {name} — retracted from cloud `{}` and marked local again.\n\
+             ↳ the cloud keeps its history: a read at a past moment still sees it, but \
+             `cloud_recall` and the listings do not.",
+            cloud.name()
+        ),
+        Ok((code, body)) => format!(
+            "unshared LOCALLY only: {name} is marked local again, but cloud `{}` answered \
+             {code} — {body}\n↳ the cloud may still serve it; retry `unshare` once the cloud \
+             is reachable.",
+            cloud.name()
+        ),
+        Err(e) => format!(
+            "unshared LOCALLY only: {name} is marked local again, but cloud `{}` was \
+             unreachable — {e}\n↳ the cloud may still serve it; retry `unshare` when it is back.",
+            cloud.name()
+        ),
+    };
+    Ok(text(&msg))
+}
+
 /// Lists the shared nodes the cloud holds for an initiative — discovery
 /// before `pull`.
 pub async fn cloud_recall(
