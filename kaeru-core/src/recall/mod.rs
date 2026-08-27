@@ -29,8 +29,8 @@ pub mod walk;
 
 pub use between::{EdgeRow, between, cloud_links, edges_of, operational_neighbours};
 pub use board::{
-    BoardColumn, BoardStatus, BoardTask, BoardView, board_view, board_view_at, effective_statuses,
-    effective_statuses_at,
+    BoardColumn, BoardStatus, BoardTask, BoardView, DEFAULT_STATUSES, board_node_id, board_view,
+    board_view_at, effective_statuses, effective_statuses_at,
 };
 pub use by_name::{
     count_by_type, local_nodes_for_review, node_brief_by_id, read_node_full, recall_id_by_name,

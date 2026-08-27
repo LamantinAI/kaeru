@@ -19,7 +19,9 @@
 use axum::extract::{Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use kaeru_core::{BoardView, board_view_at};
+use kaeru_core::{
+    BoardColumn, BoardView, DEFAULT_STATUSES, board_node_id, board_view_at, read_node_full,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::api::egress::{redact_excerpt, redact_name};
@@ -53,6 +55,12 @@ pub struct BoardOut {
     /// Echoed back so a client can tell a rewound board from a live one
     /// without keeping track of what it asked for.
     when: Option<f64>,
+    /// `as-configured` when these are the initiative's own columns,
+    /// `built-in` when its registry was withheld and the default vocabulary
+    /// stood in. Said out loud rather than left to be inferred: a client
+    /// drawing "Open / In Progress / Done" should be able to tell whether that
+    /// is the initiative's choice or a substitution.
+    registry: &'static str,
     columns: Vec<ColumnOut>,
 }
 
@@ -77,11 +85,42 @@ struct TaskOut {
     redacted: bool,
 }
 
+/// Re-buckets a board against the built-in vocabulary, for when the
+/// initiative's authored registry may not leave.
+///
+/// The cards are unaffected — they pass their own visibility check further
+/// down — but they have to land somewhere, so they are bucketed by the same
+/// rule the core view uses: a status matching no column falls into the first
+/// one rather than disappearing. This is the board a client would have seen
+/// before the initiative ever customised it.
+fn to_default_vocabulary(view: BoardView) -> BoardView {
+    let mut columns: Vec<BoardColumn> = DEFAULT_STATUSES
+        .iter()
+        .map(|(k, l)| BoardColumn {
+            key: (*k).to_string(),
+            label: (*l).to_string(),
+            tasks: Vec::new(),
+        })
+        .collect();
+    for task in view.columns.into_iter().flat_map(|c| c.tasks) {
+        let at = columns
+            .iter()
+            .position(|c| c.key == task.status)
+            .unwrap_or(0);
+        columns[at].tasks.push(task);
+    }
+    BoardView {
+        initiative: view.initiative,
+        columns,
+    }
+}
+
 impl BoardOut {
     fn from_view(view: BoardView, columns_only: bool, cfg: &ApiConfig) -> Self {
         BoardOut {
             initiative: view.initiative,
             when: None,
+            registry: "as-configured",
             columns: view
                 .columns
                 .into_iter()
@@ -132,13 +171,41 @@ pub async fn board(
     let store = st.store.clone();
     let initiative = q.initiative.clone();
     let when = q.when;
-    let result =
-        tokio::task::spawn_blocking(move || board_view_at(&store, &initiative, when)).await;
+    let cfg = st.cfg.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let view = board_view_at(&store, &initiative, when)?;
+        // The registry is content, not structure. Its labels live in the
+        // `Board` node's `properties` — the one field the pre-share guard
+        // never scans — and a status vocabulary describes a workflow, which is
+        // sometimes the confidential part ("blocked on legal", a partner's
+        // name as a column). So an authored registry leaves only if its node
+        // may leave.
+        let authored_may_leave = match board_node_id(&store, &initiative, when)? {
+            // No board node: the columns are the built-in defaults, which
+            // nobody wrote and which therefore say nothing.
+            None => true,
+            Some(id) => read_node_full(&store, &id)?
+                .map(|n| cfg.may_show(&n.visibility))
+                .unwrap_or(false),
+        };
+        Ok::<_, kaeru_core::Error>((view, authored_may_leave))
+    })
+    .await;
 
     let mut resp = match result {
-        Ok(Ok(view)) => {
+        Ok(Ok((view, authored_may_leave))) => {
+            let view = if authored_may_leave {
+                view
+            } else {
+                to_default_vocabulary(view)
+            };
             let mut out = BoardOut::from_view(view, q.columns.unwrap_or(false), &st.cfg);
             out.when = q.when;
+            out.registry = if authored_may_leave {
+                "as-configured"
+            } else {
+                "built-in"
+            };
             match serde_json::to_string(&out) {
                 Ok(json) => (
                     StatusCode::OK,
@@ -237,5 +304,99 @@ mod tests {
         };
         let out = BoardOut::from_view(board_view(&store, "t").expect("board"), false, &cfg);
         assert_eq!(out.columns.iter().map(|c| c.tasks.len()).sum::<usize>(), 1);
+    }
+}
+
+#[cfg(test)]
+mod registry_visibility_tests {
+    use std::sync::Arc;
+
+    use kaeru_core::Store;
+
+    use crate::api::ApiConfig;
+
+    fn cfg(include_local: bool) -> ApiConfig {
+        ApiConfig {
+            allow: vec!["t".into()],
+            include_local,
+            ..ApiConfig::default()
+        }
+    }
+
+    /// A customised registry is content: its labels live in the `Board` node's
+    /// `properties`, the one field the pre-share guard never scans, and a
+    /// status vocabulary describes a workflow — sometimes the confidential
+    /// part. So it leaves only if its node may leave.
+    #[tokio::test]
+    async fn a_withheld_registry_falls_back_to_the_built_in_vocabulary() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        kaeru_core::ensure_board(&store, "t").expect("board");
+        kaeru_core::add_status(&store, "t", "blocked-on-legal", "Blocked on legal").expect("add");
+
+        let board_id = kaeru_core::board_node_id(&store, "t", None)
+            .expect("read")
+            .expect("exists");
+        let visibility = kaeru_core::read_node_full(&store, &board_id)
+            .expect("read")
+            .expect("exists")
+            .visibility;
+        assert_eq!(
+            visibility, "local",
+            "a board node is local like anything else"
+        );
+
+        // The gate the handler applies, exercised directly.
+        assert!(
+            !cfg(false).may_show(&visibility),
+            "an authored registry does not leave a shared-only surface"
+        );
+        assert!(
+            cfg(true).may_show(&visibility),
+            "and does when the operator opted local content in"
+        );
+
+        // And the fallback keeps every card, bucketing an unknown status into
+        // the first column rather than dropping it.
+        let view = kaeru_core::board_view_at(&store, "t", None).expect("view");
+        assert!(
+            view.columns.iter().any(|c| c.key == "blocked-on-legal"),
+            "the authored column exists locally"
+        );
+        let fallback = super::to_default_vocabulary(view);
+        assert_eq!(fallback.columns.len(), 3, "built-in vocabulary");
+        assert!(
+            !fallback.columns.iter().any(|c| c.label.contains("legal")),
+            "and the authored label is gone: {:?}",
+            fallback
+                .columns
+                .iter()
+                .map(|c| &c.label)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    /// Cards survive the substitution — they pass their own visibility check
+    /// further down, and a card whose status matches no built-in column falls
+    /// into the first rather than disappearing.
+    #[tokio::test]
+    async fn the_fallback_keeps_every_card() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        kaeru_core::ensure_board(&store, "t").expect("board");
+        kaeru_core::add_status(&store, "t", "blocked-on-legal", "Blocked on legal").expect("add");
+        let id = kaeru_core::write_task(&store, "the awkward one", None).expect("task");
+        kaeru_core::set_status(&store, "t", &id, "blocked-on-legal").expect("status");
+
+        let view = kaeru_core::board_view_at(&store, "t", None).expect("view");
+        let before: usize = view.columns.iter().map(|c| c.tasks.len()).sum();
+        let after = super::to_default_vocabulary(view);
+        let kept: usize = after.columns.iter().map(|c| c.tasks.len()).sum();
+        assert_eq!(before, kept, "no card is lost in the substitution");
+        assert_eq!(
+            after.columns[0].tasks.len(),
+            1,
+            "unknown status → first column"
+        );
     }
 }

@@ -51,6 +51,11 @@ pub struct BoardTask {
     /// anywhere has to decide whether each card may go, and asking per card
     /// would be one query each — the row is already being read here.
     pub visibility: String,
+    /// The `status:` key the task carries, or `""` when it has none. Kept on
+    /// the card as well as implied by its column, so a caller can re-bucket
+    /// against a different vocabulary — which the HTTP surface has to do when
+    /// an initiative's own registry may not leave the process.
+    pub status: String,
 }
 
 /// One column: its status plus the tasks bucketed into it.
@@ -83,11 +88,10 @@ fn at_expr(at: Option<f64>) -> String {
 /// the initiative hasn't customized its board yet. Datalog guarantees at most
 /// one board per initiative in practice (created find-or-create); the first is
 /// taken.
-pub(crate) fn board_node_id(
-    store: &Store,
-    initiative: &str,
-    at: Option<f64>,
-) -> Result<Option<NodeId>> {
+/// Public because the HTTP surface has to ask whether an initiative's
+/// *authored* registry may leave the process — the labels live on this node,
+/// in `properties`, which the pre-share guard does not scan.
+pub fn board_node_id(store: &Store, initiative: &str, at: Option<f64>) -> Result<Option<NodeId>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("init".to_string(), DataValue::Str(initiative.into()));
     let script = format!(
@@ -270,6 +274,7 @@ pub fn board_view_at(store: &Store, initiative: &str, at: Option<f64>) -> Result
                 due,
                 ts,
                 visibility,
+                status: status.to_string(),
             });
         }
     }

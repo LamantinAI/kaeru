@@ -48,17 +48,18 @@ pub use mutate::{
     write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
 pub use recall::{
-    BoardColumn, BoardStatus, BoardTask, BoardView, ChainMembership, EdgeRow,
+    BoardColumn, BoardStatus, BoardTask, BoardView, ChainMembership, DEFAULT_STATUSES, EdgeRow,
     FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, NodeBrief, NodeFull, OpenTask,
-    ReflectionReport, SummaryView, between, board_view, board_view_at, chain_membership,
-    chains_in_scope, chains_of, cloud_links, count_by_type, count_nodes_in_initiative,
-    edges_in_initiative, edges_of, effective_statuses, effective_statuses_at, fuzzy_recall, lint,
-    list_initiatives, local_nodes_for_review, node_brief_by_id, nodes_in_initiative, open_claims,
-    open_tasks, operational_neighbours, overview, read_chain, read_node_full, recall_by_layer,
-    recall_by_layer_in_tier, recall_id_by_name, recall_id_by_name_at, recall_id_by_name_ever,
-    recall_id_by_name_global, recent_episodes, recollect_idea, recollect_outcome,
-    recollect_provenance, reflect, shortest_path, suggest_initiative, suggest_node_name,
-    summary_view, tagged, tags_like, under_review_pinned, walk,
+    ReflectionReport, SummaryView, between, board_node_id, board_view, board_view_at,
+    chain_membership, chains_in_scope, chains_of, cloud_links, count_by_type,
+    count_nodes_in_initiative, edges_in_initiative, edges_of, effective_statuses,
+    effective_statuses_at, fuzzy_recall, lint, list_initiatives, local_nodes_for_review,
+    node_brief_by_id, nodes_in_initiative, open_claims, open_tasks, operational_neighbours,
+    overview, read_chain, read_node_full, recall_by_layer, recall_by_layer_in_tier,
+    recall_id_by_name, recall_id_by_name_at, recall_id_by_name_ever, recall_id_by_name_global,
+    recent_episodes, recollect_idea, recollect_outcome, recollect_provenance, reflect,
+    shortest_path, suggest_initiative, suggest_node_name, summary_view, tagged, tags_like,
+    under_review_pinned, walk,
 };
 pub use sanitize::strip_tool_call_markup;
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};
