@@ -309,8 +309,6 @@ mod tests {
 
 #[cfg(test)]
 mod registry_visibility_tests {
-    use std::sync::Arc;
-
     use kaeru_core::Store;
 
     use crate::api::ApiConfig;
