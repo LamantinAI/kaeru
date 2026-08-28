@@ -87,6 +87,16 @@ if ! grep -q '^directory = "vendor"$' .cargo/config.toml; then
   exit 1
 fi
 
+# Make offline the config's own property rather than something every caller
+# has to remember to pass. `cargo vendor` does not print this stanza, so
+# without it `--offline` on the command line is the only thing standing
+# between a build and the network.
+cat >> .cargo/config.toml <<'CONFIG'
+
+[net]
+offline = true
+CONFIG
+
 crates="$(find vendor -mindepth 1 -maxdepth 1 -type d | wc -l)"
 size="$(du -sh vendor | cut -f1)"
 
@@ -99,7 +109,7 @@ ready — $crates crates, $size
 
 This directory now builds with no network:
 
-  cargo build --release --offline -p kaeru-mcp
+  cargo build --release -p kaeru-mcp
 
 kaeru still needs a C++ toolchain: cozo builds RocksDB from source, and zstd
 and lz4 from C. That is a property of kaeru, not of building offline — see

@@ -62,7 +62,8 @@ help.
 **macOS** — the Xcode command line tools carry all three.
 **Windows** — MSVC Build Tools with the "Desktop development with C++"
 workload, plus LLVM. `link.exe` from the same workload is what Rust itself
-needs on an `*-msvc` target.
+needs on an `*-msvc` target. `fetch-vendor.sh` is a shell script: run it from
+Git Bash, which ships with Git for Windows, not from `cmd` or PowerShell.
 
 ## Windows: the one that will bite you
 
