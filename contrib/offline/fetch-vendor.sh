@@ -11,7 +11,8 @@
 # It writes two things and touches nothing else:
 #   vendor/              the crate sources
 #   .cargo/config.toml   the source-replacement config, taken from the vendor
-#                        repo rather than written here
+#                        repo rather than written here, with only `directory`
+#                        repointed at the tree unpacked above
 #
 # Both are gitignored in the main repository — a vendor tree is fetched, never
 # committed alongside the source.
@@ -63,7 +64,28 @@ fi
 rm -rf vendor
 mv "$tmp/vendor-repo/vendor" vendor
 mkdir -p .cargo
-cp "$tmp/vendor-repo/config.toml" .cargo/config.toml
+
+# Everything in the published config is taken as cargo printed it, except
+# `directory`: point it at the vendor tree that was just unpacked here.
+#
+# Vendor trees published before this was fixed — v0.7.0 among them — carry the
+# publishing machine's absolute staging path, so copying the file verbatim
+# makes the build fail with
+#
+#   error: failed to read root of directory source: …/staging/vendor
+#
+# against a path the user never chose. Published tags are immutable by design
+# (publish-vendor.sh refuses to overwrite one), so rewriting it here is what
+# keeps those releases usable. For trees published since, this is a no-op.
+sed 's|^directory = .*|directory = "vendor"|' \
+  "$tmp/vendor-repo/config.toml" > .cargo/config.toml
+
+if ! grep -q '^directory = "vendor"$' .cargo/config.toml; then
+  echo "error: the vendored config has no 'directory' line to point at the" >&2
+  echo "       tree just unpacked — refusing to leave a config that would" >&2
+  echo "       silently build against crates.io instead." >&2
+  exit 1
+fi
 
 crates="$(find vendor -mindepth 1 -maxdepth 1 -type d | wc -l)"
 size="$(du -sh vendor | cut -f1)"
