@@ -3,13 +3,13 @@
 #
 #   ./contrib/install/package-release.sh v0.1.0
 #
-# Output: dist/kaeru-v0.1.0-x86_64-unknown-linux-musl.tar.gz
+# Output: dist/kaeru-v0.1.0-x86_64-unknown-linux-gnu.tar.gz
 #         dist/kaeru-v0.1.0-aarch64-apple-darwin.tar.gz
 #         dist/SHA256SUMS
 #
 # Prerequisites (one-time):
 #   cargo install cargo-zigbuild
-#   rustup target add x86_64-unknown-linux-musl aarch64-apple-darwin
+#   rustup target add x86_64-unknown-linux-gnu aarch64-apple-darwin
 #   zig 0.13+ in PATH
 #   For darwin targets: a macOS SDK extracted somewhere. zigbuild handles
 #   the compiler, but Apple frameworks (Security, CoreFoundation, …) live
@@ -33,7 +33,7 @@ TAG="${1:-}"
 [[ -n "$TAG" ]] || { echo "usage: $0 <tag, e.g. v0.1.0>" >&2; exit 1; }
 
 TARGETS=(
-    x86_64-unknown-linux-musl
+    x86_64-unknown-linux-gnu
     aarch64-apple-darwin
 )
 
@@ -53,11 +53,11 @@ if [[ -z "${SDKROOT:-}" ]]; then
     fi
 fi
 
-# Cross-linking RocksDB's C++ with zig's libc++ does not survive LTO: the
-# musl link dies on a thousand `std::__cxx11::` symbols that are present but
-# unmatched. Set here rather than left to the caller, because passing it is
-# exactly the sort of thing that gets dropped between attempts — it did,
-# and cost an hour of chasing the wrong cause.
+# Cross-linking RocksDB's C++ through zig does not survive LTO on the cross
+# targets — the link dies on a thousand unmatched `std::__cxx11::` symbols.
+# Set here rather than left to the caller, because passing it is exactly the
+# sort of thing that gets dropped between attempts — it did, and cost an hour
+# of chasing the wrong cause.
 export CARGO_PROFILE_RELEASE_LTO=false
 
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
@@ -70,21 +70,20 @@ mkdir -p "$DIST"
 for target in "${TARGETS[@]}"; do
     echo "==> building $target"
 
-    # Scope differs per target, and both halves are load-bearing.
-    #
     # darwin needs `-p kaeru-mcp`: without it cargo unifies features across
     # the workspace, `kaeru-rig`'s rig-core pulls in aws-lc-rs, and aws-lc's
     # assembly makes zig's Mach-O linker fail with no message at all — only
     # "exit status 1" and an empty note. Scoped to the package we ship, that
     # dependency is not in the graph and kaeru-mcp reaches rustls via `ring`.
+    # It is not elegant, and the alternative is discovering it again next
+    # release.
     #
-    # musl needs the opposite: scoped, the C++ side of cozorocks links
-    # against libc++ while RocksDB was compiled for the GNU ABI, and the
-    # link dies on a thousand `std::__cxx11::` symbols. The workspace-wide
-    # feature set is what pulls libstdc++ in.
-    #
-    # Neither is elegant. Both are the difference between a binary and no
-    # binary, and the alternative is discovering it again next release.
+    # linux-gnu builds workspace-wide (no scope) and links cleanly against the
+    # GNU C++ ABI that RocksDB is compiled for. The old linux-musl target is
+    # gone on purpose: even once it linked, the static-musl binary segfaulted
+    # opening an EXISTING vault — musl's small default pthread stack overflows
+    # in RocksDB recovery, while a fresh vault (no recovery) ran fine. The
+    # Linux prebuilt is glibc/gnu now; it needs a glibc host (not Alpine/musl).
     scope=()
     [[ "$target" == aarch64-apple-darwin ]] && scope=(-p kaeru-mcp)
 

@@ -18,7 +18,7 @@
 #                        Default "no" — leaves ~/.claude untouched. Opt-in.
 #
 # Supported targets in this release:
-#   - linux  / x86_64  -> static musl binary, runs on any glibc or musl host
+#   - linux  / x86_64  -> glibc (gnu) binary; needs a glibc host (most distros, not Alpine). The musl build segfaults opening an existing RocksDB vault — musl's small default pthread stack overflows in RocksDB recovery.
 #   - macOS  / arm64   -> Apple Silicon (M1/M2/M3); UNSIGNED, see post-install note
 
 set -euo pipefail
@@ -37,7 +37,7 @@ os=$(uname -s)
 arch=$(uname -m)
 
 case "$os/$arch" in
-    Linux/x86_64)            target="x86_64-unknown-linux-musl" ;;
+    Linux/x86_64)            target="x86_64-unknown-linux-gnu" ;;
     Darwin/arm64|Darwin/aarch64) target="aarch64-apple-darwin" ;;
     Darwin/x86_64)
         die "Intel Mac (x86_64) is not yet shipped as a prebuilt; build from source — see README."
