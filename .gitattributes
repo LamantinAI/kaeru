@@ -1,0 +1,15 @@
+# `Cargo.lock` here has to stay byte-identical to the copy published in
+# kaeru-vendor: contrib/offline/fetch-vendor.sh compares the two with `cmp`
+# before it will install a vendor tree, because a vendor tree is only valid
+# for the exact lock it was built against.
+#
+# Git for Windows converts text files to CRLF on checkout by default. That
+# changes the bytes of this file and nothing else, so the comparison fails and
+# the offline install stops on a version mismatch that does not exist — the
+# lock is the right one, it just arrived with different line endings. The
+# vendor repository has carried `* -text` for this reason since it was
+# created; the guard was only ever on one side of the comparison.
+#
+# `text=auto eol=lf` rather than `-text`, so the normalisation also holds for
+# anything committed from a Windows machine, not just what is checked out.
+* text=auto eol=lf

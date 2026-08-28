@@ -55,6 +55,17 @@ fi
 # terms of the actual mistake, rather than letting cargo say it later.
 if ! cmp -s Cargo.lock "$tmp/vendor-repo/Cargo.lock"; then
   echo "error: Cargo.lock here does not match the one $VERSION was vendored from." >&2
+  # Same content, different line endings is a different mistake with a
+  # different fix, and on Windows it is by far the likely one. Say which.
+  if cmp -s <(tr -d '\r' < Cargo.lock) \
+            <(tr -d '\r' < "$tmp/vendor-repo/Cargo.lock"); then
+    echo "       The two locks are the same apart from line endings, so this" >&2
+    echo "       checkout was converted to CRLF — Git for Windows does that by" >&2
+    echo "       default. Re-clone with core.autocrlf=false:" >&2
+    echo >&2
+    echo "         git -c core.autocrlf=false clone <url>" >&2
+    exit 1
+  fi
   echo "       The vendor tree is only valid for the exact lock it was built" >&2
   echo "       against. Either check out $VERSION, or publish a vendor for" >&2
   echo "       this lock with contrib/offline/publish-vendor.sh." >&2
