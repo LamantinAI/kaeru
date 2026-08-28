@@ -201,4 +201,15 @@ Discussion and design feedback through issues. PRs welcome on the open items abo
 
 ## License
 
-MIT — see `LICENSE`.
+**Business Source License 1.1** — see [`LICENSE`](LICENSE), with a plain-language
+summary in [`LICENSING.md`](LICENSING.md).
+
+kaeru is *source-available*: read it, modify it, run it in production, and embed
+it as a component or tool inside your own systems and products — including what
+you sell. The one thing you may not do is operate kaeru itself as a hosted /
+managed / SaaS platform for third parties. Each released version converts to the
+**Apache License 2.0** four years after it ships. Contributions are accepted
+under the [Contributor License Agreement](CLA.md).
+
+Versions up to and including v0.7.0 were released under the MIT License and
+remain available under it.
