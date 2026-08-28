@@ -17,7 +17,8 @@
 # `config.toml` is captured from cargo's own stdout rather than written by
 # hand. It carries the crates.io replacement *and* the stanza for the one git
 # dependency (`graph_builder`, a pinned fork). Hand-maintaining that is how it
-# silently drifts the next time a dependency changes.
+# silently drifts the next time a dependency changes. The single exception is
+# `directory`, which is rewritten below — see there for why.
 
 set -euo pipefail
 
@@ -56,6 +57,28 @@ mkdir -p "$WORKDIR/staging"
 # Capture the config cargo prints; it is the only correct source of the
 # replacement stanzas.
 cargo vendor --versioned-dirs "$WORKDIR/staging/vendor" > "$WORKDIR/staging/config.toml"
+
+# `directory` is the one field that must not be published verbatim. Cargo
+# echoes back the path it was handed, which is this machine's staging
+# directory — so shipping it as-is points every consumer at a /tmp path that
+# exists only here, and their build dies with
+#
+#   error: failed to read root of directory source: …/staging/vendor
+#
+# naming a directory they never chose. It has to be relative to the checkout
+# being built. Relative is also what makes the tree relocatable, which is the
+# entire point of fetching a vendor on one machine and building on another.
+# Everything else in the file stays exactly as cargo printed it.
+vendor_cfg="$WORKDIR/staging/config.toml"
+sed 's|^directory = .*|directory = "vendor"|' "$vendor_cfg" > "$vendor_cfg.tmp"
+mv "$vendor_cfg.tmp" "$vendor_cfg"
+
+if ! grep -q '^directory = "vendor"$' "$vendor_cfg"; then
+  echo "error: could not rewrite 'directory' in the vendored config; cargo's" >&2
+  echo "       output format may have changed. Publishing it unchanged would" >&2
+  echo "       bake this machine's path into the release." >&2
+  exit 1
+fi
 
 cp Cargo.lock "$WORKDIR/staging/Cargo.lock"
 
