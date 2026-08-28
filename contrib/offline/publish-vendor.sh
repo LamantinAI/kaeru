@@ -10,7 +10,8 @@
 #
 # What lands in the vendor repo, at the root:
 #   vendor/            every crate source `cargo vendor` produced
-#   config.toml        the source-replacement stanza cargo PRINTED for it
+#   config.toml        the source-replacement stanza cargo PRINTED for it,
+#                      with `directory` normalised to a relative path
 #   Cargo.lock         the lock this vendor tree corresponds to
 #   .gitattributes     `* -text` — see below, this one is not optional
 #
@@ -55,7 +56,15 @@ rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR/staging"
 # Capture the config cargo prints; it is the only correct source of the
 # replacement stanzas.
-cargo vendor --versioned-dirs "$WORKDIR/staging/vendor" > "$WORKDIR/staging/config.toml"
+cargo vendor --versioned-dirs "$WORKDIR/staging/vendor" > "$WORKDIR/staging/config.raw"
+
+# cargo prints `directory` as the absolute path it was handed — this machine's
+# temp dir, which exists nowhere else. Normalise it to what a consumer will
+# have. The git-dependency stanza, the reason this file is captured rather
+# than written by hand, passes through untouched.
+awk '/^directory = / { print "directory = \"vendor\""; next } { print }' \
+  "$WORKDIR/staging/config.raw" > "$WORKDIR/staging/config.toml"
+rm "$WORKDIR/staging/config.raw"
 
 cp Cargo.lock "$WORKDIR/staging/Cargo.lock"
 

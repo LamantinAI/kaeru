@@ -63,7 +63,29 @@ fi
 rm -rf vendor
 mv "$tmp/vendor-repo/vendor" vendor
 mkdir -p .cargo
-cp "$tmp/vendor-repo/config.toml" .cargo/config.toml
+
+# The vendor repo's config.toml is `cargo vendor`'s own stdout, so its
+# `directory` is the absolute path the *publishing* machine vendored into —
+# a path that exists nowhere else. Point it at this checkout instead. Every
+# other line is copied through untouched, including the replacement stanza
+# for the pinned `graph_builder` git dependency, which is the reason the file
+# is captured rather than written by hand.
+#
+# Rewriting here rather than only at publish time is deliberate: a published
+# vendor tag is immutable, so this is also what makes already-released tags
+# usable.
+awk '/^directory = / { print "directory = \"vendor\""; next } { print }' \
+  "$tmp/vendor-repo/config.toml" > .cargo/config.toml
+
+# Make offline the config's own property rather than something every caller
+# has to remember to pass. `cargo vendor` does not print this stanza, so
+# without it `--offline` on the command line is the only thing standing
+# between a build and the network.
+cat >> .cargo/config.toml <<'CONFIG'
+
+[net]
+offline = true
+CONFIG
 
 crates="$(find vendor -mindepth 1 -maxdepth 1 -type d | wc -l)"
 size="$(du -sh vendor | cut -f1)"
