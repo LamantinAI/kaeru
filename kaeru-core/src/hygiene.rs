@@ -28,7 +28,8 @@
 //! caller supplies the scoping (see `run_pass`), and the daemon adds a short
 //! pause between batches because `std::sync::Mutex` is not fair.
 
-use std::collections::BTreeMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashSet};
 
 use cozo::{DataValue, ScriptMutability};
 
@@ -88,6 +89,9 @@ pub struct HygieneReport {
     pub skipped: usize,
     pub core_before: usize,
     pub core_after: usize,
+    /// The ceiling `core_after` is measured against, so the summary can say
+    /// when the layer is still over it and why the pass could not help.
+    pub core_ceiling: usize,
     /// One line per applied move, for the durable episode.
     pub lines: Vec<String>,
     /// The pass was asked to stop at a batch boundary (daemon shutting down).
@@ -142,12 +146,28 @@ impl HygieneReport {
         if parts.is_empty() {
             parts.push("nothing to do".to_string());
         }
-        format!(
+        let mut line = format!(
             "[hygiene {}] {} · trigger: {}",
             self.initiative,
             parts.join(" · "),
             self.trigger
-        )
+        );
+        // A standing condition the pass could not clear must be said out loud.
+        // "nothing to do" beside an oversized core reads as "core is fine",
+        // and the only thing that gets it down is a hand the reader doesn't
+        // know to lift (#75). Every node the pass may move it has already
+        // moved by this point, so what is left is pinned — name that, and the
+        // one verb that undoes it.
+        if self.core_ceiling > 0 && self.core_after > self.core_ceiling {
+            let over = self.core_after - self.core_ceiling;
+            line.push_str(&format!(
+                "\n  ↳ core still holds {} (ceiling {}); the {over} over are pinned, \
+                 and a pin outranks the sweep. `unpin <name>` to release one, \
+                 or `layer <name> warm` to move it yourself.",
+                self.core_after, self.core_ceiling
+            ));
+        }
+        line
     }
 }
 
@@ -225,8 +245,12 @@ pub fn due(store: &Store, initiative: &str) -> Result<Option<String>> {
         return Ok(Some(format!("{written} writes since the last pass")));
     }
 
+    // `>` rather than `>=`: the threshold is the ceiling the pass brings core
+    // back to, so a core sitting exactly on it is at its target, not over it.
+    // With `>=` a satisfied pass still met its own trigger and re-fired on
+    // every write forever (#75).
     let core = core_count(store, initiative)?;
-    if core >= cfg.hygiene_core_trigger {
+    if core > cfg.hygiene_core_trigger {
         return Ok(Some(format!(
             "core holds {core} nodes (threshold {})",
             cfg.hygiene_core_trigger
@@ -350,8 +374,11 @@ pub fn collect(store: &Store, initiative: &str) -> Result<Vec<HygieneCandidate>>
     let journal_cutoff = now - cfg.hygiene_journal_age_secs as f64;
     let core_cutoff = now - cfg.hygiene_core_review_age_secs as f64;
 
+    let nodes = scan(store, initiative)?;
+    let core_total = nodes.iter().filter(|n| n.layer == Layer::Core).count();
+
     let mut out = Vec::new();
-    for node in scan(store, initiative)? {
+    for node in &nodes {
         // A pin outranks every rule below: the user put it in the window on
         // purpose.
         if node.pinned {
@@ -365,8 +392,8 @@ pub fn collect(store: &Store, initiative: &str) -> Result<Vec<HygieneCandidate>>
             Layer::Core => {
                 if node.ts < core_cutoff && node.in_degree == 0 {
                     out.push(HygieneCandidate {
-                        node_id: node.id,
-                        name: node.name,
+                        node_id: node.id.clone(),
+                        name: node.name.clone(),
                         action: HygieneAction::DemoteFromCore,
                         from: Layer::Core,
                         to: Layer::Hot,
@@ -379,8 +406,8 @@ pub fn collect(store: &Store, initiative: &str) -> Result<Vec<HygieneCandidate>>
             Layer::Hot | Layer::Warm => {
                 if node.node_type == "episode" && node.ts < journal_cutoff && node.in_degree == 0 {
                     out.push(HygieneCandidate {
-                        node_id: node.id,
-                        name: node.name,
+                        node_id: node.id.clone(),
+                        name: node.name.clone(),
                         action: HygieneAction::Archive,
                         from: node.layer,
                         to: Layer::Cold,
@@ -392,8 +419,8 @@ pub fn collect(store: &Store, initiative: &str) -> Result<Vec<HygieneCandidate>>
                     // Referenced from everywhere but sitting in the default
                     // layer — raise it one step. Never into `core`.
                     out.push(HygieneCandidate {
-                        node_id: node.id,
-                        name: node.name,
+                        node_id: node.id.clone(),
+                        name: node.name.clone(),
                         action: HygieneAction::Promote,
                         from: Layer::Warm,
                         to: Layer::Hot,
@@ -406,6 +433,52 @@ pub fn collect(store: &Store, initiative: &str) -> Result<Vec<HygieneCandidate>>
             Layer::Cold | Layer::Frozen => {}
         }
     }
+
+    // The overflow rule. The age-and-unreferenced rule above keeps core tidy,
+    // but it cannot keep it *small*: a core of recent, well-referenced nodes
+    // satisfies neither half of it, so the layer grew past its threshold and
+    // stayed there while every pass reported "nothing to do" (#75). The
+    // threshold started a pass that had no rule able to change the condition
+    // that started it.
+    //
+    // So when core is over the ceiling, demote back down to it — least
+    // referenced first, oldest first among equals. Every safety property of
+    // the rule above still holds: one step down (to `hot`, which is still the
+    // working set), never into the archive, pins untouchable, and the move is
+    // reversible with a single `layer <name> core`.
+    let already: HashSet<NodeId> = out
+        .iter()
+        .filter(|c| c.action == HygieneAction::DemoteFromCore)
+        .map(|c| c.node_id.clone())
+        .collect();
+    let over = core_total.saturating_sub(cfg.hygiene_core_trigger);
+    if over > already.len() {
+        let mut spare: Vec<&Scanned> = nodes
+            .iter()
+            .filter(|n| n.layer == Layer::Core && !n.pinned && !already.contains(&n.id))
+            .collect();
+        // Least referenced first; among equals, the one touched longest ago.
+        spare.sort_by(|a, b| {
+            a.in_degree
+                .cmp(&b.in_degree)
+                .then(a.ts.partial_cmp(&b.ts).unwrap_or(Ordering::Equal))
+        });
+        for node in spare.into_iter().take(over - already.len()) {
+            let age_days = ((now - node.ts) / 86_400.0).max(0.0) as u64;
+            out.push(HygieneCandidate {
+                node_id: node.id.clone(),
+                name: node.name.clone(),
+                action: HygieneAction::DemoteFromCore,
+                from: Layer::Core,
+                to: Layer::Hot,
+                reason: format!(
+                    "core over its ceiling ({core_total} of {}) — least referenced ({} inbound),                      untouched {age_days}d",
+                    cfg.hygiene_core_trigger, node.in_degree
+                ),
+            });
+        }
+    }
+
     Ok(out)
 }
 
@@ -608,6 +681,7 @@ fn run_pass_inner(
         initiative: initiative.to_string(),
         trigger,
         core_before,
+        core_ceiling: store.config().hygiene_core_trigger,
         ..Default::default()
     };
 
@@ -1108,6 +1182,142 @@ mod tests {
         assert!(
             has_hygiene_actor,
             "the sweep's moves are separable from an agent's own layer calls"
+        );
+    }
+
+    /// The reported case: a core of recent, well-referenced nodes. Neither
+    /// half of the age-and-unreferenced rule applies to any of them, so before
+    /// the overflow rule the pass reported "nothing to do · trigger: core
+    /// holds N nodes" — naming an oversized core as its reason and then doing
+    /// nothing about it, forever, on every write.
+    #[test]
+    fn an_oversized_core_of_fresh_referenced_nodes_is_brought_down() {
+        let store = eager_store(); // ceiling 3
+        let mut ids = Vec::new();
+        for i in 0..6 {
+            let id = episode_in(&store, "proj", &format!("core-note-{i}"));
+            set_layer(&store, &id, Layer::Core).expect("core");
+            ids.push(id);
+        }
+        // Every one of them referenced, so the existing rule cannot fire.
+        let anchor = episode_in(&store, "proj", "the-thing-they-describe");
+        for id in &ids {
+            link(&store, &anchor, id, EdgeType::DerivedFrom).expect("link");
+        }
+
+        let report = run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("pass was due");
+
+        assert_eq!(report.core_after, 3, "core came down to its ceiling");
+        assert_eq!(report.demoted, 3);
+        assert!(
+            !report.summary().contains("nothing to do"),
+            "the pass reports what it did: {}",
+            report.summary()
+        );
+        // And a second pass is no longer due — the trigger it satisfied does
+        // not re-fire on every write from here on.
+        assert!(
+            due(&store, "proj").expect("due").is_none()
+                || !due(&store, "proj")
+                    .expect("due")
+                    .unwrap()
+                    .contains("core holds"),
+            "the core trigger is satisfied"
+        );
+    }
+
+    /// A demoted node lands in `hot`, still in the working set, and one
+    /// `layer <name> core` away from where it was.
+    #[test]
+    fn overflow_demotion_is_one_reversible_step() {
+        let store = eager_store();
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let id = episode_in(&store, "proj", &format!("core-note-{i}"));
+            set_layer(&store, &id, Layer::Core).expect("core");
+            ids.push(id);
+        }
+
+        run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
+
+        let demoted: Vec<_> = ids
+            .iter()
+            .filter(|id| get_layer(&store, id).expect("layer") == Layer::Hot)
+            .collect();
+        assert_eq!(demoted.len(), 2, "exactly the overflow, and only to hot");
+        for id in &ids {
+            let l = get_layer(&store, id).expect("layer");
+            assert!(
+                l == Layer::Core || l == Layer::Hot,
+                "never further than one step: {l:?}"
+            );
+        }
+    }
+
+    /// A pin outranks the sweep — including the overflow rule. What the pass
+    /// must not do is stay silent about the core it therefore cannot shrink.
+    #[test]
+    fn a_core_held_up_by_pins_is_reported_not_hidden() {
+        let store = eager_store();
+        for i in 0..5 {
+            let id = episode_in(&store, "proj", &format!("pinned-core-{i}"));
+            set_layer(&store, &id, Layer::Core).expect("core");
+            crate::session::pin(&store, &id, "held open on purpose").expect("pin");
+        }
+
+        let report = run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("pass was due");
+
+        assert_eq!(report.demoted, 0, "pins are untouchable");
+        assert_eq!(report.core_after, 5);
+        let summary = report.summary();
+        assert!(
+            summary.contains("core still holds 5") && summary.contains("pinned"),
+            "the standing condition is named, not hidden behind 'nothing to do': {summary}"
+        );
+        assert!(
+            summary.contains("unpin") || summary.contains("layer"),
+            "and the summary says what to do about it: {summary}"
+        );
+    }
+
+    /// Least referenced first, oldest first among equals — the pass gives up
+    /// the least useful core node it can, not an arbitrary one.
+    #[test]
+    fn overflow_demotes_the_least_referenced_first() {
+        let store = eager_store();
+        let keep = episode_in(&store, "proj", "the-load-bearing-one");
+        let drop = episode_in(&store, "proj", "the-orphan");
+        let mid = episode_in(&store, "proj", "the-middle");
+        let spare = episode_in(&store, "proj", "the-other-middle");
+        for id in [&keep, &drop, &mid, &spare] {
+            set_layer(&store, id, Layer::Core).expect("core");
+        }
+        let a = episode_in(&store, "proj", "ref-a");
+        let b = episode_in(&store, "proj", "ref-b");
+        link(&store, &a, &keep, EdgeType::DerivedFrom).expect("link");
+        link(&store, &b, &keep, EdgeType::DerivedFrom).expect("link");
+        link(&store, &a, &mid, EdgeType::DerivedFrom).expect("link");
+        link(&store, &a, &spare, EdgeType::DerivedFrom).expect("link");
+
+        run_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("due");
+
+        assert_eq!(
+            get_layer(&store, &drop).expect("layer"),
+            Layer::Hot,
+            "the unreferenced one goes first"
+        );
+        assert_eq!(
+            get_layer(&store, &keep).expect("layer"),
+            Layer::Core,
+            "the most referenced one stays"
         );
     }
 }

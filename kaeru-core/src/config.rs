@@ -81,8 +81,12 @@ pub struct KaeruConfig {
     pub hygiene_batch_pause_ms: u64,
     /// Writes since the last pass that trigger the next one.
     pub hygiene_writes_trigger: usize,
-    /// `core` population that triggers a pass. The layer is injected whole and
-    /// uncapped, so its growth is felt in every session.
+    /// `core` ceiling. The layer is injected whole and uncapped, so its growth
+    /// is felt in every session. Exceeding this both starts a pass and gives
+    /// that pass a target: it demotes the least-referenced core nodes one step
+    /// until the layer is back down to this number. Pinned nodes are exempt,
+    /// so a core held up by pins stays over it — the pass says so rather than
+    /// reporting nothing to do.
     pub hygiene_core_trigger: usize,
     /// Time since the last pass that triggers the next one. Default 30 days.
     pub hygiene_stale_after_secs: u64,
