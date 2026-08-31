@@ -56,6 +56,7 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
             + r.open_reviews.len()
             + r.stale_chains.len()
             + r.cortex_candidates.len()
+            + r.archivable.len()
             + r.shared.len()
             + r.overdue_tasks.len()
             + r.contested_claims.len();
@@ -102,12 +103,31 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
             "`rechain` to recompute the trail the graph outgrew",
             &r.stale_chains,
         );
+        // Cortex loads whole and uncapped in every session, so a section that
+        // proposes to grow it has to say by how much. Printed as a count
+        // alone, "86 cortex candidates" reads as a work-list to apply, and
+        // applying it turned a 30-node cortex into a 116-node one (#76).
+        let after = r.cortex_size + r.cortex_candidates.len();
         push_section(
             &mut out,
             store,
-            "cortex candidates",
-            "settled — `settle`/`cite` into cortex; set `layer=core` only if it must always load",
+            "cortex candidates — review, not a batch",
+            &format!(
+                "settled and still referenced. `settle`/`cite` the ones that will be READ again \
+                 — cortex loads whole every session, so all of them is cortex {} → {after}. \
+                 Set `layer=core` only if it must always load",
+                r.cortex_size
+            ),
             &r.cortex_candidates,
+        );
+        push_section(
+            &mut out,
+            store,
+            "delivered — nothing references them",
+            "finished work the graph no longer points at. `layer <name> cold` — out of `awake`, \
+             still there via `surface layers=cold`. `settle` these only if you expect to read \
+             them again",
+            &r.archivable,
         );
         push_section(
             &mut out,
@@ -118,8 +138,9 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
         );
         out.push_str(
             "\n↳ work it: link/relink and `reweight` where structure shifted, `rechain` stale \
-             trails, promote settled facts into cortex. Cloud items are the user's call — surface \
-             a recommendation and wait.",
+             trails, promote settled facts into cortex. The last two sections are candidates to \
+             judge one at a time, not a list to apply — cortex is the expensive tier. Cloud items \
+             are the user's call: surface a recommendation and wait.",
         );
         Ok(text(&out))
     })

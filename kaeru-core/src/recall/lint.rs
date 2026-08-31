@@ -8,6 +8,7 @@ use cozo::{DataValue, ScriptMutability};
 use super::under_review::under_review_pinned;
 use crate::errors::Result;
 use crate::graph::NodeId;
+use crate::hygiene::HYGIENE_EPISODE_PREFIX;
 use crate::store::Store;
 
 /// Diagnostic report produced by [`lint`] — graph anomalies the agent
@@ -46,7 +47,7 @@ pub fn lint(store: &Store) -> Result<LintReport> {
             r#"
                 connected[id] := *edge{src: id, dst, edge_type @ 'NOW'}
                 connected[id] := *edge{src, dst: id, edge_type @ 'NOW'}
-                ?[id] := *node{id, type @ 'NOW'},
+                ?[id, name] := *node{id, type, name @ 'NOW'},
                           type != 'audit_event',
                           not connected[id],
                           *node_initiative{initiative, node_id: id},
@@ -57,16 +58,27 @@ pub fn lint(store: &Store) -> Result<LintReport> {
             r#"
                 connected[id] := *edge{src: id, dst, edge_type @ 'NOW'}
                 connected[id] := *edge{src, dst: id, edge_type @ 'NOW'}
-                ?[id] := *node{id, type @ 'NOW'}, type != 'audit_event', not connected[id]
+                ?[id, name] := *node{id, type, name @ 'NOW'}, type != 'audit_event',
+                               not connected[id]
             "#
         }
     };
     let rows = store
         .db_ref()
         .run_script(orphan_script, params, ScriptMutability::Immutable)?;
+    // The hygiene pass writes a durable episode per run, and nothing links to
+    // it — so every one of them landed here under the advice "link it or
+    // forget it". That is the tools' own bookkeeping, indistinguishable to the
+    // agent from a note it dropped and should tend (#76). `audit_event` is
+    // filtered above for the same reason; this is the same rule, one layer up.
     let orphans: Vec<NodeId> = rows
         .rows
         .iter()
+        .filter(|r| {
+            !r.get(1)
+                .and_then(|v| v.get_str())
+                .is_some_and(|n| n.starts_with(HYGIENE_EPISODE_PREFIX))
+        })
         .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
         .collect();
 

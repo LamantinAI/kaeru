@@ -260,6 +260,13 @@ mem_tool!(
             "open_reviews": r.open_reviews,
             "stale_chains": r.stale_chains,
             "cortex_candidates": r.cortex_candidates,
+            // Delivered work nothing points at any more. Kept apart from the
+            // candidates because the move is `layer cold`, not `settle` —
+            // cortex loads whole every session (#76).
+            "archivable": r.archivable,
+            // What cortex holds now, so a host can price the recommendation
+            // before applying it.
+            "cortex_size": r.cortex_size,
             "shared_needs_user": r.shared,
             "overdue_tasks": r.overdue_tasks,
         }),

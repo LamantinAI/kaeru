@@ -908,7 +908,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Reflect on the store: a computed maintenance work-list with how to act on each part — orphans to link, open reviews to resolve, chains gone stale (rechain), settled operational nodes to promote into cortex, and shared/cloud items that need YOUR sign-off (never auto-rebalanced). Run it when a piece of work ends, and before a session stops — that is the moment nothing else marks."
+        description = "Reflect on the store: a computed maintenance work-list with how to act on each part — orphans to link, open reviews to resolve, chains gone stale (rechain), settled work to promote into cortex or drop to cold, and shared/cloud items that need YOUR sign-off (never auto-rebalanced). The last two are candidates to judge one at a time, not a batch to apply: cortex loads whole into every session, so the report prices the move (cortex N -> M). Run it when a piece of work ends, and before a session stops — that is the moment nothing else marks."
     )]
     fn reflect(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         tools::lint::reflect(&self.store, p.initiative.as_deref())

@@ -42,6 +42,14 @@ use crate::store::Store;
 /// Audit actor stamped on every move the pass makes.
 pub const HYGIENE_ACTOR: &str = "hygiene";
 
+/// Name prefix of the durable episode each pass writes (`hygiene-<init>-<ts>`).
+///
+/// The episode is written by the adapters, but the prefix lives here so the
+/// read side can recognise the tools' own bookkeeping without hard-coding a
+/// string an adapter owns — `reflect` was recommending that the agent settle
+/// and link the sweeper's diary (#76).
+pub const HYGIENE_EPISODE_PREFIX: &str = "hygiene-";
+
 /// What the pass proposes to do with a node.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HygieneAction {

@@ -241,10 +241,27 @@ store works out what actually needs tending in the active scope:
 - **open reviews** — nodes with an inbound `contradicts` (resolve / refute);
 - **stale chains** — chains whose stored members no longer match the recomputed
   shortest path between their endpoints (`rechain`);
-- **cortex candidates** — operational, linked nodes untouched past a threshold
-  (`reflect_settle_age_secs`, default 14d) — settled work to promote into cortex;
+- **cortex candidates** — operational nodes untouched past a threshold
+  (`reflect_settle_age_secs`, default 14d) that something still points at:
+  settled knowledge to promote into cortex;
+- **delivered** — as old and as finished, but referenced by nothing. Finished
+  history rather than knowledge, so the move is `layer cold`, not `settle`;
 - **shared / cloud** — shared nodes whose rebalancing is escalated to the user,
   never auto-applied.
+
+The last two are a **split of one older section**, and the split matters
+because the two halves need opposite verbs. Cortex is injected whole and
+uncapped into every session, so promoting a finished sprint's entire journal
+into it trades one kind of noise for a more expensive kind; the report prices
+the move it is proposing (`cortex 30 → 116`) rather than printing an item
+count. Both sections are candidates to judge one at a time.
+
+Nothing unfinished appears in either: anything carrying an open status, any
+task short of its board's terminal column, and the structures (`chain`,
+`board`) for which "settled" is undefined are all excluded — `settle` on a live
+task would archive it out of the board and out of `awake`'s open-work
+read-back. The hygiene pass's own durable episode is excluded too, from here
+and from *orphans*: the tools' bookkeeping is not the agent's work.
 
 Each item ships with *how* to act on it. It's meant for an end-of-work tidy
 pass and is deliberately **not** wired into the re-entry instructions — reflection
