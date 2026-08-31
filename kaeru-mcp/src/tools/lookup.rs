@@ -437,4 +437,25 @@ mod tests {
         assert!(err.contains("anywhere at NOW"), "{err}");
         assert!(err.contains("`search zzzznotathing*`"), "{err}");
     }
+
+    /// #74 end to end: a name of exactly 36 UTF-8 bytes with a hyphen at
+    /// character 8 used to be read as a UUID and passed into the query
+    /// verbatim, so `drill` / `at` / `history` denied a node that `recall` and
+    /// `search` found. Three verbs, three answers, one live node.
+    #[test]
+    fn a_36_byte_non_ascii_name_still_resolves() {
+        let store = store_t();
+        let name = "änderung-prüfung-fehleranalyse2026";
+        assert_eq!(name.len(), 36, "the shape that used to break");
+        write(&store, name, "control node");
+
+        let out = text_of(drill(&store, name, Some("t")).unwrap());
+        assert!(out.contains(name), "drill reads it by name: {out}");
+
+        let by_recall = text_of(recall(&store, name, Some("t")).unwrap());
+        assert!(
+            !by_recall.contains("(not found)"),
+            "and recall agrees with it: {by_recall}"
+        );
+    }
 }

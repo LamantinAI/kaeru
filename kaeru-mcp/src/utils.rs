@@ -437,10 +437,35 @@ fn name_not_found(store: &Store, name: &str) -> McpError {
     )))
 }
 
-/// A UUIDv7 id is 36 chars with a `-` at index 8; this cheap shape check
-/// lets a resolver skip the name lookup when the caller already holds an id.
+/// Whether `input` has the shape of a UUID, letting a resolver skip the name
+/// lookup when the caller already holds an id.
+///
+/// Checks the whole shape — `8-4-4-4-12` hex groups — rather than a length and
+/// one hyphen. The cheap version compared `len()` (**bytes**) against
+/// `chars().nth(8)` (**characters**), which agree only for ASCII. A name in any
+/// two-byte script could be 36 bytes while being far shorter in characters, and
+/// kaeru's own slug convention puts a hyphen at character 8 often enough that
+/// the two conditions met by accident: the name was then passed into the query
+/// verbatim as an id, matched nothing, and the caller was told the node does
+/// not exist (#74).
+///
+/// That is worse than a failed read. `recall` and `search` resolve such a name
+/// correctly while `at`, `drill` and `history` deny it exists, so the node
+/// looks like a ghost left behind by a broken retraction — and the reasonable
+/// response to a ghost is to `forget` or `unlink` something perfectly healthy.
+///
+/// Strictness is free here: ids come from tool output and names come from
+/// people, so nothing legitimate is on the boundary.
 pub fn looks_like_id(input: &str) -> bool {
-    input.len() == 36 && input.chars().nth(8) == Some('-')
+    let mut groups = input.split('-');
+    let lengths = [8, 4, 4, 4, 12];
+    for len in lengths {
+        match groups.next() {
+            Some(g) if g.len() == len && g.bytes().all(|b| b.is_ascii_hexdigit()) => {}
+            _ => return false,
+        }
+    }
+    groups.next().is_none()
 }
 
 /// Resolves a name at NOW, or passes a raw id straight through.
@@ -507,13 +532,22 @@ pub fn resolve_name_or_id_at(
     if looks_like_id(input) {
         return Ok(input.to_string());
     }
-    kaeru_core::recall_id_by_name_at(store, input, at_seconds)
+    if let Some(id) = kaeru_core::recall_id_by_name_at(store, input, at_seconds).map_err(to_mcp)? {
+        return Ok(id);
+    }
+    // A time-travel read that misses can miss in two different ways, and the
+    // fix differs: the name may be wrong, or the moment may be. Saying which
+    // costs one extra lookup on a path that has already failed.
+    if kaeru_core::recall_id_by_name(store, input)
         .map_err(to_mcp)?
-        .ok_or_else(|| {
-            to_mcp(Error::NotFound(format!(
-                "no node named {input:?} at that time"
-            )))
-        })
+        .is_some()
+    {
+        return Err(to_mcp(Error::NotFound(format!(
+            "`{input}` exists now but not at that moment — it was written later, \
+             or carried a different name then. `history {input}` shows when it changed."
+        ))));
+    }
+    Err(name_not_found(store, input))
 }
 
 // =========================================================================
@@ -682,5 +716,61 @@ pub fn derive_auto_name(text: &str, fallback: &str) -> String {
         format!("{fallback}-{suffix}")
     } else {
         format!("{}-{suffix}", words.join("-"))
+    }
+}
+#[cfg(test)]
+mod id_shape_tests {
+    use super::looks_like_id;
+
+    /// Real ids still pass — this is the only thing the check exists for.
+    #[test]
+    fn a_uuid_is_recognised() {
+        assert!(looks_like_id("01a03a4f-4107-7ab2-a599-1f9f92ce7393"));
+        assert!(looks_like_id("00000000-0000-0000-0000-000000000000"));
+        assert!(
+            looks_like_id("01A03A4F-4107-7AB2-A599-1F9F92CE7393"),
+            "hex is hex in either case"
+        );
+    }
+
+    /// The bug, exactly as reported: 36 UTF-8 BYTES, far fewer characters, and
+    /// a hyphen at character 8 because that is what kaeru's slugs look like.
+    /// The old check read this as an id and the node became unreadable by name.
+    #[test]
+    fn a_36_byte_non_ascii_name_is_not_an_id() {
+        let name = "änderung-prüfung-fehleranalyse2026";
+        assert_eq!(
+            name.len(),
+            36,
+            "36 bytes, which is what fooled the old check"
+        );
+        assert!(name.chars().count() < 36, "but fewer characters");
+        assert!(!looks_like_id(name), "and it is a name, not an id");
+    }
+
+    /// Names that merely resemble the shape are still names.
+    #[test]
+    fn near_misses_are_names() {
+        for name in [
+            "not-a-uuid",
+            "01a03a4f-4107-7ab2-a599",                // too few groups
+            "01a03a4f-4107-7ab2-a599-1f9f92ce7393-x", // too many
+            "01a03a4f-4107-7ab2-a599-1f9f92ce739",    // last group short
+            "zzzzzzzz-4107-7ab2-a599-1f9f92ce7393",   // not hex
+            "01a03a4f_4107_7ab2_a599_1f9f92ce7393",   // underscores
+            "",
+        ] {
+            assert!(!looks_like_id(name), "{name:?} is a name");
+        }
+    }
+
+    /// An ASCII slug of exactly 36 characters with a hyphen at index 8 — the
+    /// shape the old check accepted — is a perfectly ordinary name.
+    #[test]
+    fn an_ascii_slug_of_the_old_shape_is_a_name() {
+        let name = "abcdefgh-ijklmnop-qrstuvwx-yzabcdef0";
+        assert_eq!(name.len(), 36);
+        assert_eq!(name.chars().nth(8), Some('-'));
+        assert!(!looks_like_id(name));
     }
 }
