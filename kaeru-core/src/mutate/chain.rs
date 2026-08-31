@@ -250,6 +250,22 @@ pub fn create_chain(
 /// left untouched); errors if `chain` has fewer than two members.
 pub fn regenerate_chain(store: &Store, chain: &NodeId) -> Result<Option<RechainStats>> {
     let old = chain_member_ids(store, chain)?;
+    // Compare against the members that still exist. A retracted step used to
+    // count toward the stored path, so a truncated chain matched its own
+    // recomputation and was declared current — the one verb whose job is to
+    // refresh a trail the graph outgrew could not repair the commonest way a
+    // trail breaks (#71). It also reported a member count that disagreed with
+    // the list printed beside it.
+    let live: Vec<NodeId> = old
+        .iter()
+        .filter(|id| {
+            crate::recall::node_brief_by_id(store, id)
+                .map(|b| b.is_some())
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    let old = live;
     if old.len() < 2 {
         return Err(Error::Invalid(format!(
             "{chain:?} is not a chain (needs at least two members)"
@@ -314,6 +330,104 @@ pub fn extend_chain(store: &Store, chain: &NodeId, to: &NodeId) -> Result<Option
         members: members.len(),
         changed: true,
     }))
+}
+
+#[cfg(test)]
+mod identity_change_tests {
+    use std::thread::sleep;
+    use std::time::Duration;
+
+    use crate::store::Store;
+    use crate::{
+        EdgeType, EpisodeKind, NodeType, Significance, chains_of, consolidate_out, create_chain,
+        link_with_weight, read_chain, regenerate_chain, write_episode,
+    };
+
+    /// The reported arc: three episodes chained head to tail, then the head is
+    /// settled — which is exactly what the instructions tell an agent to do
+    /// with finished work.
+    fn arc() -> (Store, String, String) {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let mk = |n: &str| {
+            write_episode(&store, EpisodeKind::Observation, Significance::Low, n, n).expect("write")
+        };
+        let (a, b, c) = (
+            mk("step-a-research"),
+            mk("step-b-implement"),
+            mk("step-c-deployed"),
+        );
+        link_with_weight(&store, &c, &b, EdgeType::DerivedFrom, 1.0).expect("link");
+        link_with_weight(&store, &b, &a, EdgeType::DerivedFrom, 1.0).expect("link");
+        let chain = create_chain(&store, &c, &a, Some("repro-trail"), None)
+            .expect("chain")
+            .expect("path exists");
+        (store, chain.id, c)
+    }
+
+    /// A settled node keeps its place in the trail. Before this, the chain
+    /// silently lost the step the trail was built to reach.
+    #[test]
+    fn settling_a_step_keeps_it_in_the_trail() {
+        let (store, chain_id, head) = arc();
+        assert_eq!(read_chain(&store, &chain_id).expect("read").len(), 3);
+        sleep(Duration::from_millis(1100));
+
+        consolidate_out(&store, &head, NodeType::Outcome, "step-c-deployed", "done")
+            .expect("settle");
+
+        let members = read_chain(&store, &chain_id).expect("read");
+        assert_eq!(
+            members.len(),
+            3,
+            "the trail still reaches its head: {members:?}"
+        );
+        assert!(
+            members.iter().any(|m| m.name == "step-c-deployed"),
+            "and by the same name: {members:?}"
+        );
+    }
+
+    /// `why <settled node>` used to say no trail led to it — while advising the
+    /// agent to create the one that already existed under its former id.
+    #[test]
+    fn the_successor_can_find_the_trail_it_belongs_to() {
+        let (store, chain_id, head) = arc();
+        sleep(Duration::from_millis(1100));
+        consolidate_out(&store, &head, NodeType::Outcome, "step-c-deployed", "done")
+            .expect("settle");
+
+        let new_id = crate::recall_id_by_name(&store, "step-c-deployed")
+            .expect("resolve")
+            .expect("exists");
+        let chains = chains_of(&store, &new_id).expect("chains");
+        assert_eq!(chains.len(), 1, "the successor is in the trail: {chains:?}");
+        assert_eq!(chains[0].id, chain_id);
+    }
+
+    /// A chain whose step was retracted by some other path is regenerated
+    /// rather than declared current — the count used to include the dead
+    /// member, so the trail matched its own recomputation.
+    #[test]
+    fn rechain_does_not_count_a_retracted_step_as_current() {
+        let (store, chain_id, _head) = arc();
+        let b = crate::recall_id_by_name(&store, "step-b-implement")
+            .expect("resolve")
+            .expect("exists");
+        sleep(Duration::from_millis(1100));
+        crate::forget(&store, &b).expect("forget the middle step");
+
+        let stats = regenerate_chain(&store, &chain_id).expect("rechain");
+        // Either it regenerates, or it honestly reports no path — what it must
+        // not do is claim the truncated chain is current.
+        if let Some(s) = stats {
+            assert_eq!(
+                s.members,
+                read_chain(&store, &chain_id).expect("read").len(),
+                "the count must match the list printed beside it"
+            );
+        }
+    }
 }
 
 #[cfg(test)]

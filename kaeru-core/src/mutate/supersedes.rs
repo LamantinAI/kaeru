@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 
 use super::{
-    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
-    read_node_now, tags_literal,
+    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, carry_chain_membership,
+    now_validity_seconds, read_node_now, tags_literal,
 };
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
@@ -108,6 +108,9 @@ pub fn supersedes(
 
     attach_node_to_initiative(store, &new_id)?;
     attach_edge_to_initiative(store, old_id, &new_id, "supersedes")?;
+    // The successor stands where the predecessor stood in any saved trail —
+    // same reasoning as in `consolidate` (#71).
+    carry_chain_membership(store, old_id, &new_id)?;
     write_audit(
         store.db_ref(),
         "supersedes",

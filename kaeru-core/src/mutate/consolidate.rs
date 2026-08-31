@@ -9,7 +9,7 @@ use cozo::{DataValue, ScriptMutability};
 
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, attach_node_to_initiative_named,
-    build_body_tags, initiatives_of_node, merge_tags, now_validity_seconds,
+    build_body_tags, carry_chain_membership, initiatives_of_node, merge_tags, now_validity_seconds,
     read_derived_from_targets, read_node_now, tags_literal,
 };
 use crate::errors::Result;
@@ -201,6 +201,11 @@ fn consolidate(
         .db_ref()
         .run_script(&s_link, p_link, ScriptMutability::Mutable)?;
     attach_edge_to_initiative(store, old_id, &new_id, "consolidated_to")?;
+
+    // Step 5 — the successor takes the predecessor's place in every saved
+    // trail. Without this the node drops out of the chains it was a step of,
+    // and the step lost is the one the trail existed to reach (#71).
+    carry_chain_membership(store, old_id, &new_id)?;
 
     write_audit(
         store.db_ref(),

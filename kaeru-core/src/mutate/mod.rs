@@ -230,6 +230,60 @@ pub(crate) fn tags_literal(tags: &[String]) -> String {
     format!("[{inner}]")
 }
 
+/// Moves a node's `chain_member` rows onto its successor when a verb replaces
+/// one identity with another.
+///
+/// A chain stores its steps by id, so a `settle` / `supersede` used to drop the
+/// node out of every trail it belonged to — silently, and always the step worth
+/// having, because the node worth promoting is usually the outcome the trail
+/// was built to explain (#71). Nothing reported the loss: `rechain` counted the
+/// retracted member and called the chain current, and `why` on the successor
+/// said no trail led to it.
+///
+/// This is the same commitment `consolidate` already makes for `derived_from`:
+/// an identity change is bookkeeping, and the graph's statements about a node
+/// should survive it.
+pub(crate) fn carry_chain_membership(
+    store: &Store,
+    old_id: &NodeId,
+    new_id: &NodeId,
+) -> Result<usize> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("old".to_string(), DataValue::Str(old_id.clone().into()));
+    let rows = store.db_ref().run_script(
+        "?[chain_id, position] := *chain_member{chain_id, position, node_id}, node_id = $old",
+        params,
+        ScriptMutability::Immutable,
+    )?;
+
+    let mut moved = 0usize;
+    for r in &rows.rows {
+        let (Some(cid), Some(pos)) = (
+            r.first().and_then(|v| v.get_str()),
+            r.get(1).and_then(|v| v.get_int()),
+        ) else {
+            continue;
+        };
+        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+        p.insert("cid".to_string(), DataValue::Str(cid.into()));
+        p.insert("nid".to_string(), DataValue::Str(new_id.clone().into()));
+        // `chain_member` is keyed by {chain_id, position}, so writing the same
+        // key with the successor's id replaces the step in place — the trail
+        // keeps its order and its length.
+        let script = format!(
+            r#"
+            ?[chain_id, position, node_id] <- [[$cid, {pos}, $nid]]
+            :put chain_member {{chain_id, position => node_id}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&script, p, ScriptMutability::Mutable)?;
+        moved += 1;
+    }
+    Ok(moved)
+}
+
 /// Convenience: builds the tags list for a write that has a body.
 /// Combines fixed prefix tags (caller-specified) with the auto-derived
 /// `lang:*` and `topic:<word>` tags.
