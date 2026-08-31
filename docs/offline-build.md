@@ -8,7 +8,7 @@ once; carry the directory across; build.
 
 ```sh
 git clone https://github.com/LamantinAI/kaeru.git && cd kaeru
-git checkout v0.7.0
+git checkout v0.7.1
 ./contrib/offline/fetch-vendor.sh          # ~600 MB, needs network
 # …carry the whole directory to the offline machine…
 cargo build --release --offline -p kaeru-mcp
@@ -28,7 +28,7 @@ almost nobody building kaeru needs it. Fetching it is a deliberate act by the
 few who do.
 
 Tagged, rather than a directory per release, so that fetching one release costs
-one release. `git clone --depth 1 --branch v0.7.0` downloads that tree and
+one release. `git clone --depth 1 --branch v0.7.1` downloads that tree and
 nothing else; a directory layout would hand every builder the entire history of
 every release forever.
 
@@ -98,8 +98,8 @@ Part of cutting a release, after the tag exists and from a clean checkout of
 it:
 
 ```sh
-git checkout v0.7.0
-./contrib/offline/publish-vendor.sh v0.7.0
+git checkout v0.7.1
+./contrib/offline/publish-vendor.sh v0.7.1
 ```
 
 The script refuses to run against a dirty tree or a mismatched version,

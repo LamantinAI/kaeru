@@ -132,7 +132,7 @@ vendored into a separate repository, [`LamantinAI/kaeru-vendor`](https://github.
 one tag per release:
 
 ```bash
-git checkout v0.7.0
+git checkout v0.7.1
 ./contrib/offline/fetch-vendor.sh     # ~600 MB, needs network once
 # carry the whole directory across, then:
 cargo build --release --offline -p kaeru-mcp

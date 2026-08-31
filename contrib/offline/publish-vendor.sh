@@ -2,7 +2,7 @@
 # Publishes this workspace's vendored dependencies to LamantinAI/kaeru-vendor
 # as a tag matching the release.
 #
-#   ./contrib/offline/publish-vendor.sh v0.7.0
+#   ./contrib/offline/publish-vendor.sh v0.7.1
 #
 # Run it from a clean checkout of the tag you are releasing: the vendor tree
 # must match that commit's Cargo.lock byte for byte, or an offline build fails

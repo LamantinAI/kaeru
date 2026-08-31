@@ -3,7 +3,7 @@
 # workspace to build from them, with no network access.
 #
 #   ./contrib/offline/fetch-vendor.sh            # the version in Cargo.toml
-#   ./contrib/offline/fetch-vendor.sh v0.7.0     # a specific release
+#   ./contrib/offline/fetch-vendor.sh v0.7.1     # a specific release
 #
 # Run this on a machine that still has network. Afterwards the whole directory
 # is self-contained: copy it to the machine that does not, and build there.

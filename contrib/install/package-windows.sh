@@ -2,9 +2,9 @@
 # Builds the Windows prebuilt, which the main packaging script cannot: it
 # needs cargo-xwin and the MSVC CRT, and both are easiest inside a container.
 #
-#   ./contrib/install/package-windows.sh v0.7.0
+#   ./contrib/install/package-windows.sh v0.7.1
 #
-# Output: dist/kaeru-v0.7.0-x86_64-pc-windows-msvc.zip
+# Output: dist/kaeru-v0.7.1-x86_64-pc-windows-msvc.zip
 #
 # Three things here are not obvious and each has cost a release:
 #
@@ -26,7 +26,7 @@
 set -euo pipefail
 
 TAG="${1:-}"
-[[ -n "$TAG" ]] || { echo "usage: $0 <tag, e.g. v0.7.0>" >&2; exit 1; }
+[[ -n "$TAG" ]] || { echo "usage: $0 <tag, e.g. v0.7.1>" >&2; exit 1; }
 
 TARGET=x86_64-pc-windows-msvc
 # messense/cargo-xwin, not a plain rust image: cargo-xwin needs clang-cl and
