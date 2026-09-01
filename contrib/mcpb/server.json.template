@@ -1,0 +1,14 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.LamantinAI/kaeru",
+  "title": "kaeru",
+  "description": "Cognitive memory for LLM agents: a typed, bi-temporal graph the agent queries as tools, so work survives between sessions. Local-first, with an optional shared tier for a team.",
+  "version": "__VERSION__",
+  "repository": {
+    "url": "https://github.com/LamantinAI/kaeru",
+    "source": "github"
+  },
+  "websiteUrl": "https://lamantin-ai.com/products/kaeru/",
+  "packages": [__PACKAGES__
+  ]
+}
