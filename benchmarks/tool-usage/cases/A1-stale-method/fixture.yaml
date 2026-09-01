@@ -1,0 +1,67 @@
+# Fixture for A1-stale-method.
+# The hazard is authentic: the current method announces its own supersession
+# IN PROSE, while both predecessors stay live and rank alongside it in search.
+initiative: capture-tooling
+
+# Rule 2: the target must not surface first. Without this the case passes on
+# recency alone — see the 2026-09-01 pilot, where the agent found the current
+# method on its first search while the field failure took 62 calls.
+noise:
+  library: ../../noise/tooling-noise.yaml
+  count: 40
+  target: screen-capture-method-current
+  target_rank_at_least: 4      # must not be in the first three hits for `capture*`
+  target_not_newest: true      # at least five noise nodes recorded after it
+
+nodes:
+  - name: screen-capture-method-current
+    type: reference
+    tier: archival
+    layer: warm
+    recorded: "2026-06-20"
+    body: |
+      HOW TO CAPTURE A TOOL WINDOW WITHOUT TAKING OVER THE SCREEN.
+      Found 2026-06-20, replaces the earlier method in [[screen-capture-run-may]]
+      and [[screen-capture-pipeline-restored]].
+
+      HARD RULE (the user has complained twice): never bring the window to the
+      front, never activate it. The window must stay in the background.
+
+      METHOD: capture the window by its window id; this grabs the window
+      contents even while it is behind other windows.
+
+  - name: screen-capture-pipeline-restored
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-05-14"
+    body: |
+      Capture pipeline working again. Method: position the page, bring the
+      window to the front, then capture the screen region. Verified on three
+      frames.
+
+  - name: screen-capture-run-may
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-05-02"
+    body: |
+      Captured the twelve frames needed for the guide. Brought the window
+      forward first so the capture would catch the right content.
+
+  - name: guide-frames-outstanding
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-06-28"
+    body: |
+      Four frames still missing from the setup guide: the connection dialog,
+      the credential panel, the run history, and the error state.
+
+edges:
+  # Deliberately absent: any supersedes edge from the current method to its
+  # predecessors. In the field this relationship existed only as prose, which
+  # is precisely why retrieval returned the stale versions on equal footing.
+  - from: guide-frames-outstanding
+    to: screen-capture-method-current
+    type: refers_to

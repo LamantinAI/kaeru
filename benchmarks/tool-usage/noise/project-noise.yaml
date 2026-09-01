@@ -1,0 +1,43 @@
+# Noise bank: generic project / delivery vocabulary. Use where the case is not
+# about tooling — planning, decisions, reviews, tasks, team process.
+nodes:
+  - {name: sprint-scope-agreed, body: "Scope for the current sprint agreed: three features, one migration, no new dependencies."}
+  - {name: standup-cadence, body: "Standups moved to twice a week to leave longer focus blocks."}
+  - {name: staging-refresh, body: "Staging refreshed from a sanitised copy of production data."}
+  - {name: flaky-test-quarantine, body: "Two flaky tests quarantined pending a proper fix."}
+  - {name: dependency-bump-queued, body: "Dependency bump queued behind the current release."}
+  - {name: metrics-dashboard-fixed, body: "Metrics dashboard stopped double-counting retries after the last fix."}
+  - {name: error-budget-note, body: "Error budget for the quarter is largely unspent."}
+  - {name: docs-index-restructured, body: "Docs index restructured so setup comes before reference."}
+  - {name: support-question-recurring, body: "The same support question keeps arriving about first-run configuration."}
+  - {name: handover-note-format, body: "Handover notes list state, blockers, and the next concrete step."}
+  - {name: retro-actions, body: "Retro produced three actions; two are already done."}
+  - {name: vendor-response-slow, body: "Vendor takes about a week to answer support tickets."}
+  - {name: pricing-tier-question, body: "Open question about which pricing tier the workload needs."}
+  - {name: backup-verified, body: "Backups verified by restoring into a scratch environment."}
+  - {name: access-request-pending, body: "Access request for the reporting tool still pending."}
+  - {name: naming-of-environments, body: "Environments are named dev, staging and prod; no others."}
+  - {name: incident-postmortem-short, body: "Short postmortem written for last month's outage; no action items outstanding."}
+  - {name: onboarding-buddy, body: "New joiners get a buddy for the first fortnight."}
+  - {name: meeting-notes-location, body: "Meeting notes live alongside the project docs, not in chat."}
+  - {name: quarterly-planning-date, body: "Quarterly planning happens in the last week of the quarter."}
+  - {name: contractor-availability, body: "Contractor available two days a week until the end of the engagement."}
+  - {name: legal-review-lead-time, body: "Legal review needs about ten working days."}
+  - {name: analytics-sampling, body: "Analytics samples at a fixed rate; small effects are invisible."}
+  - {name: feature-flag-cleanup, body: "Old feature flags cleaned up after the last release."}
+  - {name: api-versioning-policy, body: "API versions are additive; nothing is removed without a major bump."}
+  - {name: rate-limit-defaults, body: "Default rate limits are generous enough for internal use."}
+  - {name: cache-invalidation-note, body: "Cache invalidation is time-based rather than event-driven."}
+  - {name: search-index-rebuild, body: "Search index rebuild takes about twenty minutes."}
+  - {name: mobile-layout-issue, body: "Mobile layout breaks on very narrow screens; low priority."}
+  - {name: translation-status, body: "Translations lag the source by roughly one release."}
+  - {name: uptime-report, body: "Uptime for the last quarter met the target."}
+  - {name: cost-review-monthly, body: "Costs reviewed monthly; nothing anomalous recently."}
+  - {name: security-scan-clean, body: "Security scan clean apart from one informational finding."}
+  - {name: deprecation-notice-sent, body: "Deprecation notice sent for the old endpoint."}
+  - {name: customer-feedback-theme, body: "Recurring feedback theme: setup takes longer than expected."}
+  - {name: roadmap-review-cadence, body: "Roadmap reviewed at the start of each quarter."}
+  - {name: hiring-freeze-note, body: "Hiring paused for the rest of the year."}
+  - {name: tooling-licence-renewal, body: "Tooling licences renew in the spring."}
+  - {name: office-network-change, body: "Office network changed; some internal hosts resolve differently."}
+  - {name: archive-policy, body: "Anything untouched for a year is archived rather than deleted."}

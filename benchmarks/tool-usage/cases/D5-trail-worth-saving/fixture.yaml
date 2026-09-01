@@ -1,0 +1,46 @@
+# A line of work running observation -> decision, already in memory as steps.
+# Nothing ties them into a readable trail.
+initiative: queue-redesign
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: queue-backlog-observed
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Queue backlog grows during the evening peak and clears overnight. Consumer
+      count is fixed.
+
+  - name: consumer-scaling-tried
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Tried scaling consumers with the backlog. It helped briefly, then made
+      things worse: more consumers meant more contention on the same partition.
+
+  - name: partition-key-was-the-problem
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      The partition key concentrates evening traffic onto one partition, so
+      extra consumers cannot help. Repartitioning by a higher-cardinality key
+      is the fix.
+
+  - name: repartition-decision
+    type: outcome
+    tier: archival
+    layer: warm
+    body: |
+      Decided: repartition by the higher-cardinality key rather than autoscale
+      consumers. Autoscaling stays off for this queue.
+
+edges:
+  - {from: consumer-scaling-tried, to: queue-backlog-observed, type: derived_from, strong: true}
+  - {from: partition-key-was-the-problem, to: consumer-scaling-tried, type: derived_from, strong: true}
+  - {from: repartition-decision, to: partition-key-was-the-problem, type: derived_from, strong: true}

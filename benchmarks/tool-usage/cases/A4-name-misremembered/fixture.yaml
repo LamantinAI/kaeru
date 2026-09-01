@@ -1,0 +1,26 @@
+# The agent will recall a name imprecisely. Exact lookup fails; search works.
+# Field: 26 name misses in four days, agents retrying guesses instead of searching.
+initiative: deploy-runbooks
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: rollback-procedure-blue-green
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Rollback for the blue-green setup: repoint the router at the previous
+      colour, wait for connections to drain, and only then stop the new stack.
+      Stopping first drops in-flight requests, which is how the last rollback
+      turned a bad deploy into an outage.
+
+  - name: deploy-window-policy
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Deploys happen before mid-afternoon so there is time to react. No deploys
+      on the last working day of the week.

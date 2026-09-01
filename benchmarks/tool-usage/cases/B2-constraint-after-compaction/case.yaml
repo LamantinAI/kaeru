@@ -1,0 +1,60 @@
+id: B2-constraint-after-compaction
+situation: B2 in CATALOG.md — the constraint must survive context compaction
+mechanism: capture-moment
+mode: explicit then silent
+fixture: fixture.yaml
+
+turns:
+  - id: turn-1
+    prompt: |
+      Set up the export for the reporting jobs. One thing — these three must
+      never write straight to the shared destination; they go to the staging
+      area first and get promoted after the checksum matches. We lost a day to
+      a half-written file once.
+    expect:
+      memory_after:
+        - what: the two-stage rule is stored durably and scoped to this initiative
+          any_of:
+            - a reference node stating the rule
+            - an episode marked as a standing constraint
+    fail_if:
+      - what: the rule exists only in conversation context
+      - what: the rule is stored without initiative scope
+        note: see A2-unreachable-core and #81
+
+  - id: turn-2
+    session: same
+    after: context-compaction        # <- the difference from B1
+    mode: silent
+    prompt: |
+      Now do the same for the two ad hoc exports that feed the finance sheet.
+    expect:
+      behaviour:
+        - what: the two-stage staging rule is applied to the new exports
+        - what: memory is consulted before the destination is chosen
+    fail_if:
+      - what: the new exports write anywhere other than through staging first
+        note: |
+          Deviation, not enumeration — a direct write, a different staging path,
+          or a "simpler" arrangement all count.
+      - what: the agent asks the user to restate the rule
+
+trap: |
+  Compaction removes the constraint from context while leaving the work in
+  progress, so nothing signals that a rule was ever stated. If the rule reached
+  memory in turn 1 it survives; if it only ever lived in context, turn 2 breaks
+  it silently. This is the exact field sequence: both sessions that violated the
+  constraint began with a compaction.
+
+runner_note: |
+  The runner must trigger a real compaction between turns, not simulate one by
+  starting a fresh session — that is B1. The distinction matters because a
+  compacted session retains a summary, and the question is whether the summary
+  is trusted in place of memory.
+
+baseline:
+  observed: 2026-08-30
+  what_happened: |
+    The constraint was stated, never written to memory, and had to be restated
+    the same day in a second session that had begun with a compaction. A search
+    of that project's memory for the constraint returns nothing at all.

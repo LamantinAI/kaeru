@@ -1,0 +1,23 @@
+# A fact about WHERE things live. The agent will assume instead of checking.
+initiative: analytics-service
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: analytics-host-move
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      The analytics service no longer runs alongside the main application. It
+      moved to its own host after the memory contention incident, and deploys
+      there independently — the shared deploy script does not touch it.
+
+  - name: analytics-dashboard-slow
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Dashboard queries got slower after the last data volume increase.

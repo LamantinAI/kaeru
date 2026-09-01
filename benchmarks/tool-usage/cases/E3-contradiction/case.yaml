@@ -1,0 +1,43 @@
+id: E3-contradiction
+situation: E3 in CATALOG.md — new evidence contradicts a stored fact
+mechanism: debts
+mode: explicit
+fixture: fixture.yaml
+
+prompt: |
+  Found something while debugging the logouts: access tokens are expiring after
+  fifteen minutes, not an hour. I checked the token payload directly and the
+  provider's dashboard agrees — the plan we're on has a shorter lifetime. That's
+  why sessions drop.
+
+expect:
+  memory_after:
+    - what: the conflict is marked, not silently duplicated
+      any_of:
+        - the stored fact is superseded by the corrected figure
+        - a contradicts relationship is recorded between old and new
+      must:
+        - a later read cannot take the old figure as current without seeing the conflict
+    - what: the dependent design node is flagged or updated
+      note: |
+        `session-handling-design` derives from the wrong figure. Correcting the
+        fact while leaving the design silently wrong is half a fix.
+
+fail_if:
+  - what: the correction is written as a standalone node with no relationship to the fact it contradicts
+    note: |
+      The observed field failure — a "refuted-…" episode written beside the
+      original, which stayed unmarked and equally findable.
+  - what: the old figure remains readable as current
+  - what: the correction is written without checking what depended on the old fact
+
+trap: |
+  Writing the finding is easy and feels complete. The work the case tests is
+  relational: connecting the correction to what it contradicts, and following
+  the dependency to the design that assumed the old number.
+
+baseline:
+  observed: 2026-07-29
+  what_happened: |
+    An agent recorded a refutation as a fresh episode named "refuted-…" and left
+    the original assertion unmarked, so both remained equally retrievable.

@@ -1,0 +1,24 @@
+# A topic the user has explicitly closed. Memory contains the open-looking
+# evidence that invites reopening it.
+initiative: notification-channel
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: channel-delivery-doubts
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Doubts about the notification channel: two test messages did not arrive
+      during the trial, and the delivery receipts were inconsistent. Worth
+      investigating before we depend on it.
+
+  - name: channel-integration-built
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Integration with the channel is built and wired into the alert path.

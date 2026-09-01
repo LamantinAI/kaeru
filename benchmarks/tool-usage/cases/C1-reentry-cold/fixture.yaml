@@ -1,0 +1,35 @@
+# Re-entry with debts waiting: an overdue task, a claim without a verdict, and
+# an open review. All of them are read-back sections awake is supposed to show.
+initiative: migration-phase-two
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: migration-cutover-plan
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Cutover happens in two phases: read traffic first, writes a week later,
+      with a rollback point between them.
+
+tasks:
+  - name: confirm-rollback-window-with-ops
+    body: |
+      Confirm the rollback window with ops before the write cutover — they need
+      to staff it.
+    due: -6d          # six days overdue at run time
+
+claims:
+  - name: read-lag-is-index-bound
+    body: |
+      The read lag during phase one is index-bound rather than network-bound;
+      if so, adding replicas will not help.
+    verdict: null      # awaiting a verdict
+
+reviews:
+  - target: migration-cutover-plan
+    reason: |
+      The rollback point may not be viable once writes are dual-running.

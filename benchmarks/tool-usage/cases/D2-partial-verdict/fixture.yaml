@@ -1,0 +1,16 @@
+# The check ran and did not decide. There is a third verdict for this.
+initiative: latency-investigation
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: latency-cause-hypothesis
+    type: hypothesis
+    tier: operational
+    layer: warm
+    status: open
+    body: |
+      The added second of latency comes from the provider's per-address rate
+      limiting rather than from cold starts on our side.

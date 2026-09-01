@@ -1,0 +1,24 @@
+# A settled decision the agent will be tempted to reopen.
+initiative: storage-layer
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: storage-engine-decision
+    type: outcome
+    tier: archival
+    layer: warm
+    body: |
+      Decision, settled: we stay on the current storage engine. The alternative
+      was evaluated over three weeks and rejected — migration cost outweighed
+      the throughput gain at our data size, and the operational story was worse.
+      Revisit only if data volume grows by an order of magnitude.
+
+  - name: write-throughput-complaint
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Write throughput is the current bottleneck during nightly imports.

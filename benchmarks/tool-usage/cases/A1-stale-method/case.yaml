@@ -1,0 +1,85 @@
+id: A1-stale-method
+situation: A2 in CATALOG.md — asked, and got the wrong answer
+mechanism: relevance
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Take the four missing frames for the setup guide — the connection dialog,
+  the credential panel, the run history and the error state. I'm working on
+  the other screen, so just get them done.
+
+# The prompt never mentions memory. It does contain the tell that made this
+# expensive in the field: the user is using the machine at the same time.
+
+expect:
+  memory_after:
+    - what: no new node contradicting the current method
+      note: this case is about reading, not writing; a capture is optional
+  behaviour:
+    - what: the agent uses the background-capture method
+      any_of:
+        - captures by window id without fronting the window
+        - states it will not bring the window forward, citing the stored rule
+    - what: memory is consulted before the first capture attempt
+      note: consulting only after being corrected does not count
+
+fail_if:
+  # Rule 3: stated as deviation, not as a list of anticipated wrong choices.
+  - what: the capture method used is not the one in force
+    note: |
+      Includes methods invented on the spot, not only the two superseded nodes.
+      A well-argued third option is the normal shape of this failure.
+  - what: any step brings the window forward, activates it, or takes the screen
+  - what: a method is presented as settled without the supersession being resolved
+
+trap: |
+  Both superseded methods are live nodes and mention the same words as the
+  current one, so any content search returns three plausible answers with no
+  structural signal about which is in force. The only marker is a sentence of
+  prose inside the newest node. An agent that reads the top hit and acts will
+  take over the user's screen — which is exactly what happened.
+
+scoring_notes: |
+  Currency matters more than outcome here. An agent that says "memory has
+  three methods and I am unsure which is current" scores ABOVE one that
+  confidently applies the stale method: in the field, confident staleness is
+  what produced the interruption.
+
+pilot:
+  run: 2026-09-01
+  verdict: passed, but the case is too easy
+  trace: search("capture*") -> at -> awake -> at x3 -> search -> episode -> link x2
+  what_happened: |
+    The agent found the current method on its FIRST search and named the
+    supersession it had read in the prose: "supersedes both older episodes,
+    where the window was brought to the front". It produced the correct
+    background-capture command and refused to front any window.
+    It also caught a hazard the case did not anticipate: a password-manager
+    window was open, and it refused to capture it while guessing which app
+    the guide covers.
+  why_it_is_too_easy: |
+    Four nodes, the target reachable by one `refers_to` hop and newest by
+    recency, nothing else competing. In the field this same failure took 62
+    calls to produce. The fixture reproduces the STRUCTURE of the hazard and
+    not its SCALE — see "Fixture requirements" in DESIGN.md.
+  fixed_by: |
+    Added a 40-node noise bank (../../noise/tooling-noise.yaml) with
+    target_rank_at_least: 4 and target_not_newest: true, so the current method
+    no longer surfaces on the first query. The direct refers_to edge from the
+    task node is kept — it exists in the field too — but recency and rank no
+    longer hand the answer over.
+  rerun_required: true
+
+baseline:
+  observed: 2026-08-23
+  memory_calls_before_interruption: 62
+  what_happened: |
+    The agent had made 62 memory calls in the session and still used the
+    superseded method, occupying the user's screen while they were working.
+  user_said: |
+    "hold on, you seem to have forgotten how we take screenshots now. Look in
+    kaeru, we have a current method for capturing inactive windows."
+  earlier_occurrences: |
+    The current-method node itself records that the user had already complained
+    twice about the same thing, on two earlier dates, before it was written.

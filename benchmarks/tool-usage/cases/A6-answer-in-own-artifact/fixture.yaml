@@ -1,0 +1,48 @@
+# The answer is inside a document the project already produced. Searching the
+# graph for it fails; reading the artifact succeeds.
+initiative: onboarding-guide
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: guide-source-location
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      The onboarding guide source lives in the project as a single document.
+      It is the authority on the walkthrough steps; notes in memory describe
+      process around it, not its contents.
+
+  - name: guide-round-three-done
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Third review round applied to the guide. Structure is settled; only
+      wording changes are expected from here.
+
+artifacts:
+  # Written to disk by the fixture builder, not into memory.
+  - path: onboarding-guide.md
+    content: |
+      # Onboarding
+
+      ## Step 1 — request access
+      Access is requested through the internal portal. Approval takes a day.
+
+      ## Step 2 — connect the client
+      Use the staging host for the first connection. Production credentials are
+      issued only after a successful staging run.
+
+      ## Step 3 — first import
+      Import the sample dataset before any real data. The importer refuses files
+      over 5000 rows on a first run; split larger files.
+
+      ## Step 4 — verification
+      Verify by re-reading the imported rows and comparing counts.
+
+edges:
+  - {from: guide-round-three-done, to: guide-source-location, type: refers_to}

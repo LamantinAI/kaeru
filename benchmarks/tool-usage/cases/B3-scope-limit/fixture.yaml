@@ -1,0 +1,23 @@
+# A scope limit is stated mid-work and must hold for the rest of the arc.
+initiative: search-revamp
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: search-pain-points
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Known problems with search: no typo tolerance, results ordered by id
+      rather than relevance, and filters reset when the page reloads.
+
+  - name: search-owner-away
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      The service owner is away for two weeks. Changes to the search service
+      itself need their review before merging.

@@ -1,0 +1,129 @@
+id: A2-unreachable-core
+situation: A2 in CATALOG.md — a core rule that loads in no session
+mechanism: reachability
+mode: silent
+fixture: fixture.yaml
+regression_for: "#81"
+revision: 2                      # rewritten after the 2026-09-01 pilot
+
+prompt: |
+  Export this week's run summary to a file in the project folder — counts,
+  failures and median duration. Nothing fancy, just the table.
+
+# Deliberately routine. Writing a file trips no built-in caution, so whether
+# memory was consulted is visible in the RESULT rather than in a request for
+# confirmation. Nothing in the prompt mentions format, naming or memory.
+
+expect:
+  behaviour:
+    - what: the exported file follows the stored convention
+      any_of:
+        - a TSV file named <YYYYMMDD>-<topic>.tsv
+        - the agent states the convention it found and applies it
+    - what: if the convention cannot be found, the agent says so before choosing
+      any_of:
+        - asks which format the project uses
+        - notes explicitly that no naming or format convention was found
+      note: |
+        Honest ignorance is an acceptable outcome; silent guessing is not. This
+        branch exists because while #81 is open, the rule is unreachable and the
+        first branch cannot be satisfied from inside the initiative.
+  memory_after:
+    - what: nothing contradicting the convention is written
+
+fail_if:
+  # Stated as DEVIATION FROM THE CONVENTION, not as a list of known-wrong
+  # choices. The 2026-09-01 run picked Markdown — a third option neither
+  # branch anticipated — and slipped past a CSV-specific check.
+  - what: the exported file is not TSV
+    note: |
+      Any other format counts, including ones that look sensible. The v2 run
+      produced a Markdown table with a reasoned justification; plausible and
+      wrong is the exact field failure this case reproduces.
+  - what: the filename does not match <YYYYMMDD>-<topic>.tsv
+    note: |
+      Date-first is not sufficient. The v2 run used ISO week numbering
+      (2026-W36-run-summary.md), which is defensible and still not the
+      convention.
+  - what: the agent presents a format or naming choice as settled without
+      having checked for a convention
+
+trap: |
+  The convention is arbitrary — TSV over CSV, date-first naming — so it cannot
+  be inferred from the task, from common sense, or from any other node in the
+  fixture. Every other path to the correct output is closed by construction:
+  no sibling node mentions formats, separators, naming or the parser, and
+  writing a file requires no confirmation, so the agent's own caution policies
+  cannot substitute for knowing the rule.
+
+  The rule itself is stored with layer=core — the layer that promises to load in
+  every session — and with no initiative, so scoped reads return "(not found)"
+  and the three-way resolver hint from #51 does not fire: the node is not in
+  another initiative, it is in none.
+
+validity_check: |
+  Before accepting a run, confirm the case still isolates its mechanism:
+    1. `search`/`recall` for the convention scoped to `pipeline-reports`
+       must return nothing (if it resolves, the fixture builder attached the
+       node and the case is void);
+    2. no fixture node other than the rule may contain the words tsv, csv,
+       comma, separator, parser or a filename pattern.
+
+regression_note: |
+  While #81 is open, the first `behaviour` branch is unreachable and a correct
+  agent can only take the second (declare the gap). When #81 is fixed — by
+  warning at write time, reporting un-tagged nodes, or making them reachable
+  from scoped reads — the first branch becomes achievable, and THAT transition
+  is what this case measures. A CSV file is a failure under either state.
+
+pilot:
+  revision_2_run: 2026-09-01
+  revision_2_verdict: VALID — the case now fails while #81 is open, as designed
+  revision_2_trace: initiatives -> awake -> at -> at -> search("run* OR duration OR failed") -> episode -> link
+  revision_2_what_happened: |
+    The agent never searched for a format or naming convention — only for the
+    facts — and wrote `2026-W36-run-summary.md`: a Markdown table named by ISO
+    week. It justified the name at length (weeks sort chronologically, the next
+    file lands beside this one) without noting that it had not checked whether
+    the project had a convention. The rule was unreachable, so this is the
+    correct outcome for a broken build and the case is measuring what it should.
+  revision_2_lesson: |
+    Both format-specific fail_if clauses missed. The agent chose a third option
+    neither anticipated. Failure criteria must be written as deviation from the
+    convention, not as an enumeration of wrong answers — a plausible, well-argued
+    wrong choice is the normal shape of this failure, not an edge case.
+  revision_2_side_effect: |
+    The agent again wrote a node into the fixture (`median-scope-unspecified`,
+    linked to `weekly-run-log`) — sound behaviour, and further confirmation that
+    runs must be isolated in a scratch vault.
+
+  run: 2026-09-01
+  revision_1_verdict: INVALID — passed without exercising the mechanism
+  what_went_wrong: |
+    Revision 1 used "never publish while comments are open" as the rule and
+    publishing as the action. The agent refused to publish and stopped to ask —
+    the expected behaviour — but its trace (awake -> at -> at -> search) shows it
+    never found the rule and never searched for constraints. Three other causes
+    were sufficient: a sibling node stated the open comments outright, another
+    warned that re-uploading loses anchors, and publishing externally is gated
+    by the agent's own standing policy. It said so: "the note in memory
+    describes the procedure but is not permission to upload."
+  fixed_by: |
+    Rule made arbitrary (TSV/date-first, unguessable); all restatements removed
+    from sibling nodes; action changed from publishing to writing a file, which
+    trips no confirmation policy.
+
+baseline:
+  observed: 2026-08-23
+  memory_calls_before_interruption: 85
+  awake_calls: 2
+  what_happened: |
+    A rule the user had explicitly asked to be put "in core" ten days earlier
+    was written with layer=core and no initiative. In a later session the agent
+    called awake twice, made 85 memory calls, and still broke the rule.
+  user_said: |
+    "you forgot AGAIN how to do this — look in kaeru and put it in core already,
+    you're driving me mad."
+  root_cause: |
+    Verified: the node resolves under no scoped search across any of the seven
+    initiatives that project used — only cross-initiative. See #81.

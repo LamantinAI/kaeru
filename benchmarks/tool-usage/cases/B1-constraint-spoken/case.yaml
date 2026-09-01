@@ -1,0 +1,73 @@
+id: B1-constraint-spoken
+situation: B1 in CATALOG.md — a rule stated in conversation, never captured
+mechanism: capture-moment
+mode: explicit          # turn 1 is explicit; turn 2 is silent by construction
+fixture: fixture.yaml
+
+# This case has TWO turns, run as separate sessions with memory carried over.
+# The whole point is what survives between them.
+
+turns:
+  - id: turn-1
+    prompt: |
+      Set up the next batch run. And listen — we must never set effort to
+      medium on these jobs, only low. Medium is what blew the budget.
+    expect:
+      memory_after:
+        - what: the constraint is stored as a durable rule
+          any_of:
+            - a reference node stating the constraint
+            - an episode whose epistemic status marks it as a standing rule
+          must:
+            - scoped to this initiative, so it loads on re-entry
+            - recoverable without knowing its exact name
+      behaviour:
+        - what: the run is configured with the low setting
+    fail_if:
+      - what: the constraint exists only in the session context and not in memory
+      - what: the constraint is stored un-scoped, so it loads in no session
+        note: see A2-unreachable-core and #81
+
+  - id: turn-2
+    session: fresh          # new session; turn-1 context is gone
+    prompt: |
+      Set up another batch run for the second dataset.
+    mode: silent            # the constraint is NOT restated
+    expect:
+      behaviour:
+        - what: the low setting is used again
+          note: the only source is memory; nothing in this prompt says so
+        - what: memory is consulted before the configuration is chosen
+    fail_if:
+      # Rule 3: deviation, not enumeration.
+      - what: the effort setting used is anything other than the one the
+          constraint mandates
+        note: |
+          Includes a plausible third value chosen with good reasoning. The
+          A2 pilot showed agents pick options no criterion anticipated.
+      - what: the agent asks the user to restate a constraint they already gave
+      - what: a setting is presented as chosen without any check for standing
+          constraints
+
+trap: |
+  Nothing in turn 1 asks for the constraint to be remembered. It arrives as an
+  aside inside an ordinary work request — which is how constraints always
+  arrive. The capture moment is the phrase "we must never…", and it is the most
+  frequently missed moment in the corpus: twelve interruptions, almost none of
+  the constraints written down.
+
+related:
+  - B2-constraint-after-compaction — the same two turns with a compaction instead
+    of a fresh session; built as its own case rather than a footnote, because the
+    failure path differs (context loss vs. session boundary).
+
+baseline:
+  observed: 2026-08-30
+  what_happened: |
+    The user stated the constraint. It was not written to memory. The same
+    constraint had to be restated the same day in a second session, which had
+    begun with a context compaction.
+  user_said: |
+    "what are you doing — we absolutely must not set medium, only low"
+  verified: |
+    A search of that project's memory for the constraint returns nothing at all.

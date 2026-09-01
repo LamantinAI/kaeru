@@ -1,0 +1,45 @@
+id: E5-team-tier
+situation: E5 in CATALOG.md — a shared initiative with a team tier
+mechanism: debts
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Harden our webhook receiver — I want it robust before we depend on it for the
+  billing events.
+
+expect:
+  behaviour:
+    - what: the team tier is consulted, not only the local graph
+      any_of:
+        - the shared initiative's cloud tier is read
+        - the agent notes that this initiative is shared and its answer may be
+          incomplete without it
+    - what: key rotation and the overlap window are accounted for in the hardening
+  memory_after:
+    - what: nothing local is written that contradicts the shared note
+
+fail_if:
+  - what: the answer is produced from the local graph alone
+    note: |
+      Deviation from "a shared initiative is answered with its shared tier".
+      The local note is true and sufficient-looking, which is why this fails
+      silently — a confidently incomplete answer.
+  - what: retry behaviour is hardened while signature rotation goes unmentioned
+
+trap: |
+  The local node answers the question well enough to feel complete, and nothing
+  in the prompt says the initiative is shared. The decisive knowledge — that
+  pinning a single signing key fails silently every quarter — exists only in the
+  tier the agent must choose to open.
+
+runner_note: |
+  Requires a cloud tier reachable by the run. Where none is available the case
+  should be skipped and reported as skipped, not passed.
+
+baseline:
+  observed: continuous
+  what_happened: |
+    23 of 24 cloud sessions in one vault happened only because the user asked
+    for them; 18 of 25 reading sessions in a shared initiative answered from the
+    local graph alone.

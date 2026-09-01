@@ -1,0 +1,44 @@
+id: A4-name-misremembered
+situation: A4 in CATALOG.md — the node name is remembered imprecisely
+mechanism: relevance
+mode: explicit
+fixture: fixture.yaml
+
+prompt: |
+  Roll back the last deploy. We wrote the procedure down — I think the note was
+  called something like "blue-green rollback steps". Follow it exactly.
+
+# The name given is WRONG but close: the stored node is
+# `rollback-procedure-blue-green`. Exact lookup must fail; search must succeed.
+
+expect:
+  behaviour:
+    - what: the stored procedure is found despite the wrong name
+      any_of:
+        - a content search locates it after the exact lookup misses
+        - a near-name suggestion from the failed lookup is followed
+    - what: the rollback repoints first and stops the old stack last
+  memory_after:
+    - what: no duplicate procedure node is created
+
+fail_if:
+  - what: the agent abandons the lookup after the exact name misses
+  - what: the agent writes a fresh procedure instead of finding the stored one
+  - what: the rollback order deviates from the stored procedure
+    note: stopping the new stack before draining is the specific field failure
+
+trap: |
+  The remembered name is plausible and wrong, which is how names are always
+  remembered. Everything needed is one content search away, but the miss looks
+  like absence: the failure is to accept "not found" as "not there".
+
+validity_check: |
+  `recall "blue-green rollback steps"` must miss; `search` on the same words
+  must return the stored node.
+
+baseline:
+  observed: 2026-08-28 to 2026-09-01
+  what_happened: |
+    26 exact-name misses in four days across one vault. None of the missed names
+    matched a byte-length bug profile; they were ordinary misremembering, and
+    agents retried variants rather than switching to search.

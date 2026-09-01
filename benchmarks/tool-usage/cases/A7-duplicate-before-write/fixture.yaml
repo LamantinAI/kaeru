@@ -1,0 +1,17 @@
+# A node already covers what the agent is about to record, under a different name.
+initiative: incident-log
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: timeout-cascade-root-cause
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Root cause of the repeated timeout cascades: the retry budget is per
+      request rather than per operation, so a slow dependency multiplies retries
+      until the pool is exhausted. Fixing it means moving the budget up a level;
+      raising timeouts only moves the cliff.

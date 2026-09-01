@@ -1,0 +1,70 @@
+id: D3-arc-closed
+situation: D3 in CATALOG.md — a line of work ends in verified delivery
+mechanism: consolidation
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Auth is done — deployed and verified in production, rate limiting is in.
+  Nothing more is planned on it. Bring the project's memory in line with that.
+
+# "Bring memory in line" is a real instruction from the corpus. It asks for a
+# result, not a verb: how to represent "finished" is the agent's decision, and
+# that decision is what this case measures.
+
+expect:
+  memory_after:
+    - what: the arc's conclusion is in the archival tier
+      any_of:
+        - the final episode promoted in place
+        - a new outcome synthesised from the arc's steps
+      must:
+        - the promoted node keeps or restates the delivery facts
+        - provenance to the earlier steps survives the promotion
+    - what: the stale in-flight wording no longer reads as open
+      any_of:
+        - the implementation step revised to note rate limiting landed
+        - the open item superseded by the rate-limit step
+      note: |
+        The implementation node still says "rate limiting still to do", which a
+        later session will read as an open debt. Either fixing it or linking it
+        to its resolution counts.
+    - what: chain membership survives promotion
+      note: |
+        If the agent saves a trail and also promotes a step, the trail must
+        still contain that step afterwards — regression guard for #71.
+
+  behaviour:
+    - what: nothing is invented beyond what the fixture and prompt state
+
+fail_if:
+  # Rule 3: deviation from "the conclusion is archival and provenance survives".
+  - what: the arc's conclusion is not in the archival tier afterwards
+    note: |
+      However it is phrased — left operational, split into fragments, or
+      rewritten into something that no longer states the outcome.
+  - what: '"finished" is expressed only by demoting nodes to a cold layer'
+    note: |
+      A layer says how eagerly a node loads; a tier says whether it is still in
+      flight. Demoting to cold hides finished work instead of settling it, and
+      this substitution was the dominant real-world behaviour — in one cleanup
+      session, 72 layer changes against a single promotion.
+  - what: the delivery facts are lost or reworded into something weaker
+
+trap: |
+  Two hazards. The stale "still to do" sentence invites a later session to
+  reopen closed work. And the cheap move — dropping everything to cold — looks
+  like tidying while destroying the distinction the two tiers exist to carry.
+
+baseline:
+  observed: 2026-07-14
+  what_happened: |
+    A five-episode arc ending in a node that literally began "DEPLOYED TO
+    PRODUCTION AND VERIFIED LIVE" received no consolidation at all. Every step
+    stayed operational. Across the whole vault at the time: 545 episodes, 4
+    outcomes.
+  after_fix: |
+    Re-run against v0.7.0, where `settle <name>` became a single-argument call,
+    a fresh agent given this situation called settle, revised the stale wording
+    and rebuilt the trail unprompted. This case is therefore a passing case on
+    current builds and exists to keep it passing.

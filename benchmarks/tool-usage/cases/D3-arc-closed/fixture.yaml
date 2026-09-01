@@ -1,0 +1,77 @@
+# Fixture for D3-arc-closed: a five-step arc that ends in verified delivery.
+# Everything is operational; nothing has been promoted. This is the state the
+# live graph was actually in — 545 episodes against 4 outcomes.
+initiative: auth-rollout
+
+# The arc must sit inside a working project, not alone in the graph: deciding
+# what is finished is only hard when other things are also present.
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: auth-options-research
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-06-02"
+    body: |
+      Compared three sign-in options: two social providers and an email
+      magic-link. Axes: integration cost, domain verification requirements,
+      first-run experience. Conclusion: start with email plus one social
+      provider.
+
+  - name: auth-backend-in-flight
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-06-05"
+    body: |
+      Backend implementation under way: request-link and verify endpoints,
+      sessions table, magic-link TTL of 15 minutes. Rate limiting still to do.
+
+  - name: auth-merged-to-main
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-06-08"
+    body: |
+      Merged to main after review. Two review comments addressed: token
+      entropy and the expiry check on reuse.
+
+  - name: auth-rate-limit-added
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-06-09"
+    body: |
+      Rate limiting added: five requests per ten minutes per address. Closes
+      the outstanding item from the implementation step.
+
+  - name: auth-deployed-verified
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-06-10"
+    body: |
+      Auth deployed to production and verified live: registration, sign-in,
+      repeat sign-in by link, and TTL expiry all behaved. The line of work is
+      finished; nothing further is planned.
+
+edges:
+  - from: auth-backend-in-flight
+    to: auth-options-research
+    type: derived_from
+    strong: true
+  - from: auth-merged-to-main
+    to: auth-backend-in-flight
+    type: derived_from
+    strong: true
+  - from: auth-rate-limit-added
+    to: auth-backend-in-flight
+    type: derived_from
+    strong: true
+  - from: auth-deployed-verified
+    to: auth-merged-to-main
+    type: derived_from
+    strong: true

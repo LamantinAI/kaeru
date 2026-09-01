@@ -1,0 +1,16 @@
+# The check has already run when memory is reached — the dominant real pattern
+# (13 of 23 field claims arrived with the answer already known).
+initiative: image-pipeline
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: output-size-suspicion
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Suspicion: the provider seems to ignore the size parameter — every image
+      comes back at the same dimensions regardless of what we pass.

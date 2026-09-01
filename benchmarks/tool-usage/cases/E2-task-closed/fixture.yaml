@@ -1,0 +1,25 @@
+# Work that completes a stored task. Field ratio: 69 tasks created, 14 closed.
+initiative: search-quality
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: search-quality-context
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Search quality work is tracked as discrete tasks; each is closed when the
+      change is live, not when the patch is written.
+
+tasks:
+  - name: add-typo-tolerance-to-search
+    body: |
+      Add typo tolerance to search. Users report that a single wrong character
+      returns nothing at all.
+    due: null
+  - name: fix-filter-reset-on-reload
+    body: Filters reset when the page reloads; preserve them.
+    due: null

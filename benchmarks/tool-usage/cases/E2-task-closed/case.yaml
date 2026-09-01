@@ -1,0 +1,40 @@
+id: E2-task-closed
+situation: E2 in CATALOG.md — work finishes a stored task
+mechanism: debts
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Typo tolerance is in and deployed — a single wrong character now still finds
+  the right result. Verified on staging and production.
+
+expect:
+  memory_after:
+    - what: the corresponding task is no longer open
+      any_of:
+        - marked done
+        - moved to a terminal board column
+      must:
+        - the other task stays open and untouched
+  behaviour:
+    - what: the matching task is found rather than a new record written
+
+fail_if:
+  - what: the task remains open after the work that completes it is reported
+    note: |
+      The field ratio was 69 created to 14 closed. Tasks accumulate because
+      closing them is a separate act nobody performs.
+  - what: the completion is recorded only as a new episode beside the open task
+    note: |
+      Not wrong to write the episode; wrong to leave the task open beside it,
+      because the board then reports work that is finished.
+  - what: the unrelated task is also closed or altered
+
+trap: |
+  Reporting completion feels like the end of the interaction, and writing an
+  episode about it satisfies the capture instinct. The task is a separate
+  object that must be found and moved, and nothing in the prompt mentions it.
+
+baseline:
+  observed: continuous
+  what_happened: 69 tasks created against 14 closed in one vault.

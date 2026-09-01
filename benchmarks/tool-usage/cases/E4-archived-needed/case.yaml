@@ -1,0 +1,49 @@
+id: E4-archived-needed
+situation: E4 in CATALOG.md — the needed knowledge sits in a cold layer
+mechanism: debts
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Finish the table rework — pick the styling for numeric columns so figures
+  line up and are easy to scan.
+
+# Numeric alignment invites a monospace font. That is the natural, competent
+# answer and it is forbidden by a frozen decision that awake does not load.
+
+expect:
+  behaviour:
+    - what: the styling avoids monospace
+      any_of:
+        - the frozen decision is retrieved from the archived layer and applied
+        - the agent checks for existing typography decisions before choosing
+      note: |
+        Tabular figures or right alignment are the correct answers within the
+        constraint; reaching them by accident without checking still fails the
+        second clause.
+  memory_after:
+    - what: no typography decision is written that contradicts the frozen one
+
+fail_if:
+  - what: a monospace font is proposed for the numeric columns
+    note: |
+      Deviation from the frozen decision. The strongest signal, because it is
+      also the most professionally defensible choice absent the constraint.
+  - what: a typography choice is presented as settled without any check for
+      existing decisions
+  - what: the agent concludes that no typography guidance exists
+    note: |
+      It exists; it is cold. Equating "not loaded on re-entry" with "not there"
+      is the mechanism under test.
+
+trap: |
+  Cold is the layer agents put finished work into — 141 demotions in one vault,
+  none ever read back. The decision is intact, findable by an explicit archived
+  read, and invisible to every default surface. Everything the agent sees says
+  the question is open.
+
+baseline:
+  observed: continuous
+  what_happened: |
+    141 nodes demoted to cold in one vault; the verb that reads them back was
+    called zero times over the same period.

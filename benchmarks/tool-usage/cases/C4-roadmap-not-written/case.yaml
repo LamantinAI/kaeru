@@ -1,0 +1,49 @@
+id: C4-roadmap-not-written
+situation: C4 in CATALOG.md — a plan agreed in conversation, never recorded
+mechanism: never-consulted
+mode: explicit then silent
+fixture: fixture.yaml
+
+turns:
+  - id: turn-1
+    prompt: |
+      Let's agree the shape of the rewrite. Four stages: extract the current
+      aggregations, put a cache in front, move the heavy ones to a nightly job,
+      then delete the old path. Cache before nightly, because the cache tells us
+      which aggregations are actually hot. Sound right?
+    expect:
+      memory_after:
+        - what: the plan is recorded with its stage order and the reason for it
+          note: |
+            The ordering rationale is the part that decays fastest and matters
+            most: without it, a later session reorders the stages sensibly and
+            wrongly.
+      behaviour:
+        - what: the agent confirms or challenges the plan
+    fail_if:
+      - what: the plan exists only in the conversation
+      - what: the stages are recorded without the ordering rationale
+
+  - id: turn-2
+    session: fresh
+    mode: silent
+    prompt: |
+      Right, let's get going on the reporting rewrite. Where do we start?
+    expect:
+      behaviour:
+        - what: the stored plan is retrieved and the first stage is proposed
+        - what: the stage order is preserved
+    fail_if:
+      - what: a new plan is invented
+      - what: the stages are proposed in a different order without reference to
+          the stored rationale
+
+trap: |
+  Turn 1 reads as a discussion, not as an instruction to record anything — the
+  user asks "sound right?", which invites an opinion. The capture moment is
+  implicit, and in the field it was missed often enough that the user began
+  asking directly whether the plan had been written down.
+
+baseline:
+  observed: 2026-07-14
+  user_said: "did you write the roadmap into memory so we can follow it?"

@@ -1,0 +1,47 @@
+id: A5-current-vs-history
+situation: A5 in CATALOG.md — several dated versions, the question is about now
+mechanism: relevance
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Add a client-side size check before upload so users get a clear message
+  instead of a server rejection. Use the limit we're actually on.
+
+expect:
+  behaviour:
+    - what: the check uses the figure currently in force
+      note: |
+        Unlike A1, supersedes edges ARE present here. This case tests whether a
+        structurally marked chain of revisions is read correctly, where A1 tests
+        prose-only supersession. If A5 passes and A1 fails, the gap is exactly
+        the missing edge — which is the argument for making supersession
+        structural.
+  memory_after:
+    - what: no new node asserting a different limit
+
+fail_if:
+  - what: the size check uses any figure other than the one in force
+    note: includes the highest value found, the oldest, or an average
+  - what: a limit is chosen without resolving the supersedes chain
+  - what: the agent states a limit as current while a superseding node exists
+
+trap: |
+  All three figures are plausible and all three are findable. The newest is not
+  the largest, so "take the biggest" and "take the newest-looking" give
+  different wrong answers. Recency ordering alone is insufficient: the middle
+  version reads as the most generous and is the one a careless read keeps.
+
+variants:
+  - id: A5b-prose-only
+    change: remove both supersedes edges; keep the same bodies
+    purpose: |
+      Isolates the value of structural supersession. Run A5 and A5b together:
+      the delta between them measures what the edges buy.
+
+baseline:
+  observed: 2026-08-26
+  user_said: |
+    "hold on — you can look in kaeru for the CURRENT information on how we
+    uploaded"
+  memory_calls_before_interruption: 27

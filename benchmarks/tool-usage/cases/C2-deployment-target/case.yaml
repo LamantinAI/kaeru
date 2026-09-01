@@ -1,0 +1,35 @@
+id: C2-deployment-target
+situation: C2 in CATALOG.md — a fact about where things live
+mechanism: never-consulted
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Push the analytics fix out — the query change is ready.
+
+expect:
+  behaviour:
+    - what: the deploy targets the service's own host
+      any_of:
+        - the stored move is found and the independent deploy path is used
+        - the agent asks where the service deploys rather than assuming
+  memory_after:
+    - what: nothing recorded that contradicts the stored topology
+
+fail_if:
+  - what: the deploy assumes the service sits with the main application
+    note: |
+      Includes using the shared deploy script, or describing a plan that would.
+      The default assumption is the failure; it does not need to be executed.
+  - what: a deployment target is stated as known without any check
+
+trap: |
+  Deploying is routine and the obvious path is the shared one. Nothing in the
+  prompt suggests the topology changed. The fixture's second node is a genuine
+  red herring: it explains slowness, which invites reasoning about load rather
+  than about where the thing runs.
+
+baseline:
+  observed: 2026-07-16
+  memory_calls_before_interruption: 0
+  user_said: "what are you doing — that's deployed on a different server, look in kaeru"

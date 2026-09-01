@@ -1,0 +1,43 @@
+# Noise bank: tooling / capture / automation vocabulary.
+# None of these answers any case question; all share the lexicon.
+nodes:
+  - {name: tool-upgrade-note, body: "Upgraded the local toolchain; the capture helper needed a rebuild after the runtime bump."}
+  - {name: window-manager-quirk, body: "The window manager reshuffles positions after an external display is attached."}
+  - {name: capture-folder-cleanup, body: "Cleared old capture output; the folder had grown past a few hundred files."}
+  - {name: frame-numbering-drift, body: "Frame numbers drifted after a re-run; renumbered by hand this once."}
+  - {name: display-scaling-note, body: "Display scaling changes the pixel dimensions of captured regions between machines."}
+  - {name: colour-profile-mismatch, body: "Captured frames looked washed out until the colour profile was matched."}
+  - {name: helper-script-location, body: "Session helper scripts live in the scratch folder and are not committed."}
+  - {name: retry-on-blank-frame, body: "Occasionally a frame comes back blank; retrying once is usually enough."}
+  - {name: guide-outline-agreed, body: "Outline for the setup guide agreed: install, connect, first run, troubleshooting."}
+  - {name: guide-tone-note, body: "Guide prose should stay in second person and avoid tool jargon in headings."}
+  - {name: asset-naming-question, body: "Open question on where assets belong relative to the guide source."}
+  - {name: reviewer-availability, body: "Reviewer is away until the end of the month; drafts can queue until then."}
+  - {name: build-cache-warning, body: "Build cache occasionally serves a stale artefact; clearing it costs a few minutes."}
+  - {name: dependency-audit-clean, body: "Dependency audit came back clean this week."}
+  - {name: log-rotation-setting, body: "Log rotation set to weekly; older logs compress automatically."}
+  - {name: keyboard-shortcut-list, body: "Collected the keyboard shortcuts used most often during setup walkthroughs."}
+  - {name: screen-recording-vs-frames, body: "Considered a screen recording instead of frames; rejected as harder to update."}
+  - {name: annotation-style, body: "Annotations use a single accent colour and no drop shadows."}
+  - {name: font-embedding-issue, body: "Embedded fonts render differently in the export pipeline than on screen."}
+  - {name: export-size-budget, body: "Keep exported assets under a couple of megabytes each."}
+  - {name: timezone-in-timestamps, body: "Timestamps in notes are local time unless a zone is written out."}
+  - {name: shared-folder-permissions, body: "Shared folder permissions were widened to let the reviewer read drafts."}
+  - {name: naming-of-drafts, body: "Drafts carry a suffix until they are reviewed."}
+  - {name: weekly-sync-moved, body: "The weekly sync moved an hour later for the rest of the quarter."}
+  - {name: onboarding-doc-stale, body: "Onboarding doc references a tool version that no longer ships."}
+  - {name: monitor-arrangement, body: "Monitor arrangement changed; the secondary display is now on the left."}
+  - {name: capture-latency-note, body: "There is a short delay between triggering a capture and the file appearing."}
+  - {name: batch-vs-single, body: "Batch captures are faster but harder to review one by one."}
+  - {name: archive-of-old-guides, body: "Older guide versions archived rather than deleted, in case of rollback."}
+  - {name: accessibility-check, body: "Ran an accessibility pass over the guide's colour contrast."}
+  - {name: link-checker-run, body: "Link checker found two dead links in the troubleshooting section."}
+  - {name: glossary-additions, body: "Added three terms to the glossary after the last review round."}
+  - {name: sample-data-refresh, body: "Sample data refreshed so screenshots show plausible values."}
+  - {name: error-state-hard-to-trigger, body: "Reproducing the error state reliably needs a deliberately bad credential."}
+  - {name: credential-panel-layout, body: "The credential panel layout changed slightly in the last release."}
+  - {name: run-history-pagination, body: "Run history paginates after twenty entries."}
+  - {name: connection-dialog-defaults, body: "Connection dialog remembers the last host used."}
+  - {name: guide-length-target, body: "Target length for the guide is short enough to read in one sitting."}
+  - {name: review-checklist, body: "Review checklist covers accuracy, tone, and whether every step is reproducible."}
+  - {name: publishing-window, body: "Publishing happens on weekdays only."}

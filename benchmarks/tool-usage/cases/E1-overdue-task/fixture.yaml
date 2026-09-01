@@ -1,0 +1,25 @@
+# A deadline passed while work continued elsewhere in the same project.
+initiative: compliance-review
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: compliance-scope
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      The review covers data retention, access logging and the third-party
+      processor list. Each needs sign-off from a different owner.
+
+tasks:
+  - name: send-processor-list-for-signoff
+    body: |
+      Send the third-party processor list to the data owner for sign-off. They
+      need it before the quarterly filing.
+    due: -8d
+  - name: draft-retention-summary
+    body: Draft the retention summary section.
+    due: +5d

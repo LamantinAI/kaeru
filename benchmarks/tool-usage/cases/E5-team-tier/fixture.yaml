@@ -1,0 +1,27 @@
+# A shared initiative where the team has published a relevant node. The local
+# graph answers plausibly and incompletely.
+initiative: shared-integrations
+policy: team              # initiative is shared; a cloud tier exists
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: webhook-retry-local-note
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Our webhook receiver retries failed deliveries three times with a short
+      backoff. Beyond that, deliveries are dropped and logged.
+
+cloud_nodes:
+  # Published by a teammate; present only in the team tier.
+  - name: webhook-signature-rotation
+    type: reference
+    body: |
+      Signing keys for outbound webhooks rotate quarterly and BOTH keys are
+      valid during a two-week overlap. Receivers that pin a single key start
+      failing silently at each rotation — this cost the platform team a week of
+      dropped deliveries before it was found.

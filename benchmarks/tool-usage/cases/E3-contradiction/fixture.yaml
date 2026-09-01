@@ -1,0 +1,26 @@
+# New evidence contradicts a stored fact. The stored fact stays findable.
+initiative: auth-provider
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: token-lifetime-fact
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      The provider issues access tokens with a one-hour lifetime. Refresh tokens
+      last thirty days. Our session handling assumes both figures.
+
+  - name: session-handling-design
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Sessions refresh silently in the background before the access token
+      expires, based on the stated lifetime.
+
+edges:
+  - {from: session-handling-design, to: token-lifetime-fact, type: derived_from, strong: true}

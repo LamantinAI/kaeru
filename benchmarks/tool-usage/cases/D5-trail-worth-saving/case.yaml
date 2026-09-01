@@ -1,0 +1,59 @@
+id: D5-trail-worth-saving
+situation: D5 in CATALOG.md — work runs observation to decision across sessions
+mechanism: capture-dispatch
+mode: silent
+fixture: fixture.yaml
+
+turns:
+  - id: turn-1
+    prompt: |
+      The queue work is done — we're repartitioning rather than autoscaling.
+      Tidy up the project's memory before I hand this to someone else.
+    expect:
+      memory_after:
+        - what: the reasoning path is saved as a readable trail
+          note: |
+            The steps and their edges already exist; what is missing is the
+            trail that says these four form one story ending in a decision.
+        - what: the trail carries a summary saying what it captures
+          note: |
+            Without one, a later reader must open every step to learn whether
+            the trail is worth reading.
+      behaviour:
+        - what: nothing in the arc is left presenting as unfinished
+
+  - id: turn-2
+    session: fresh
+    mode: silent
+    prompt: |
+      Someone's asking why we didn't just autoscale the consumers on that queue.
+      What do I tell them?
+    expect:
+      behaviour:
+        - what: the answer comes from the saved reasoning, including the failed attempt
+          note: |
+            The decisive detail is that autoscaling was TRIED and backfired.
+            Reading only the decision node gives the what, not the why.
+        - what: the answer is produced without re-deriving the reasoning from scratch
+    fail_if:
+      - what: the answer omits that autoscaling was tried and made things worse
+      - what: the reasoning is reconstructed by reading every node individually
+        note: |
+          Not wrong, but it is the behaviour the trail exists to replace — and
+          the field pattern was 22 trails written and none ever read.
+
+trap: |
+  Turn 1 never says "save a trail", and the edges already exist, so the graph
+  looks tidy. Turn 2 is the payoff: it asks WHY, and the why lives in a step
+  that the decision node does not mention.
+
+regression_note: |
+  Also guards #71: if a step is promoted during turn 1's tidy-up, it must remain
+  in the trail. A trail that loses its conclusion between turns fails turn 2.
+
+baseline:
+  observed: whole history
+  what_happened: |
+    22 chains written across one vault, zero ever read. After v0.7.0 surfaced
+    them in awake with an explicit read hint, seven deliveries produced zero
+    reads — the finding that reframed the whole suite.

@@ -1,0 +1,44 @@
+id: B4-precondition
+situation: B4 in CATALOG.md — a precondition for a routine action
+mechanism: capture-moment
+mode: explicit then silent
+fixture: fixture.yaml
+
+turns:
+  - id: turn-1
+    prompt: |
+      Open the pull requests for the schema change. And before you make PRs
+      anywhere, always pull the current branches in every repo first — otherwise
+      we're working off a stale base and the diff is nonsense.
+    expect:
+      memory_after:
+        - what: the precondition is stored, tied to the act of opening PRs
+      behaviour:
+        - what: branches are refreshed before the PRs are opened
+
+  - id: turn-2
+    session: fresh
+    mode: silent
+    prompt: |
+      Put up the PR for the client change too.
+    expect:
+      behaviour:
+        - what: branches are refreshed before this PR is opened, unprompted
+        - what: memory is consulted before the action
+    fail_if:
+      - what: a PR is opened without refreshing first
+        note: |
+          The failure is the omission, regardless of whether the resulting diff
+          happens to be correct — a stale base that coincidentally matches is
+          still a broken precondition.
+
+trap: |
+  Opening a PR is routine and trips no caution policy, so nothing but the stored
+  precondition can produce the extra step. The fixture gives no hint that
+  branches drift.
+
+baseline:
+  observed: 2026-08-25
+  user_said: |
+    "hold on, drop the PR. Before making PRs, pull the current branches in all
+    the repos — we might be working on a stale branch."

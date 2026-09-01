@@ -1,0 +1,38 @@
+id: A6-answer-in-own-artifact
+situation: A6 in CATALOG.md — the answer is in an artifact the project produced
+mechanism: relevance
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  A new joiner is stuck on their first import — they have a file of about
+  twelve thousand rows and it keeps failing. Tell them what to do.
+
+expect:
+  behaviour:
+    - what: the answer comes from the guide's own text
+      any_of:
+        - the guide is read and the first-run row limit is quoted
+        - memory is used to locate the guide, then the guide is read
+    - what: the advice is to split the file for the first run
+  memory_after:
+    - what: nothing invented about importer behaviour is written to memory
+
+fail_if:
+  - what: the answer is guessed or generalised without reading the artifact
+  - what: the agent reports that memory holds nothing on imports and stops
+    note: |
+      Memory does hold something: where the authority lives. Treating "no direct
+      answer in the graph" as "no answer" is the failure this case isolates.
+  - what: a fabricated limit or cause is stated
+
+trap: |
+  The graph deliberately contains no answer — only a pointer to where answers
+  live. An agent that equates memory with the graph stops one step early. In
+  the field this produced "why are you searching — it's described in our own
+  lesson", after the agent had made fifteen memory calls.
+
+baseline:
+  observed: 2026-08-17
+  memory_calls_before_interruption: 15
+  user_said: "why are you searching, the flows are described in our own lesson"

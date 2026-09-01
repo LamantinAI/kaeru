@@ -1,0 +1,23 @@
+# A precondition attached to a routine action, stated once.
+initiative: multi-repo-release
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: repo-map
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Four repositories take part in a release: the API, the worker, the client
+      and the shared schema. Changes usually touch at least two.
+
+  - name: last-release-notes
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Last release went out without incident. The schema change landed first,
+      then the services.

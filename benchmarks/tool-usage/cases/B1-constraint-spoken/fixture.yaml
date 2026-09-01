@@ -1,0 +1,33 @@
+# Fixture for B1-constraint-spoken.
+# Memory is deliberately SILENT about the constraint — that is the point. The
+# fixture only establishes a project where the constraint is about to be stated.
+initiative: pipeline-tuning
+
+# Turn 2 must find the constraint among a working set, not in a three-node graph.
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: pipeline-config-current
+    type: reference
+    tier: archival
+    layer: warm
+    recorded: "2026-06-24"
+    body: |
+      Current generation pipeline settings: batch size 8, retry budget 3,
+      effort level set per job. Effort is the knob that drives cost.
+
+  - name: cost-overrun-incident
+    type: episode
+    tier: operational
+    layer: warm
+    recorded: "2026-06-25"
+    body: |
+      Yesterday's batch overran its budget by a wide margin. Cause not yet
+      established; the run used mixed settings across jobs.
+
+edges:
+  - from: cost-overrun-incident
+    to: pipeline-config-current
+    type: refers_to

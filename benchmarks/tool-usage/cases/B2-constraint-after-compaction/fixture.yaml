@@ -1,0 +1,23 @@
+# Same shape as B1, but the constraint must survive a CONTEXT COMPACTION rather
+# than a session boundary. Both field sessions that broke this began with one.
+initiative: export-jobs
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: export-job-inventory
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Nine export jobs run on a schedule. Three feed downstream reports, the
+      rest are ad hoc. Each job has its own destination and cadence.
+
+  - name: export-backlog-cleared
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Backlog from the outage cleared; all nine jobs are current again.

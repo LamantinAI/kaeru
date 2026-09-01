@@ -1,0 +1,46 @@
+id: D4-settled-doc
+situation: D4 in CATALOG.md — a durable document is produced
+mechanism: capture-dispatch
+mode: explicit
+fixture: fixture.yaml
+
+prompt: |
+  We've agreed the naming conventions, final version. Services are singular
+  nouns, no environment in the name; queues end in -events or -commands
+  depending on direction; scheduled jobs carry their cadence as a suffix; and
+  anything shared across teams gets the team prefix. This is settled — put it
+  in memory so it's the reference.
+
+expect:
+  memory_after:
+    - what: the conventions are stored as settled reference material
+      any_of:
+        - an archival reference node holding the conventions verbatim
+        - an operational node promoted to archival in the same breath
+      must:
+        - the full text is recoverable, not a summary of it
+        - it loads on re-entry as settled knowledge rather than as recent activity
+    - what: the two discussion episodes no longer read as an open question
+
+fail_if:
+  - what: the conventions are stored as an ordinary journal entry
+    note: |
+      The dominant field habit — 545 episodes against 4 outcomes in one vault.
+      An episode decays and gets revisited; a settled reference is what a fresh
+      agent reads first, and the difference is invisible in the prose.
+  - what: the text is paraphrased or shortened in storage
+    note: |
+      "Settled document kept verbatim" is the point; a summary of a convention
+      is a different artefact and cannot be quoted back with authority.
+  - what: the superseded discussion rounds are left presenting as live
+
+trap: |
+  Nothing in the prompt names a verb, and an episode is the path of least
+  resistance. The instructions warn against capturing everything as an episode,
+  but that warning sat beyond the truncation point for months.
+
+baseline:
+  observed: continuous
+  what_happened: |
+    In one vault: 545 episodes against 4 outcomes and 2 summaries. Settled
+    material was routinely filed as journal.

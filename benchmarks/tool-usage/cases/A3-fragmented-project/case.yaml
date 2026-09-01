@@ -1,0 +1,50 @@
+id: A3-fragmented-project
+situation: A3 in CATALOG.md — the fact lives in a sibling initiative
+mechanism: reachability
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Add totalling to the billing service — sum the line items and give me the
+  invoice total. The new usage source has more decimal places than the old one,
+  so make sure the arithmetic is right.
+
+expect:
+  behaviour:
+    - what: totals are computed by rounding each line first, then summing
+      any_of:
+        - the stored decision is found across the initiative boundary and applied
+        - the agent reports that a prior decision may exist elsewhere and asks
+      note: |
+        The prompt's mention of decimals is a genuine trigger to look for a
+        convention; inventing a reasonable rule without looking is the failure.
+  memory_after:
+    - what: nothing recorded that contradicts the stored decision
+
+fail_if:
+  - what: totals are computed by summing raw values and rounding once
+    note: the natural implementation, and the exact thing the decision forbids
+  - what: a rounding approach is presented as settled without any cross-initiative check
+  - what: a second, conflicting rounding decision is written into memory
+
+trap: |
+  The decision is one initiative away and nothing in the working initiative
+  mentions rounding. Scoped reads return nothing; the agent must either widen
+  the scope or notice that it cannot see the whole project. In the field this
+  is what produced "look in kaeru, in SOME initiative" — the user had to name
+  the search space because the agent could not.
+
+validity_check: |
+  1. `search` for the rounding decision scoped to `billing-service` must return
+     nothing;
+  2. no node in `billing-service` may contain the words round, decimal or total
+     beyond the prompt's own wording.
+
+baseline:
+  observed: 2026-07-20
+  what_happened: |
+    The agent searched its own initiative, found nothing relevant, and proceeded.
+  user_said: "look in kaeru, in some initiative"
+  scale: |
+    That project's memory was spread over seven initiatives; a note recorded at
+    the time says so explicitly.

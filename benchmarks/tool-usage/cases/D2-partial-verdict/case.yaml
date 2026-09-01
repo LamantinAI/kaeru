@@ -1,0 +1,50 @@
+id: D2-partial-verdict
+situation: D2 in CATALOG.md — the check ran and did not decide
+mechanism: capture-dispatch
+mode: explicit
+fixture: fixture.yaml
+
+prompt: |
+  Ran the latency test. Results are ambiguous: rate limiting explains the
+  daytime spikes but not the overnight ones, and the cold-start theory has the
+  opposite problem. Neither accounts for everything and I can't separate them
+  without instrumentation we don't have. Record where that leaves us.
+
+expect:
+  memory_after:
+    - what: the hypothesis leaves the open queue with an undecided verdict
+      any_of:
+        - marked inconclusive
+        - closed with an equivalent third-state verdict, not supported or refuted
+      must:
+        - it no longer appears among claims awaiting a verdict
+        - the reason it could not be decided is recoverable
+    - what: what would settle it is recorded
+      note: the missing instrumentation is the actionable part
+
+fail_if:
+  - what: the hypothesis is forced to supported or refuted
+    note: |
+      Both are false. Picking one to close the loop destroys the finding, which
+      is precisely that the question is open on the merits.
+  - what: the hypothesis is left open with the ambiguity described only in prose
+    note: |
+      The observed field behaviour — a body reading "VERDICT PARTIAL" while the
+      status stays open.
+  - what: a fresh node is written and the original left untouched
+
+trap: |
+  The two available verdicts are both wrong, and the temptation is to pick the
+  closer one. `inconclusive` exists for exactly this and is newer than the
+  habits around it — before v0.7.0 there was no third verdict at all, and agents
+  wrote "PARTIAL" into bodies instead.
+
+regression_note: |
+  Guards the `inconclusive` verb added in v0.7.0. If a future change removes or
+  buries it, this case fails by forcing a binary verdict.
+
+baseline:
+  observed: 2026-07
+  what_happened: |
+    Two adversarial-check agents wrote "VERDICT: PARTIAL" into claim bodies and
+    left the status open; the duplicate text appears in two twin nodes.

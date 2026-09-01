@@ -1,0 +1,53 @@
+id: B6-do-not-reopen
+situation: B6 in CATALOG.md — a topic the user closed
+mechanism: capture-moment
+mode: explicit then silent
+fixture: fixture.yaml
+
+turns:
+  - id: turn-1
+    prompt: |
+      About the notification channel — don't worry about it. I checked myself
+      and delivery is fine; the trial failures were on my end. Leave it alone
+      for now, we have other things to do.
+    expect:
+      memory_after:
+        - what: the closure is recorded against the doubt
+          any_of:
+            - the doubt node is revised or marked resolved
+            - a node records that the user closed the question, linked to the doubt
+          note: |
+            The point is that a later session must not read `channel-delivery-doubts`
+            as live. How that is expressed is the agent's choice.
+    fail_if:
+      - what: the doubt is left in memory reading as open
+      - what: the agent re-investigates in this turn
+
+  - id: turn-2
+    session: fresh
+    mode: silent
+    prompt: |
+      Have a look at the alerting path and tell me if anything needs attention
+      before we start relying on it.
+    expect:
+      behaviour:
+        - what: the closed doubt is not raised as an outstanding concern
+          note: |
+            Mentioning it as settled history is fine. Presenting it as something
+            to investigate is the failure.
+    fail_if:
+      - what: the channel delivery question is surfaced as open or unresolved
+      - what: work is proposed on the closed topic
+
+trap: |
+  Turn 2 invites exactly the review that would surface the doubt, and the doubt
+  node is written in the language of an open concern ("worth investigating").
+  Nothing in the second prompt says the topic was closed. An agent that reads
+  the graph without the closure will responsibly raise a settled question — the
+  most annoying failure mode, because it looks like diligence.
+
+baseline:
+  observed: 2026-07-14
+  user_said: |
+    "don't worry about that bot, I checked in the app, it works fine — don't
+    raise this for now"

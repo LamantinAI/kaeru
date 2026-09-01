@@ -1,0 +1,34 @@
+# The needed knowledge was demoted to a cold layer and no longer loads on
+# re-entry. Field: 141 demotions to cold, zero reads back.
+initiative: design-system
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: typography-decision-frozen
+    type: reference
+    tier: archival
+    layer: cold          # <- does not load with awake
+    body: |
+      Typography, frozen until the next redesign. One type family throughout,
+      no monospace anywhere in the product surface. Sizes are 32/40 for
+      headings, 16/24 for body, 13/18 for captions. The no-monospace rule came
+      from a legibility complaint and is not up for reinterpretation.
+
+  - name: component-inventory
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Current components: buttons, inputs, tables, dialogs, toasts. Tables are
+      the least consistent and are being reworked.
+
+  - name: table-rework-in-progress
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Table rework under way — column alignment and density are the open
+      questions.

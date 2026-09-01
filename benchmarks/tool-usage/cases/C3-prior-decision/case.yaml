@@ -1,0 +1,40 @@
+id: C3-prior-decision
+situation: C3 in CATALOG.md — a settled decision the agent proposes reopening
+mechanism: never-consulted
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Nightly imports are too slow — writes are the bottleneck. What are our
+  options?
+
+expect:
+  behaviour:
+    - what: the settled decision is found and respected
+      any_of:
+        - options are proposed within the current engine
+        - the engine change is raised explicitly as previously rejected, with
+          the stated revisit condition
+      note: |
+        Raising it is allowed — reopening a decision knowingly is legitimate.
+        Raising it as if it were novel is not.
+  memory_after:
+    - what: no node asserting a fresh engine evaluation without reference to the decision
+
+fail_if:
+  - what: changing the storage engine is proposed without reference to the prior decision
+    note: |
+      The single most natural answer to a write-throughput question, and the
+      one the project already spent three weeks rejecting.
+  - what: the decision is contradicted without the revisit condition being met or named
+
+trap: |
+  The bottleneck node points straight at the rejected option, and the decision
+  node is the only thing that makes the obvious answer wrong. An agent that
+  reasons from the symptom alone will confidently re-propose three weeks of
+  work that was already done and discarded.
+
+baseline:
+  observed: 2026-08-06
+  memory_calls_before_interruption: 0
+  user_said: "no, we're definitely not changing the stack"

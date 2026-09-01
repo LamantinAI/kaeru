@@ -1,0 +1,16 @@
+# Nothing about the plan is in memory yet — the case is about whether the agent
+# writes it. The fixture only establishes the project.
+initiative: reporting-rewrite
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: reporting-rewrite-context
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      The reporting layer is being rewritten because the current one recomputes
+      everything on each request. Work spans several weeks.

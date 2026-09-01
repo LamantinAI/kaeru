@@ -1,0 +1,39 @@
+# The answer lives in a SIBLING initiative. Field case: one project's memory
+# spread across seven initiatives; awake on one never shows the others.
+initiative: billing-service        # the agent will be told to work here
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: invoice-rounding-decision
+    initiative: billing-legacy      # <- the sibling; agent is NOT pointed here
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Decision on invoice totals: round each line to two decimals FIRST, then
+      sum. Summing raw values and rounding once at the end produced totals that
+      disagreed with the printed lines by a cent, and two customers noticed.
+
+  - name: billing-service-overview
+    initiative: billing-service
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      The billing service composes invoices from usage records and renders them
+      for delivery. Line items come from the metering pipeline.
+
+  - name: new-usage-source-added
+    initiative: billing-service
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      A second usage source was added this week; its records arrive with more
+      decimal places than the original one.
+
+edges:
+  - {from: new-usage-source-added, to: billing-service-overview, type: refers_to}

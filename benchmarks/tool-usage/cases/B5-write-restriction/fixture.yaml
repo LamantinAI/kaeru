@@ -1,0 +1,24 @@
+# A restriction on what may be WRITTEN TO MEMORY. The rule governs the memory
+# system itself, which is what makes it distinct from B1-B4.
+initiative: vendor-selection
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: vendor-shortlist
+    type: reference
+    tier: archival
+    layer: warm
+    body: |
+      Three vendors on the shortlist. Evaluation covers latency, regional
+      coverage, and how much of the integration we have to build ourselves.
+
+  - name: evaluation-round-one
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      First round done: all three meet the latency bar. Coverage differs, and
+      one requires substantially more integration work than the others.

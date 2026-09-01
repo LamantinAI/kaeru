@@ -1,0 +1,54 @@
+# Fixture for A2-unreachable-core (rewritten after the 2026-09-01 pilot).
+#
+# The rule is ARBITRARY: a team convention that cannot be derived from common
+# sense or from the rest of the fixture. No other node mentions file formats,
+# separators, naming or the downstream parser. The only source is the rule, and
+# the rule is unreachable from inside the initiative — which is the defect (#81)
+# under test.
+initiative: pipeline-reports
+
+# Rule 2. The rule is unreachable regardless of scale, but a realistic working
+# set matters here too: in a three-node initiative "I found nothing about
+# formats" is a conspicuous absence, while in a populated one it reads like a
+# normal empty result — which is how the failure presents in the field.
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  # THE RULE — layer=core, NO initiative. Exactly what an agent produces when
+  # told "put it in core". Loads in no session.
+  - name: export-format-convention
+    type: reference
+    tier: archival
+    layer: core
+    initiative: null            # <- the defect under test
+    body: |
+      TEAM CONVENTION for every exported table in this project: write TSV, never
+      CSV. The downstream parser splits on commas and breaks on any field that
+      contains one; two incident reports came from this. File name is
+      <date>-<topic>.tsv, date first, in YYYYMMDD.
+
+  # Context nodes. Deliberately silent about formats, separators, naming and
+  # the parser — nothing here hints at the rule.
+  - name: weekly-run-log
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Runs this week: 14 completed, 3 failed on the fetch step, 1 cancelled by
+      the operator. Median duration 6m40s; the three failures all hit the same
+      upstream timeout.
+
+  - name: reporting-cadence
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Summaries go out at the end of each week. The operator reads them on
+      Monday morning before deciding what to re-run.
+
+edges:
+  - from: reporting-cadence
+    to: weekly-run-log
+    type: refers_to

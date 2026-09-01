@@ -1,0 +1,43 @@
+id: A7-duplicate-before-write
+situation: A7 in CATALOG.md — about to store what is already stored
+mechanism: relevance
+mode: explicit
+fixture: fixture.yaml
+
+prompt: |
+  I worked out why we keep getting those timeout storms: the retry budget is
+  counted per request instead of per operation, so one slow dependency
+  multiplies retries until the pool dies. Raising timeouts won't help. Write
+  that down so we don't lose it.
+
+expect:
+  behaviour:
+    - what: the existing node is found before anything is written
+  memory_after:
+    - what: the knowledge exists once, not twice
+      any_of:
+        - the existing node is revised or confirmed rather than duplicated
+        - a new node is written AND linked to the existing one as related
+      note: |
+        Writing a second node is acceptable only if the relationship is made
+        explicit. An unconnected near-duplicate is the failure.
+
+fail_if:
+  - what: a second node covering the same conclusion exists with no link to the first
+  - what: the agent writes without searching for existing coverage
+  - what: the existing node is superseded despite saying the same thing
+    note: |
+      Supersession implies the old version was wrong or stale; here it is
+      neither, and marking it superseded loses that it was already known.
+
+trap: |
+  The user's phrasing differs from the stored wording, so an exact-name lookup
+  misses and a lazy agent writes a fresh node. The instructions tell agents to
+  search for relatives after capture; this case tests searching BEFORE it.
+
+baseline:
+  observed: continuous
+  what_happened: |
+    Duplicate hub nodes were found in the live graph, including two carrying
+    the same verdict text under different names, produced by parallel sessions
+    that each recorded the same conclusion.

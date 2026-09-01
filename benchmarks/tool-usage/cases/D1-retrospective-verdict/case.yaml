@@ -1,0 +1,47 @@
+id: D1-retrospective-verdict
+situation: D1 in CATALOG.md — the verdict is already known when memory is reached
+mechanism: capture-dispatch
+mode: explicit
+fixture: fixture.yaml
+
+prompt: |
+  Settled that size question. I ran three requests at different sizes and
+  checked the provider's own model page — the parameter is honoured. The fixed
+  dimensions came from our side: a default in the client config was overwriting
+  whatever we passed. False alarm. Get it into memory.
+
+expect:
+  memory_after:
+    - what: the question is closed in memory, not merely described
+      any_of:
+        - a hypothesis carrying a refuted verdict, attached to the evidence
+        - the existing suspicion node resolved and linked to the finding
+      must:
+        - a later session can tell this is settled WITHOUT reading prose
+        - the evidence (three requests, the model page) is recoverable
+    - what: the real cause is recorded
+  behaviour:
+    - what: the existing suspicion node is found and connected, not orphaned
+
+fail_if:
+  - what: the outcome is stored only as prose in a node whose status stays open
+    note: |
+      The exact field failure: nodes whose bodies say "REFUTED" while their
+      status says open. A later session cannot distinguish them from live
+      questions, which is what the status is for.
+  - what: the original suspicion is left in memory reading as unresolved
+  - what: the finding is written with no link to the suspicion it answers
+
+trap: |
+  Everything needed to write a plain episode is in the prompt, and an episode
+  would read perfectly well to a human. The distinction the case tests is
+  invisible in prose and decisive for the next session: is this question closed
+  or open? Nothing in the prompt uses the words hypothesis, claim or verdict.
+
+baseline:
+  observed: continuous
+  what_happened: |
+    13 of 23 organic claims in one vault arrived with the answer already known.
+    Several sit open to this day with the verdict written into their bodies —
+    including one whose text begins "[HYPOTHESIS REFUTED]" while its status
+    remains open.

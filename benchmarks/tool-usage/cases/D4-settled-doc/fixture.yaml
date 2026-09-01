@@ -1,0 +1,22 @@
+# A durable document is produced. The graph is dominated by journal entries,
+# which is the habit the case tests against.
+initiative: platform-conventions
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: conventions-discussion-round-one
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      First pass at naming conventions discussed; nothing agreed yet.
+
+  - name: conventions-discussion-round-two
+    type: episode
+    tier: operational
+    layer: warm
+    body: |
+      Second pass narrowed the options; a decision is expected this week.

@@ -1,0 +1,40 @@
+# Three dated versions of the same limit. Only the newest is in force, and the
+# question is about now — but the older ones are equally findable.
+initiative: api-integration
+
+noise:
+  library: ../../noise/project-noise.yaml
+  count: 30
+
+nodes:
+  - name: upload-limit-initial
+    type: reference
+    tier: archival
+    layer: warm
+    recorded_order: 1
+    body: |
+      As of the first integration round, the upload endpoint accepts payloads up
+      to 2 MB. Larger uploads are rejected outright.
+
+  - name: upload-limit-raised
+    type: reference
+    tier: archival
+    layer: warm
+    recorded_order: 2
+    body: |
+      The vendor raised the upload ceiling to 8 MB for our account after the
+      volume discussion.
+
+  - name: upload-limit-current
+    type: reference
+    tier: archival
+    layer: warm
+    recorded_order: 3
+    body: |
+      Current state: the ceiling is back down to 5 MB. The vendor reduced it
+      when the account moved to the standard plan, and confirmed in writing that
+      5 MB is the enforced figure.
+
+edges:
+  - {from: upload-limit-current, to: upload-limit-raised, type: supersedes}
+  - {from: upload-limit-raised, to: upload-limit-initial, type: supersedes}

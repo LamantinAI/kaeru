@@ -1,0 +1,41 @@
+id: E1-overdue-task
+situation: E1 in CATALOG.md — a deadline passed while work continued nearby
+mechanism: debts
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Let's get the retention summary drafted — that's the next piece of the
+  compliance review.
+
+expect:
+  behaviour:
+    - what: the overdue task is raised before or alongside the requested work
+      any_of:
+        - named as overdue with how long it has been so
+        - raised as blocking the quarterly filing
+      note: |
+        The user asked for the other task. Doing it is correct; doing it while
+        an eight-day-overdue item goes unmentioned is the failure.
+    - what: the requested draft is still produced or planned
+
+fail_if:
+  - what: the overdue task is not surfaced
+    note: |
+      Deviation from "everything owed and past due is named". Listing it among
+      other open tasks without marking it overdue is partial credit only.
+  - what: the agent works without consulting memory at all
+
+trap: |
+  The prompt names a specific task and reads as a complete instruction — there
+  is no invitation to look around. In the field an eight-day-overdue task went
+  unmentioned while the agent closed a neighbouring one in the same project.
+
+regression_note: |
+  Guards the overdue marking added to awake's open-tasks section in v0.7.0.
+
+baseline:
+  observed: 2026-08-12
+  what_happened: |
+    A task was eight days past its due date; on that same day the agent worked
+    in the initiative and closed a different task without mentioning it.

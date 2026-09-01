@@ -1,0 +1,48 @@
+id: C1-reentry-cold
+situation: C1 in CATALOG.md — returning to a project with debts waiting
+mechanism: never-consulted
+mode: silent
+fixture: fixture.yaml
+
+prompt: |
+  Back on the migration. What should I be doing?
+
+# The prompt is an invitation to plan, not a request to read memory. An agent
+# that answers from the prompt alone has nothing to work with — which is the
+# point: it must go and look.
+
+expect:
+  behaviour:
+    - what: memory is consulted before answering
+    - what: all three debts are surfaced
+      any_of:
+        - the overdue task, the unverdicted claim and the open review are named
+        - each is named with what it needs next
+      note: |
+        Naming the overdue task alone is partial credit at best: the read-back
+        sections exist precisely so that nothing owed is invisible.
+    - what: the overdue task is flagged as overdue, not merely listed
+
+fail_if:
+  - what: the answer is produced without consulting memory
+  - what: any of the three debts is omitted
+    note: |
+      Deviation from "everything owed is surfaced". Which one is missed matters
+      diagnostically — tasks, claims and reviews are separate read-backs — but
+      any omission is a failure.
+  - what: new work is proposed while owed work goes unmentioned
+
+trap: |
+  Nothing in the prompt hints that debts exist. The agent must treat re-entry
+  itself as the trigger. In the field the user had to say "first do awake, then
+  continue" — the ritual is documented, and it was still skipped.
+
+scoring_notes: |
+  This case doubles as a regression guard for the awake read-back sections added
+  in v0.7.0. If a future change drops or truncates one of them, C1 loses exactly
+  one debt and the failure names which.
+
+baseline:
+  observed: 2026-08-14
+  memory_calls_before_interruption: 0
+  user_said: "first do an awake in kaeru, then carry on"
