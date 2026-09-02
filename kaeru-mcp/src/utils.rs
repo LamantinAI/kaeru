@@ -443,7 +443,13 @@ pub fn resolve_name(store: &Store, name: &str) -> Result<NodeId, McpError> {
 /// 2. **Nearly.** Close names exist here; say which.
 /// 3. **Nowhere.** Nothing to offer, so point at the verb that searches text
 ///    rather than names, and admit it may simply not be captured yet.
-fn name_not_found(store: &Store, name: &str) -> McpError {
+/// The four-branch "not found" message: the same name in another initiative, a
+/// node that belongs to no initiative (#81), a near spelling, or nowhere at all.
+/// Returned as a plain string so both the error path (`name_not_found`, used by
+/// `resolve_name`) and the text path (`recall`'s miss) carry the same recovery
+/// guidance — a bare "(not found)" was the single biggest source of recall
+/// retry-loops in the usage audit (#84).
+pub(crate) fn name_not_found_message(store: &Store, name: &str) -> String {
     // 1 — the same name, under another initiative.
     if let Ok(Some(id)) = kaeru_core::recall_id_by_name_global(store, name) {
         let elsewhere = kaeru_core::initiatives_of_node(store, &id).unwrap_or_default();
@@ -453,20 +459,20 @@ fn name_not_found(store: &Store, name: &str) -> McpError {
                 .map(|i| format!("`{i}`"))
                 .collect::<Vec<_>>()
                 .join(", ");
-            return to_mcp(Error::NotFound(format!(
+            return format!(
                 "no node named {name:?} in this initiative — it lives in {named}. \
                  Pass `initiative={first}` to work there, or `attach {name} <this initiative>` \
                  to file it here as well."
-            )));
+            );
         }
         // 1b — exists, but attached to NO initiative (#81). Every real read is
         // scoped, so a bare "not found" is a lie: the node is there, it just
         // loads in no session (a `core` node here is silently dead). Name the
         // fix rather than sending the agent looking for something it wrote.
-        return to_mcp(Error::NotFound(format!(
+        return format!(
             "{name:?} exists but belongs to no initiative, so no scoped read or session reaches \
              it — `attach {name} <initiative>` to file it, then it loads."
-        )));
+        );
     }
 
     // 2 — something close, here.
@@ -477,16 +483,18 @@ fn name_not_found(store: &Store, name: &str) -> McpError {
             .map(|n| format!("`{n}`"))
             .collect::<Vec<_>>()
             .join(", ");
-        return to_mcp(Error::NotFound(format!(
-            "no node named {name:?} at NOW — did you mean {listed}?"
-        )));
+        return format!("no node named {name:?} at NOW — did you mean {listed}?");
     }
 
     // 3 — nowhere.
-    to_mcp(Error::NotFound(format!(
+    format!(
         "no node named {name:?} anywhere at NOW — `search {name}*` looks by text instead of by \
          name, and `initiatives` shows what else exists. If it was never captured, capture it."
-    )))
+    )
+}
+
+fn name_not_found(store: &Store, name: &str) -> McpError {
+    to_mcp(Error::NotFound(name_not_found_message(store, name)))
 }
 
 /// Whether `input` has the shape of a UUID, letting a resolver skip the name

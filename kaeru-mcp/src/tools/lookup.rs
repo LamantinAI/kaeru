@@ -7,9 +7,9 @@ use rmcp::model::CallToolResult;
 
 use crate::utils::{
     AT_FULLTEXT_HINT_MANY, at_fulltext_hint, body_truncated, chain_membership_hint, history_hint,
-    parse_edge_types, recall_read_hint, render_briefs, render_neighbours, render_summary,
-    resolve_name_or_id, search_deepen_hint, search_empty_hint, text, to_mcp, was_revised,
-    with_initiative,
+    name_not_found_message, parse_edge_types, recall_read_hint, render_briefs, render_neighbours,
+    render_summary, resolve_name_or_id, search_deepen_hint, search_empty_hint, text, to_mcp,
+    was_revised, with_initiative,
 };
 
 pub fn recall(
@@ -24,7 +24,10 @@ pub fn recall(
                 let hint = chain_membership_hint(store, &id);
                 Ok(text(&format!("{id}{}{hint}", recall_read_hint(name))))
             }
-            None => Ok(text("(not found)")),
+            // A miss carries the same four-branch recovery as `resolve_name`'s
+            // error, so the agent switches strategy instead of guessing another
+            // name (the recall retry-loop in the #84 audit).
+            None => Ok(text(&name_not_found_message(store, name))),
         }
     })
 }
@@ -340,7 +343,10 @@ mod tests {
             "recall teaches at/drill:\n{found}"
         );
         let missing = text_of(recall(&store, "nope", Some("t")).unwrap());
-        assert_eq!(missing, "(not found)", "no hint on a miss");
+        assert!(
+            missing.contains("anywhere") && missing.contains("search"),
+            "a miss now carries recovery, not a bare (not found):\n{missing}"
+        );
     }
 
     #[test]
