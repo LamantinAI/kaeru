@@ -153,6 +153,9 @@ mod tests {
     #[test]
     fn write_episode_with_explicit_layer() {
         let store = Store::open_in_memory().expect("open");
+        // A `core` write needs an initiative (#81) — this test is about the
+        // layer being stored, so give it a home first.
+        store.use_initiative("proj");
 
         let id = write_episode_with_layer(
             &store,
@@ -166,6 +169,33 @@ mod tests {
 
         let layer = get_layer(&store, &id).unwrap();
         assert_eq!(layer, Layer::Core);
+    }
+
+    #[test]
+    fn core_write_without_an_initiative_is_refused() {
+        let store = Store::open_in_memory().expect("open");
+        // No initiative → a `core` node could never load in a scoped session, so
+        // it is refused at the source (#81).
+        let refused = write_episode_with_layer(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "orphan-core",
+            "body",
+            Layer::Core,
+        );
+        assert!(refused.is_err(), "core with no initiative is refused");
+
+        // A non-core untagged capture is an ordinary local note — still allowed.
+        let allowed = write_episode_with_layer(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "warm-note",
+            "body",
+            Layer::Warm,
+        );
+        assert!(allowed.is_ok(), "warm untagged capture stays allowed");
     }
 
     #[test]

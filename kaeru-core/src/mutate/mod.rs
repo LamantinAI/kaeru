@@ -12,7 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::{Error, Result};
-use crate::graph::NodeId;
+use crate::graph::{Layer, NodeId};
 use crate::store::Store;
 
 pub mod board;
@@ -742,6 +742,29 @@ pub(crate) fn read_derived_from_targets(store: &Store, src_id: &NodeId) -> Resul
         .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
         .collect();
     Ok(targets)
+}
+
+/// Refuses a `core` write with no active initiative.
+///
+/// `core` is the one layer injected uncapped into every session, and that
+/// injection runs through `awake <initiative>`. A `core` node attached to no
+/// initiative can never keep that promise — no scoped session would load it —
+/// so it is refused rather than silently orphaned (#81). This is the deliberate
+/// exception to facilitator-not-enforcer, in the spirit of the task board: it
+/// guards an invariant (`core` = always loads), not a workflow. Cross-project
+/// reach is `attach` — a node may belong to several initiatives — never the
+/// absence of one, so nothing legitimate needs an initiative-less `core`.
+pub(crate) fn guard_core_needs_initiative(store: &Store, layer: Layer) -> Result<()> {
+    if layer == Layer::Core && store.current_initiative().is_none() {
+        return Err(Error::Invalid(
+            "a `core` node needs an initiative: it loads through `awake <initiative>`, so with \
+             none it would load in no session. Pass an initiative, or capture it plainly and \
+             `attach` it — cross-project facts use attach (a node can belong to several \
+             initiatives), not no initiative."
+                .to_string(),
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]

@@ -14,8 +14,8 @@ use rmcp::model::CallToolResult;
 use crate::cloud_client::CloudClient;
 use crate::tools::cloud::push_to_cloud;
 use crate::utils::{
-    capture_result, core_without_initiative_note, markup_strip_note, parse_layer,
-    parse_wants_shared, resolve_link_endpoint, text, to_mcp, with_initiative,
+    capture_result, markup_strip_note, parse_layer, parse_wants_shared, resolve_link_endpoint,
+    text, to_mcp, with_initiative,
 };
 
 /// When `want_share`, attempts to push the just-created node `id` to the
@@ -78,9 +78,6 @@ pub async fn episode(
         msg.push_str(&note);
     }
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
-    if let Some(note) = core_without_initiative_note(store, &id, layer) {
-        msg.push_str(&note);
-    }
     Ok(capture_result(store, &id, initiative, &msg))
 }
 
@@ -107,9 +104,6 @@ pub async fn jot(
         msg.push_str(&note);
     }
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
-    if let Some(note) = core_without_initiative_note(store, &id, layer) {
-        msg.push_str(&note);
-    }
     Ok(text(&msg))
 }
 
@@ -208,16 +202,12 @@ pub async fn cite(
         msg.push_str(&note);
     }
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
-    if let Some(note) = core_without_initiative_note(store, &id, layer) {
-        msg.push_str(&note);
-    }
     Ok(capture_result(store, &id, initiative, &msg))
 }
 
 #[cfg(test)]
 mod tests {
     use kaeru_core::{EpisodeKind, Significance, Store};
-    use rmcp::model::CallToolResult;
 
     use super::{episode, link};
 
@@ -234,19 +224,13 @@ mod tests {
         .expect("write")
     }
 
-    fn text_of(r: CallToolResult) -> String {
-        r.content
-            .iter()
-            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
-            .collect()
-    }
-
-    /// The field case behind #81: `layer=core` with no initiative loads in no
-    /// session, and until now nothing said so. The write must warn.
+    /// #81: a `core` node with no initiative is refused at the source — it could
+    /// never keep the "loads every session" promise, so it must not be written.
+    /// Cross-project reach is `attach`, not the absence of an initiative.
     #[tokio::test]
-    async fn core_without_initiative_is_flagged_at_write() {
+    async fn core_without_initiative_is_refused() {
         let store = Store::open_in_memory().expect("open");
-        let out = episode(
+        let res = episode(
             &store,
             None,
             "screenshot-rule",
@@ -255,18 +239,15 @@ mod tests {
             None,
             None,
         )
-        .await
-        .expect("episode");
-        let t = text_of(out);
-        assert!(t.contains("no initiative"), "warns about the trap:\n{t}");
-        assert!(t.contains("NO session"), "explains it loads nowhere:\n{t}");
+        .await;
+        assert!(res.is_err(), "a core node with no initiative is refused");
     }
 
-    /// A `core` node WITH an initiative is exactly right — no warning.
+    /// A `core` node WITH an initiative is exactly right.
     #[tokio::test]
-    async fn core_with_an_initiative_is_not_flagged() {
+    async fn core_with_an_initiative_is_accepted() {
         let store = Store::open_in_memory().expect("open");
-        let out = episode(
+        let res = episode(
             &store,
             None,
             "real-rule",
@@ -275,19 +256,16 @@ mod tests {
             None,
             Some("proj"),
         )
-        .await
-        .expect("episode");
-        assert!(!text_of(out).contains("no initiative"));
+        .await;
+        assert!(res.is_ok(), "core is fine once it has a home");
     }
 
-    /// The trap is specific to `core`; an ordinary un-tagged note is fine.
+    /// The refusal is specific to `core`; an ordinary un-tagged note is fine.
     #[tokio::test]
-    async fn a_warm_note_without_initiative_is_not_flagged() {
+    async fn a_warm_note_without_initiative_is_accepted() {
         let store = Store::open_in_memory().expect("open");
-        let out = episode(&store, None, "note", "body", None, None, None)
-            .await
-            .expect("episode");
-        assert!(!text_of(out).contains("no initiative"));
+        let res = episode(&store, None, "note", "body", None, None, None).await;
+        assert!(res.is_ok(), "warm/hot untagged capture stays allowed");
     }
 
     /// Counts edges between two ids cross-initiative — a cross-initiative

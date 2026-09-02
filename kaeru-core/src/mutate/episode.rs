@@ -4,7 +4,10 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
-use super::{attach_node_to_initiative, build_body_tags, now_validity_seconds, tags_literal};
+use super::{
+    attach_node_to_initiative, build_body_tags, guard_core_needs_initiative, now_validity_seconds,
+    tags_literal,
+};
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{EpisodeKind, Layer, NodeId, Significance, new_node_id};
@@ -33,6 +36,8 @@ pub fn write_episode_with_layer(
     body: &str,
     layer: Layer,
 ) -> Result<NodeId> {
+    guard_core_needs_initiative(store, layer)?;
+
     // Scrub any leaked tool-call wire-format before it reaches the graph.
     let name_owned = strip_tool_call_markup(name).0;
     let body_owned = strip_tool_call_markup(body).0;
@@ -87,6 +92,8 @@ pub fn jot(store: &Store, body: &str) -> Result<NodeId> {
 
 /// Low-friction episode write with an explicit memory layer.
 pub fn jot_with_layer(store: &Store, body: &str, layer: Layer) -> Result<NodeId> {
+    guard_core_needs_initiative(store, layer)?;
+
     // Scrub leaked tool-call wire-format; the auto-name derives from the
     // cleaned body so garbage can't seep in through the name either.
     let body_owned = strip_tool_call_markup(body).0;

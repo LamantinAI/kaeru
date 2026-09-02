@@ -7,7 +7,10 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, JsonData, ScriptMutability};
 use serde_json::json;
 
-use super::{attach_node_to_initiative, build_body_tags, now_validity_seconds, tags_literal};
+use super::{
+    attach_node_to_initiative, build_body_tags, guard_core_needs_initiative, now_validity_seconds,
+    tags_literal,
+};
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId, new_node_id};
@@ -36,6 +39,8 @@ pub fn cite_with_layer(
     body: &str,
     layer: Layer,
 ) -> Result<NodeId> {
+    guard_core_needs_initiative(store, layer)?;
+
     // Scrub any leaked tool-call wire-format before it reaches the graph —
     // a malformed caller can spill the invocation envelope into these strings.
     let name_owned = strip_tool_call_markup(name).0;
