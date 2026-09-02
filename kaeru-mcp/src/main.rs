@@ -73,7 +73,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .with(EnvFilter::from(mcp_config.log_level.as_str()))
             .with(fmt::layer().with_writer(std::io::stderr))
             .init();
-        let bridge = stdio_bridge::Bridge::new(url, Some(mcp_config.auth_token.clone()));
+        let bridge = stdio_bridge::Bridge::new(
+            url,
+            mcp_config.listen_port,
+            Some(mcp_config.auth_token.clone()),
+        );
         bridge.ensure_daemon().await?;
         bridge.run().await?;
         return Ok(());

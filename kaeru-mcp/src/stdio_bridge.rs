@@ -18,10 +18,13 @@
 //! arrives and returns what comes back, so it stays correct as the protocol
 //! grows.
 
+use std::fs::OpenOptions;
 use std::io;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::time::Duration;
 
+use fs2::FileExt;
 use reqwest::Client;
 use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderValue};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -36,19 +39,28 @@ const START_TIMEOUT: Duration = Duration::from_secs(20);
 
 pub struct Bridge {
     url: String,
+    port: u16,
     token: Option<String>,
     http: Client,
     session: Option<String>,
 }
 
 impl Bridge {
-    pub fn new(url: String, token: Option<String>) -> Self {
+    pub fn new(url: String, port: u16, token: Option<String>) -> Self {
         Bridge {
             url,
+            port,
             token: token.filter(|t| !t.trim().is_empty()),
             http: Client::new(),
             session: None,
         }
+    }
+
+    /// A state-file path keyed to the daemon's port, so every relay that would
+    /// start the *same* daemon contends on the *same* file. In the system temp
+    /// dir because it is process-lifetime scratch, not vault data.
+    fn state_path(&self, suffix: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("kaeru-mcp-{}.{suffix}", self.port))
     }
 
     /// Ensures a daemon is answering, starting one if it is not.
@@ -63,14 +75,57 @@ impl Bridge {
             tracing::debug!(url = %self.url, "daemon already answering");
             return Ok(());
         }
+
+        // Single-flight. Without this, several relays starting at once each see
+        // no daemon and each spawn one; all but the process that wins the port
+        // and the RocksDB LOCK then die — silently, for a race no user asked
+        // for. An advisory lock lets exactly one relay through the spawn at a
+        // time. It releases when this process exits (or the file closes), so a
+        // relay that crashes mid-start never wedges the next one.
+        let lock_path = self.state_path("start.lock");
+        let _lock = tokio::task::spawn_blocking(move || -> io::Result<std::fs::File> {
+            // The file is only ever a lock handle — its bytes are never read or
+            // written — so truncate(false): do not disturb it, just hold it.
+            let file = OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(false)
+                .open(&lock_path)?;
+            file.lock_exclusive()?;
+            Ok(file)
+        })
+        .await
+        .map_err(io::Error::other)??;
+
+        // Whoever held the lock before us may already have started the daemon —
+        // the common case when a burst of clients launches together. Now that we
+        // are the one allowed to spawn, re-check, and add nothing if it is up.
+        if self.ping().await {
+            return Ok(());
+        }
+
         let exe = std::env::current_exe()?;
-        tracing::info!(url = %self.url, ?exe, "no daemon answering — starting one");
+        // The daemon outlives this relay, so its output cannot go to a pipe that
+        // closes when we exit — but discarding it means a failed start (a LOCK
+        // it lost, a bad config) leaves no trace at all. Send it to a known log
+        // file instead, truncated per start so it stays bounded, and name the
+        // path so it can be found.
+        let log_path = self.state_path("startup.log");
+        let log = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(true)
+            .open(&log_path)?;
+        tracing::info!(
+            url = %self.url, ?exe, log = %log_path.display(),
+            "no daemon answering — starting one; its output goes to the log path"
+        );
         // Detached: this bridge exits with its client, and taking the vault's
         // owner down with one session would strand every other session.
         Command::new(exe)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(log))
             .spawn()?;
 
         let deadline = tokio::time::Instant::now() + START_TIMEOUT;
@@ -82,7 +137,11 @@ impl Bridge {
         }
         Err(io::Error::new(
             io::ErrorKind::TimedOut,
-            format!("started a daemon but {} never answered", self.url),
+            format!(
+                "started a daemon but {} never answered — see {}",
+                self.url,
+                log_path.display()
+            ),
         ))
     }
 
