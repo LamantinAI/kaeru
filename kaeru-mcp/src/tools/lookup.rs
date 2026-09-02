@@ -269,6 +269,29 @@ mod tests {
     }
 
     #[test]
+    fn a_scoped_miss_on_an_untagged_node_names_the_trap() {
+        // #81: a node written with no initiative exists but loads in no session.
+        // A scoped read must say THAT, not a bare "not found" that sends the
+        // agent hunting for something it wrote.
+        let store = Store::open_in_memory().expect("open");
+        kaeru_core::write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "orphan-core",
+            "body",
+        )
+        .expect("write"); // no initiative set → attached to none
+        store.use_initiative("t");
+        let err = drill(&store, "orphan-core", Some("t")).unwrap_err();
+        let msg = format!("{err:?}");
+        assert!(
+            msg.contains("belongs to no initiative"),
+            "the miss names the real problem:\n{msg}"
+        );
+    }
+
+    #[test]
     fn drill_hints_at_when_body_is_truncated() {
         let store = store_t();
         write(&store, "long-note", &"word ".repeat(400)); // beyond any excerpt cap

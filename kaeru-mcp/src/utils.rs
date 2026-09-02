@@ -74,6 +74,32 @@ fn should_nudge(store: &Store, id: &NodeId, initiative: Option<&str>) -> bool {
             .unwrap_or(false)
 }
 
+pub const CORE_NO_INITIATIVE_NOTE: &str = "\n↳ no initiative — a `core` node loads through \
+    `awake <initiative>`, so with none it loads in NO session. Pass `initiative=…` when you \
+    capture it, or `attach <name> <initiative>` now.";
+
+/// A facilitator warning for the #81 trap. `core` is the one layer injected
+/// uncapped into every session — but injection runs through `awake <initiative>`,
+/// so a `core` node attached to NO initiative loads in no session at all, and
+/// until now nothing said so (it cost a real user three interruptions). Returns
+/// the note when the just-written node is `layer=core` yet belongs to no
+/// initiative; `None` otherwise. Best-effort — a read error suppresses it.
+pub fn core_without_initiative_note(
+    store: &Store,
+    id: &NodeId,
+    layer: Option<&str>,
+) -> Option<String> {
+    // The trap is specific to `core`; every other layer is capped/scoped and a
+    // no-initiative capture is an ordinary local note, not a broken promise.
+    if !matches!(parse_layer(layer).ok()?, Layer::Core) {
+        return None;
+    }
+    let orphan = kaeru_core::initiatives_of_node(store, id)
+        .map(|is| is.is_empty())
+        .unwrap_or(false);
+    orphan.then(|| CORE_NO_INITIATIVE_NOTE.to_string())
+}
+
 // ---- Deepen-lane hints -------------------------------------------------
 //
 // The read verbs (`recall` / `drill` / `search`) surface only an id or a
@@ -459,6 +485,14 @@ fn name_not_found(store: &Store, name: &str) -> McpError {
                  to file it here as well."
             )));
         }
+        // 1b — exists, but attached to NO initiative (#81). Every real read is
+        // scoped, so a bare "not found" is a lie: the node is there, it just
+        // loads in no session (a `core` node here is silently dead). Name the
+        // fix rather than sending the agent looking for something it wrote.
+        return to_mcp(Error::NotFound(format!(
+            "{name:?} exists but belongs to no initiative, so no scoped read or session reaches \
+             it — `attach {name} <initiative>` to file it, then it loads."
+        )));
     }
 
     // 2 — something close, here.
