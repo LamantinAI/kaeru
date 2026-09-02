@@ -15,8 +15,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use kaeru_core::{
-    Error, Layer, NodeBrief, NodeId, Store, SummaryView, Tier, count_nodes_in_initiative, edges_of,
-    history,
+    EdgeType, Error, Layer, Neighbour, NodeBrief, NodeId, Store, SummaryView, Tier,
+    count_nodes_in_initiative, edges_of, history,
 };
 use rmcp::ErrorData as McpError;
 use rmcp::model::{CallToolResult, Content};
@@ -351,6 +351,50 @@ pub fn render_briefs(label: &str, briefs: &[NodeBrief]) -> String {
         }
     }
     out
+}
+
+/// Renders a node's neighbours: each on its own line with the edge TYPE and
+/// direction (`—[type]→` outgoing, `←[type]—` incoming), then the node's brief
+/// and excerpt. The direction arrows mirror `between`, so the two verbs read
+/// alike — a typed graph should never render as an untyped list.
+pub fn render_neighbours(seed: &str, ns: &[Neighbour]) -> String {
+    if ns.is_empty() {
+        return format!("neighbours of {seed} (0): (none)");
+    }
+    let mut out = format!("neighbours of {seed} ({}):\n", ns.len());
+    for n in ns {
+        let arrow = if n.outgoing {
+            format!("—[{}]→", n.edge_type)
+        } else {
+            format!("←[{}]—", n.edge_type)
+        };
+        out.push_str(&format!(
+            "  {arrow} {} ({}) — {}{}\n",
+            n.brief.name,
+            n.brief.node_type,
+            n.brief.id,
+            ts_suffix(n.brief.ts)
+        ));
+        if let Some(e) = &n.brief.body_excerpt {
+            out.push_str(&format!("    {e}\n"));
+        }
+    }
+    out
+}
+
+/// Parses an optional comma-separated edge-type filter into `EdgeType`s. `None`
+/// or an all-blank spec yields an empty vec, which `neighbours` reads as "all
+/// types". An unknown type errors with the closed vocabulary, exactly as `link`
+/// does — the agent gets one message, not a silent empty result.
+pub fn parse_edge_types(spec: Option<&str>) -> Result<Vec<EdgeType>, McpError> {
+    let Some(spec) = spec else {
+        return Ok(Vec::new());
+    };
+    spec.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| EdgeType::from_str(s).map_err(to_mcp))
+        .collect()
 }
 
 // =========================================================================

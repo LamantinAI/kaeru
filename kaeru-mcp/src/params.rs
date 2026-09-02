@@ -225,6 +225,20 @@ pub struct NameScope {
 }
 
 #[derive(Debug, Deserialize, JsonSchema)]
+pub struct NeighboursParams {
+    /// Node name or UUIDv7 id whose neighbours to list.
+    pub name: String,
+    /// Optional edge-type filter — one or more, comma-separated; omit for ALL
+    /// types. Closed vocabulary: `refers_to`, `derived_from`, `supersedes`,
+    /// `causal`, `temporal`, `contradicts`, `part_of`, `blocks`, `targets`,
+    /// `verifies`, `falsifies`, `consolidated_to`. Snake_case or kebab-case.
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
 pub struct LayerParams {
     /// Node name or UUIDv7 id.
     pub name: String,

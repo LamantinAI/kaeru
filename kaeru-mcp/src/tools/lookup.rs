@@ -1,5 +1,5 @@
-//! Read-side tools: `recall`, `drill`, `trace`, `search`, `ideas`,
-//! `outcomes`, `tagged`, `between`.
+//! Read-side tools: `recall`, `drill`, `neighbours`, `trace`, `search`,
+//! `ideas`, `outcomes`, `tagged`, `between`.
 
 use kaeru_core::Store;
 use rmcp::ErrorData as McpError;
@@ -7,8 +7,9 @@ use rmcp::model::CallToolResult;
 
 use crate::utils::{
     AT_FULLTEXT_HINT_MANY, at_fulltext_hint, body_truncated, chain_membership_hint, history_hint,
-    recall_read_hint, render_briefs, render_summary, resolve_name_or_id, search_deepen_hint,
-    search_empty_hint, text, to_mcp, was_revised, with_initiative,
+    parse_edge_types, recall_read_hint, render_briefs, render_neighbours, render_summary,
+    resolve_name_or_id, search_deepen_hint, search_empty_hint, text, to_mcp, was_revised,
+    with_initiative,
 };
 
 pub fn recall(
@@ -51,6 +52,20 @@ pub fn drill(
         }
         out.push_str(&chain_membership_hint(store, &id));
         Ok(text(&out))
+    })
+}
+
+pub fn neighbours(
+    store: &Store,
+    name: &str,
+    edge_type: Option<&str>,
+    initiative: Option<&str>,
+) -> Result<CallToolResult, McpError> {
+    with_initiative(store, initiative, || {
+        let id = resolve_name_or_id(store, name)?;
+        let types = parse_edge_types(edge_type)?;
+        let ns = kaeru_core::neighbours(store, &id, &types).map_err(to_mcp)?;
+        Ok(text(&render_neighbours(name, &ns)))
     })
 }
 
@@ -190,7 +205,7 @@ mod tests {
     use kaeru_core::{EpisodeKind, Significance, Store};
     use rmcp::model::CallToolResult;
 
-    use super::{drill, recall, search, tagged};
+    use super::{drill, neighbours, recall, search, tagged};
     use kaeru_core::EdgeType;
 
     fn store_t() -> Store {
@@ -216,6 +231,41 @@ mod tests {
             body,
         )
         .expect("write")
+    }
+
+    #[test]
+    fn neighbours_shows_an_incoming_contradiction_that_drill_misses() {
+        // The #84 reproduction: a node reached only by an INCOMING contradicts.
+        // `drill` reports it attached to nothing; `neighbours` shows the edge,
+        // labelled and directed.
+        let store = store_t();
+        let a = write(&store, "finding-a", "the first conclusion");
+        let b = write(&store, "finding-b", "the later one that overturns it");
+        kaeru_core::link(&store, &b, &a, EdgeType::Contradicts).expect("link");
+
+        let out = text_of(neighbours(&store, "finding-a", None, Some("t")).unwrap());
+        assert!(out.contains("finding-b"), "the neighbour is named:\n{out}");
+        assert!(
+            out.contains("←[contradicts]—"),
+            "the incoming contradicts is labelled and directed:\n{out}"
+        );
+        assert_ne!(a, b);
+
+        // drill, over the very same node, still sees nothing.
+        let drilled = text_of(drill(&store, "finding-a", Some("t")).unwrap());
+        assert!(
+            drilled.contains("no drill-down children"),
+            "drill is blind to the contradiction it cannot follow:\n{drilled}"
+        );
+    }
+
+    #[test]
+    fn neighbours_type_filter_rejects_an_unknown_type() {
+        let store = store_t();
+        write(&store, "solo", "body");
+        // An invalid filter surfaces the closed vocabulary rather than 0 rows.
+        let err = neighbours(&store, "solo", Some("related_to"), Some("t"));
+        assert!(err.is_err(), "unknown edge type is an error, not empty");
     }
 
     #[test]

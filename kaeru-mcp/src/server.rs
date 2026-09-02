@@ -617,6 +617,21 @@ impl KaeruServer {
         tools::lookup::between(&self.store, &p.a, &p.b, p.initiative.as_deref())
     }
 
+    #[tool(
+        description = "List every node ONE HOP from a node, in BOTH directions, across ALL edge types — the way to discover what a memory is connected to. `drill` follows only derived_from and part_of; this follows all twelve (refers_to, contradicts, supersedes, causal, temporal, blocks, targets, verifies, falsifies, part_of, derived_from, consolidated_to), so a contradiction or a supersession shows up here even when `drill` reports nothing. Each line names the edge TYPE and which way it points: `—[type]→` outgoing, `←[type]—` incoming. Optional `edge_type` (one or more, comma-separated) narrows to certain types; omit for all. `between a b` answers about a specific PAIR; `drill` shows the derived_from/part_of tree."
+    )]
+    fn neighbours(
+        &self,
+        Parameters(p): Parameters<NeighboursParams>,
+    ) -> Result<CallToolResult, McpError> {
+        tools::lookup::neighbours(
+            &self.store,
+            &p.name,
+            p.edge_type.as_deref(),
+            p.initiative.as_deref(),
+        )
+    }
+
     // ----- Bi-temporal ---------------------------------------------------
     #[tool(
         description = "Read a node IN FULL — every field plus the complete, untruncated body. `drill` / `search` / `recall` only show short excerpts; reach for `at` when you need a node's whole content. Optional `when` time-travels to a past moment (unix seconds, RFC-3339, or `5m` / `2h` ago); omit it for the node as it is now."

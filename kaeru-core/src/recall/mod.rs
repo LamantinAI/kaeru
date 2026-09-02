@@ -16,6 +16,7 @@ pub mod fts;
 pub mod initiatives;
 pub mod layered;
 pub mod lint;
+pub mod neighbours;
 pub mod open_work;
 pub mod overview;
 pub mod path;
@@ -43,6 +44,7 @@ pub use initiatives::{
 };
 pub use layered::{LayerBucket, recall_by_layer, recall_by_layer_in_tier};
 pub use lint::{LintReport, lint};
+pub use neighbours::{Neighbour, neighbours};
 pub use open_work::{OpenTask, open_claims, open_tasks};
 pub use overview::overview;
 pub use path::{
