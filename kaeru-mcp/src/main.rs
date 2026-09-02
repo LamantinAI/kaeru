@@ -24,6 +24,7 @@ mod params;
 mod server;
 mod settings;
 mod sse;
+mod stdio_bridge;
 mod tools;
 mod utils;
 
@@ -56,6 +57,27 @@ use crate::settings::KaeruMcpConfig;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let mcp_config = KaeruMcpConfig::new()?;
+
+    // `--stdio` is the bridge, not a second server: it forwards to the daemon
+    // that owns the vault rather than opening the vault itself. The flag is
+    // read straight off argv because the daemon has no other arguments, and a
+    // parser for exactly one of them would be furniture.
+    if std::env::args().any(|a| a == "--stdio") {
+        let url = format!(
+            "http://{}:{}{}",
+            mcp_config.listen_address, mcp_config.listen_port, mcp_config.mount_path
+        );
+        // stdout carries the protocol, so every log line has to go to stderr —
+        // one stray byte on stdout and the client sees a malformed frame.
+        tracing_subscriber::registry()
+            .with(EnvFilter::from(mcp_config.log_level.as_str()))
+            .with(fmt::layer().with_writer(std::io::stderr))
+            .init();
+        let bridge = stdio_bridge::Bridge::new(url, Some(mcp_config.auth_token.clone()));
+        bridge.ensure_daemon().await?;
+        bridge.run().await?;
+        return Ok(());
+    }
 
     let level = Level::from_str(&mcp_config.log_level)?;
     tracing_subscriber::registry()

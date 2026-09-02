@@ -10,6 +10,43 @@ would race for the lock — the second one to start fails. Service-mode
 solves that by putting one writer in front of the vault and letting
 many readers/writers connect over HTTP.
 
+## Clients that only speak stdio
+
+The daemon is the point: one process owns the vault, and every session
+connects to it. But most MCP clients only know how to spawn a server and talk
+to it over stdio, which left them unable to reach kaeru at all.
+
+`kaeru-mcp --stdio` is a relay for exactly that. It forwards a client's session
+to the daemon — starting the daemon first if nothing is answering — so the
+client gets the stdio server it expects and the vault still has one writer.
+
+```bash
+claude mcp add kaeru -- kaeru-mcp --stdio
+```
+
+It relays frames rather than interpreting them, so a method added upstream
+passes through without the relay needing to learn it. Logs go to stderr,
+because stdout carries the protocol.
+
+### As a bundle
+
+`contrib/install/package-release.sh` also builds a `.mcpb` per platform — an
+MCP Bundle, which is a zip carrying the binary and a manifest. A client that
+installs one needs no Rust toolchain and no separate download; the manifest
+runs the binary with `--stdio`, never bare.
+
+Bare would start a second daemon over whichever one already owns the vault,
+and the loser fails on the RocksDB lock. That is why the bundle exists as a
+packaging of the relay rather than of the server.
+
+The same script writes `dist/server.json` for the
+[MCP Registry](https://registry.modelcontextprotocol.io), with a download URL
+and SHA-256 per bundle:
+
+```bash
+mcp-publisher login github && mcp-publisher publish dist/server.json
+```
+
 ## Build & install
 
 ```bash

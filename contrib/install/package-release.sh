@@ -60,6 +60,16 @@ fi
 # of chasing the wrong cause.
 export CARGO_PROFILE_RELEASE_LTO=false
 
+# MCPB names platforms the way node does; rust names them by triple.
+mcpb_platform() {
+    case "$1" in
+        *-apple-darwin)  echo darwin ;;
+        *-linux-*)       echo linux  ;;
+        *-windows-*)     echo win32  ;;
+        *) echo "unknown MCPB platform for target $1" >&2; exit 1 ;;
+    esac
+}
+
 ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT"
 
@@ -94,14 +104,58 @@ for target in "${TARGETS[@]}"; do
 
     archive="kaeru-${TAG}-${target}.tar.gz"
     tar -C "$stage" -czf "$DIST/$archive" kaeru-mcp
+
+    # …and the same binary as an MCP Bundle. A .mcpb is a zip carrying the
+    # server plus a manifest, which is what lets a client install kaeru with
+    # nothing to download and nothing to build.
+    #
+    # The manifest runs the binary with `--stdio`, never bare. Bare would start
+    # a second daemon over whichever one already owns the vault, and the
+    # substrate is single-writer — the loser fails on the RocksDB lock. With
+    # `--stdio` each client gets a relay of its own and the daemon stays one.
+    bundle="kaeru-mcp-${TAG}-${target}.mcpb"
+    mkdir -p "$stage/server"
+    mv "$stage/kaeru-mcp" "$stage/server/kaeru-mcp"
+    sed -e "s/__VERSION__/${TAG#v}/" -e "s/__PLATFORM__/$(mcpb_platform "$target")/" \
+        "$ROOT/contrib/mcpb/manifest.json" > "$stage/manifest.json"
+    ( cd "$stage" && zip -qr "$DIST/$bundle" manifest.json server )
     rm -rf "$stage"
 
     echo "    -> dist/$archive"
+    echo "    -> dist/$bundle"
 done
 
 echo "==> SHA256SUMS"
-( cd "$DIST" && sha256sum kaeru-*.tar.gz | tee SHA256SUMS )
+# Bundles are summed alongside the tarballs: server.json carries a
+# `fileSha256` for the .mcpb, and MCP clients verify it before installing.
+( cd "$DIST" && sha256sum kaeru-*.tar.gz kaeru-*.mcpb | tee SHA256SUMS )
 
+# The registry entry, generated rather than kept by hand: it carries a
+# download URL and a SHA-256 per bundle, and both change every release. A
+# hand-edited server.json is a server.json that publishes last release's hash.
+echo "==> server.json"
+REL="https://github.com/LamantinAI/kaeru/releases/download/$TAG"
+packages=""
+for target in "${TARGETS[@]}"; do
+    bundle="kaeru-mcp-${TAG}-${target}.mcpb"
+    sum=$(cd "$DIST" && sha256sum "$bundle" | cut -d' ' -f1)
+    [[ -n "$packages" ]] && packages="$packages,"
+    packages="$packages
+    {
+      \"registryType\": \"mcpb\",
+      \"identifier\": \"$REL/$bundle\",
+      \"fileSha256\": \"$sum\",
+      \"transport\": { \"type\": \"streamable-http\", \"url\": \"http://127.0.0.1:9876/mcp\" }
+    }"
+done
+sed -e "s/__VERSION__/${TAG#v}/" "$ROOT/contrib/mcpb/server.json.template" \
+    | python3 -c "import sys; sys.stdout.write(sys.stdin.read().replace('__PACKAGES__', '''$packages'''))" \
+    > "$DIST/server.json"
+echo "    -> dist/server.json"
+
+echo
+echo "Publish to the MCP registry (maintainer, once per release):"
+echo "    mcp-publisher login github && mcp-publisher publish dist/server.json"
 echo
 echo "Done. Upload contents of dist/ to the GitHub release for $TAG:"
 ls -lh "$DIST"

@@ -1,0 +1,32 @@
+{
+  "manifest_version": "0.3",
+  "name": "kaeru",
+  "display_name": "kaeru",
+  "version": "__VERSION__",
+  "description": "Cognitive memory for LLM agents: a typed, bi-temporal graph the agent queries as tools, so work survives between sessions.",
+  "long_description": "kaeru gives an agent somewhere to keep what it learns. Episodes and claims while the work is live, settled outcomes and references once it is not, with the reasoning trail between them saved and re-readable.\n\nOne daemon per machine owns the vault; this bundle installs a relay that forwards your client's session to it and starts it if it is not already running. That way several clients — Claude Desktop, Claude Code, Cursor — share one memory instead of racing for it.",
+  "author": {
+    "name": "LamantinAI",
+    "url": "https://lamantin-ai.com"
+  },
+  "homepage": "https://lamantin-ai.com/products/kaeru/",
+  "documentation": "https://github.com/LamantinAI/kaeru#readme",
+  "support": "https://github.com/LamantinAI/kaeru/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/LamantinAI/kaeru.git"
+  },
+  "license": "LicenseRef-BSL-1.1",
+  "keywords": ["mcp", "memory", "agent-memory", "knowledge-graph", "bitemporal", "rust"],
+  "server": {
+    "type": "binary",
+    "entry_point": "server/kaeru-mcp",
+    "mcp_config": {
+      "command": "${__dirname}/server/kaeru-mcp",
+      "args": ["--stdio"]
+    }
+  },
+  "compatibility": {
+    "platforms": ["__PLATFORM__"]
+  }
+}
