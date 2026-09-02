@@ -196,6 +196,7 @@ mod tests {
     #[test]
     fn set_visibility_and_set_layer_preserve_each_other() {
         let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t"); // a `core` promotion needs a home (#81)
         let id = write_episode(
             &store,
             EpisodeKind::Observation,

@@ -81,6 +81,13 @@ pub struct ReflectionReport {
     /// with the user's content as the stake. The work-list points; the agent
     /// (or the user) settles it with `confirm` / `refute` / `inconclusive`.
     pub contested_claims: Vec<NodeId>,
+    /// Core-layer nodes attached to NO initiative (#81). `core` is injected
+    /// through `awake <initiative>`, so these load in no scoped session and sit
+    /// as dead weight — the write and layer paths now refuse to create them, but
+    /// a vault may already carry some. `attach` them to an initiative, or `layer
+    /// <name> warm` to demote. Reported whatever the active scope, since an
+    /// orphan belongs to no initiative and a scoped read cannot see it.
+    pub orphan_core: Vec<NodeId>,
 }
 
 /// Builds the reflection work-list for the active initiative (cross-initiative
@@ -102,7 +109,22 @@ pub fn reflect(store: &Store) -> Result<ReflectionReport> {
             .map(|t| t.id)
             .collect(),
         contested_claims: contested_claims(store)?,
+        orphan_core: orphan_core_nodes(store)?,
     })
+}
+
+/// Core-layer nodes attached to no initiative — the #81 orphans, reported
+/// whatever the active scope. An orphan is invisible to a scoped read, so a
+/// scoped-only search would never surface the very nodes that need repair.
+fn orphan_core_nodes(store: &Store) -> Result<Vec<NodeId>> {
+    let script = r#"
+        ?[id] := *node{id, layer, type @ 'NOW'}, layer = 'core', type != 'audit_event',
+                 not *node_initiative{node_id: id}
+    "#;
+    let rows = store
+        .db_ref()
+        .run_script(script, BTreeMap::new(), ScriptMutability::Immutable)?;
+    Ok(first_col_ids(&rows))
 }
 
 fn first_col_ids(rows: &NamedRows) -> Vec<NodeId> {
@@ -443,6 +465,45 @@ mod contested_tests {
     use super::reflect;
     use crate::store::Store;
     use crate::{HypothesisStatus, Layer, formulate_hypothesis_with_status};
+
+    /// A `core` node with no initiative — the #81 orphan — is surfaced for
+    /// repair, whatever the active scope. The guards prevent making one now, so
+    /// this simulates a pre-guard vault: create it attached, then drop its only
+    /// membership.
+    #[test]
+    fn reflect_surfaces_an_orphaned_core_node() {
+        use crate::{EpisodeKind, Significance, write_episode_with_layer};
+
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("temp");
+        let id = write_episode_with_layer(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "old-core-rule",
+            "always do X",
+            Layer::Core,
+        )
+        .unwrap();
+
+        let mut params = std::collections::BTreeMap::new();
+        params.insert("nid".to_string(), cozo::DataValue::Str(id.clone().into()));
+        store
+            .db_ref()
+            .run_script(
+                "?[initiative, node_id] <- [['temp', $nid]] :rm node_initiative {initiative, node_id}",
+                params,
+                cozo::ScriptMutability::Mutable,
+            )
+            .expect("detach");
+
+        let r = reflect(&store).expect("reflect");
+        assert!(
+            r.orphan_core.contains(&id),
+            "the orphaned core node is surfaced: {:?}",
+            r.orphan_core
+        );
+    }
 
     /// The exact shape found in the wild: an open claim whose own body
     /// announces the verdict. The tag says `open`, so every read surface

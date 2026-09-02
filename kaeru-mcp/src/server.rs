@@ -291,7 +291,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Create a typed edge between two nodes (by name or id). Endpoints resolve in the active initiative first, then across all initiatives, so a link may span initiatives. Edge type defaults to `refers_to`. Optional `weight` (0..1) or `strong=true` sets the connection strength used by knowledge chains — stronger links make shorter chain paths."
+        description = "Create a typed edge between two nodes (by name or id). Endpoints resolve in the active initiative first, then across all initiatives, so a link may span initiatives. Edge type defaults to `refers_to`. `weight` (0..1) is REQUIRED — it is HOW LOAD-BEARING the edge is and the only signal knowledge chains route on (path cost is 1−weight); there is no default because an unweighted graph makes every chain rank on noise. State it by the scale: 0.9–1.0 load-bearing (a cause, a source a conclusion rests on, a supersession — the edges a chain should follow); 0.6–0.8 supporting but not decisive; 0.3–0.5 loose / associative."
     )]
     fn link(&self, Parameters(p): Parameters<LinkParams>) -> Result<CallToolResult, McpError> {
         tools::capture::link(
@@ -300,7 +300,6 @@ impl KaeruServer {
             &p.to,
             &p.edge_type,
             p.weight,
-            p.strong,
             p.initiative.as_deref(),
         )
     }
@@ -337,7 +336,7 @@ impl KaeruServer {
 
     // ----- Knowledge chains ---------------------------------------------
     #[tool(
-        description = "Save the shortest weighted path between two nodes as a knowledge chain — an ordered, recallable reasoning trail. Stronger links (see `link` weight/strong) make shorter paths. Pass `summary` to note why the trail matters (it labels the chain for later triage). Idempotent — an identical chain is reused, not duplicated. Reports if the two are unconnected."
+        description = "Save the shortest weighted path between two nodes as a knowledge chain — an ordered, recallable reasoning trail. Stronger links (higher `link` weight) make shorter paths. Pass `summary` to note why the trail matters (it labels the chain for later triage). Idempotent — an identical chain is reused, not duplicated. Reports if the two are unconnected."
     )]
     fn chain(&self, Parameters(p): Parameters<ChainParams>) -> Result<CallToolResult, McpError> {
         tools::chain::chain(
@@ -373,7 +372,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Compute the shortest weighted path between two nodes WITHOUT writing anything — a preview. Edge weight is the cost, so stronger links (`link --strong`) make shorter paths. `chain` saves the same path as a recallable trail; use `path` to look first when you are not sure the two are meaningfully connected."
+        description = "Compute the shortest weighted path between two nodes WITHOUT writing anything — a preview. Edge weight is the cost, so stronger links (higher `weight`) make shorter paths. `chain` saves the same path as a recallable trail; use `path` to look first when you are not sure the two are meaningfully connected."
     )]
     fn path(&self, Parameters(p): Parameters<PathParams>) -> Result<CallToolResult, McpError> {
         tools::chain::path(&self.store, &p.from, &p.to, p.initiative.as_deref())
@@ -960,7 +959,7 @@ impl ServerHandler for KaeruServer {
              `claim --verdict refuted --by <ev>` — the answer WITH the claim, you usually know it \
              already · `task`/`done` todos with deadlines. Don't capture everything as `episode`.\n\nALWAYS LINK a new node: `search` for related → `link a b \
              --edge_type`. Types: refers_to (default), causal, derived_from, contradicts, part_of, blocks, \
-             targets, supersedes, verifies, falsifies, temporal. `strong=true` on load-bearing edges. An \
+             targets, supersedes, verifies, falsifies, temporal. weight 0..1 required, load-bearing. An \
              island is found only by exact name.\n\nTHEN CHAIN: once work runs observation→decision, `chain \
              from to --summary` saves that trail; `why <node>` reads the reasoning that leads there. A \
              chain is the WHY a fresh agent reads.\n\nREAD: `recall` exact name · `search q*` fuzzy · `drill` node+children · `at <name>` FULL text — drill/search show \
@@ -1002,7 +1001,7 @@ mod tests {
         for (concept, needle) in [
             ("prefix search for inflections", "`*`"),
             ("edge types are a closed set", "contradicts"),
-            ("strong edges shorten chains", "strong"),
+            ("edge weight shortens chains", "load-bearing"),
             ("excerpts are not the full text", "EXCERPT"),
             ("a chain is a reasoning trail", "trail"),
             ("provenance walks derived_from", "derived_from"),

@@ -59,7 +59,8 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
             + r.archivable.len()
             + r.shared.len()
             + r.overdue_tasks.len()
-            + r.contested_claims.len();
+            + r.contested_claims.len()
+            + r.orphan_core.len();
         if total == 0 {
             return Ok(text(
                 "reflection: store is tidy — nothing to tend right now.",
@@ -73,6 +74,14 @@ pub fn reflect(store: &Store, initiative: Option<&str>) -> Result<CallToolResult
             "orphans",
             "`search` for relatives and `link`, else `forget`",
             &r.orphans,
+        );
+        push_section(
+            &mut out,
+            store,
+            "orphan core nodes — load in no session",
+            "`core` with no initiative: injected via `awake <initiative>`, so these load nowhere. \
+             `attach <name> <initiative>`, or `layer <name> warm` to demote",
+            &r.orphan_core,
         );
         push_section(
             &mut out,

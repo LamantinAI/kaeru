@@ -11,6 +11,17 @@ use crate::errors::{Error, Result};
 use crate::graph::NodeId;
 use crate::store::Store;
 
+/// One drill-down child: the neighbour's brief plus the edge that reaches it.
+/// `derived_from` is a source (outgoing, seed → child); `part_of` is a part
+/// (incoming, child → seed). Carrying the edge lets `drill` render a typed
+/// graph as typed, not as a flat list (#84).
+#[derive(Debug, Clone)]
+pub struct SummaryChild {
+    pub brief: NodeBrief,
+    pub edge_type: String,
+    pub outgoing: bool,
+}
+
 /// Hierarchical summary handle returned by [`summary_view`]. The agent
 /// reads `root`, scans `children`, and decides which child to recurse
 /// into by calling `summary_view` again with that child's id —
@@ -18,7 +29,7 @@ use crate::store::Store;
 #[derive(Debug, Clone)]
 pub struct SummaryView {
     pub root: NodeBrief,
-    pub children: Vec<NodeBrief>,
+    pub children: Vec<SummaryChild>,
 }
 
 /// Returns a one-level summary view of `seed`: the seed's own brief plus
@@ -77,13 +88,11 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
         Some(init) => {
             p_children.insert("init".to_string(), DataValue::Str(init.clone().into()));
             r#"
-                candidates[child] := *edge{src, dst: child, edge_type @ 'NOW'},
-                                     src = $seed,
-                                     edge_type = 'derived_from'
-                candidates[child] := *edge{src: child, dst, edge_type @ 'NOW'},
-                                     dst = $seed,
-                                     edge_type = 'part_of'
-                ?[id, type, name, body, validity] := candidates[id],
+                candidates[child, et, outgoing] := *edge{src, dst: child, edge_type: et @ 'NOW'},
+                                     src = $seed, et = 'derived_from', outgoing = true
+                candidates[child, et, outgoing] := *edge{src: child, dst, edge_type: et @ 'NOW'},
+                                     dst = $seed, et = 'part_of', outgoing = false
+                ?[id, type, name, body, edge_type, outgoing, validity] := candidates[id, edge_type, outgoing],
                                             *node{id, type, name, body, validity @ 'NOW'},
                                             *node_initiative{initiative, node_id: id},
                                             initiative = $init
@@ -91,13 +100,11 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
         }
         None => {
             r#"
-                candidates[child] := *edge{src, dst: child, edge_type @ 'NOW'},
-                                     src = $seed,
-                                     edge_type = 'derived_from'
-                candidates[child] := *edge{src: child, dst, edge_type @ 'NOW'},
-                                     dst = $seed,
-                                     edge_type = 'part_of'
-                ?[id, type, name, body, validity] := candidates[id], *node{id, type, name, body, validity @ 'NOW'}
+                candidates[child, et, outgoing] := *edge{src, dst: child, edge_type: et @ 'NOW'},
+                                     src = $seed, et = 'derived_from', outgoing = true
+                candidates[child, et, outgoing] := *edge{src: child, dst, edge_type: et @ 'NOW'},
+                                     dst = $seed, et = 'part_of', outgoing = false
+                ?[id, type, name, body, edge_type, outgoing, validity] := candidates[id, edge_type, outgoing], *node{id, type, name, body, validity @ 'NOW'}
             "#
         }
     };
@@ -107,11 +114,20 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
             .run_script(children_script, p_children, ScriptMutability::Immutable)?;
 
     let children_cap = store.config().summary_view_children_cap;
-    let children: Vec<NodeBrief> = child_rows
+    let children: Vec<SummaryChild> = child_rows
         .rows
         .iter()
         .take(children_cap)
-        .map(|row| parse_brief(row.as_slice(), excerpt_chars))
+        .filter_map(|row| {
+            let edge_type = row.get(4).and_then(|v| v.get_str())?.to_string();
+            let outgoing = row.get(5).and_then(|v| v.get_bool())?;
+            let brief = parse_brief(row.as_slice(), excerpt_chars);
+            Some(SummaryChild {
+                brief,
+                edge_type,
+                outgoing,
+            })
+        })
         .collect();
 
     Ok(SummaryView { root, children })

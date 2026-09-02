@@ -318,14 +318,22 @@ pub fn render_summary(view: &SummaryView) -> String {
     } else {
         out.push_str(&format!("children ({}):\n", view.children.len()));
         for c in &view.children {
+            // Label the drill-down edge — `—[derived_from]→` a source,
+            // `←[part_of]—` a part — so a typed graph doesn't read as a flat
+            // list (#84).
+            let arrow = if c.outgoing {
+                format!("—[{}]→", c.edge_type)
+            } else {
+                format!("←[{}]—", c.edge_type)
+            };
             out.push_str(&format!(
-                "  - {} ({}) — {}{}\n",
-                c.name,
-                c.node_type,
-                c.id,
-                ts_suffix(c.ts)
+                "  {arrow} {} ({}) — {}{}\n",
+                c.brief.name,
+                c.brief.node_type,
+                c.brief.id,
+                ts_suffix(c.brief.ts)
             ));
-            if let Some(e) = &c.body_excerpt {
+            if let Some(e) = &c.brief.body_excerpt {
                 out.push_str(&format!("    {e}\n"));
             }
         }

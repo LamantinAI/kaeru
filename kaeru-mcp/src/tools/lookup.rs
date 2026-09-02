@@ -46,7 +46,7 @@ pub fn drill(
             || view
                 .children
                 .iter()
-                .any(|c| body_truncated(c.body_excerpt.as_deref()));
+                .any(|c| body_truncated(c.brief.body_excerpt.as_deref()));
         if truncated {
             out.push_str(&at_fulltext_hint(&view.root.name));
         }
@@ -291,6 +291,29 @@ mod tests {
         assert!(
             msg.contains("belongs to no initiative"),
             "the miss names the real problem:\n{msg}"
+        );
+    }
+
+    #[test]
+    fn drill_labels_its_edges_by_type_and_direction() {
+        // #84: a typed graph should not render as an untyped list. drill shows
+        // which relation each child is, and which way it points.
+        let store = store_t();
+        let seed = write(&store, "seed", "the thing");
+        let source = write(&store, "source", "where it came from");
+        let part = write(&store, "part", "a component");
+        // seed --derived_from--> source (outgoing); part --part_of--> seed (incoming)
+        kaeru_core::link(&store, &seed, &source, EdgeType::DerivedFrom).expect("link");
+        kaeru_core::link(&store, &part, &seed, EdgeType::PartOf).expect("link");
+
+        let out = text_of(drill(&store, "seed", Some("t")).unwrap());
+        assert!(
+            out.contains("—[derived_from]→ source"),
+            "the source is labelled outgoing:\n{out}"
+        );
+        assert!(
+            out.contains("←[part_of]— part"),
+            "the part is labelled incoming:\n{out}"
         );
     }
 

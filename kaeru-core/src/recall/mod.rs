@@ -53,7 +53,7 @@ pub use path::{
 pub use recent::recent_episodes;
 pub use recollect::{recollect_idea, recollect_outcome, recollect_provenance};
 pub use reflect::{ReflectionReport, reflect};
-pub use summary_view::{SummaryView, summary_view};
+pub use summary_view::{SummaryChild, SummaryView, summary_view};
 pub use tagged::{tagged, tags_like};
 pub use under_review::under_review_pinned;
 pub use walk::walk;

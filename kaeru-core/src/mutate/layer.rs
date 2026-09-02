@@ -5,8 +5,8 @@ use std::str::FromStr;
 
 use cozo::{DataValue, ScriptMutability};
 
-use super::rewrite_node_column_in_place;
-use crate::errors::Result;
+use super::{initiatives_of_node, rewrite_node_column_in_place};
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId};
 use crate::store::Store;
@@ -47,6 +47,17 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
 /// `layer` call in the audit trail — "what did the sweep touch on the 12th"
 /// is a query, not a guess.
 pub fn set_layer_as(store: &Store, node_id: &NodeId, layer: Layer, actor: &str) -> Result<()> {
+    // `core` promises to load in every session (#81), and injection runs through
+    // `awake <initiative>`. Promoting a node with no initiative to `core` would
+    // orphan it exactly as an initiative-less capture does, so it is refused —
+    // the same invariant the write path enforces, on the layer-change path.
+    if layer == Layer::Core && initiatives_of_node(store, node_id)?.is_empty() {
+        return Err(Error::Invalid(format!(
+            "cannot set {node_id} to `core`: it belongs to no initiative, so it would load in no \
+             session — `attach` it to an initiative first."
+        )));
+    }
+
     // The rewrite itself is shared with `set_visibility` and generated from
     // `NODE_VALUE_COLUMNS`, so a column added to the schema round-trips here
     // without this verb being taught about it — the class of silent data loss
@@ -89,6 +100,7 @@ mod tests {
     #[test]
     fn set_layer_changes_node_layer() {
         let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t"); // a `core` promotion needs a home (#81)
 
         let id = write_episode(
             &store,
@@ -126,6 +138,7 @@ mod tests {
         // emitted a same-second retract that won the validity tie-break and
         // hid the node from `@ 'NOW'` reads (while edges survived).
         let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t"); // a `core` promotion needs a home (#81)
 
         let id = write_episode(
             &store,
@@ -196,6 +209,29 @@ mod tests {
             Layer::Warm,
         );
         assert!(allowed.is_ok(), "warm untagged capture stays allowed");
+    }
+
+    #[test]
+    fn promoting_an_orphan_to_core_is_refused() {
+        let store = Store::open_in_memory().expect("open");
+        // A warm untagged capture is allowed; promoting it to `core` is the
+        // same broken promise the write path refuses (#81).
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "orphan",
+            "body",
+        )
+        .unwrap();
+        assert!(
+            set_layer(&store, &id, Layer::Core).is_err(),
+            "core promotion of an orphan is refused"
+        );
+        assert!(
+            set_layer(&store, &id, Layer::Hot).is_ok(),
+            "a non-core layer on an orphan is fine"
+        );
     }
 
     #[test]

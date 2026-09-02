@@ -112,25 +112,19 @@ pub fn link(
     from: &str,
     to: &str,
     edge_type_str: &str,
-    weight: Option<f64>,
-    strong: bool,
+    weight: f64,
     initiative: Option<&str>,
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let edge: EdgeType = edge_type_str.parse().map_err(to_mcp)?;
         let from_id = resolve_link_endpoint(store, from)?;
         let to_id = resolve_link_endpoint(store, to)?;
-        // Plain link = 0.5 (a neutral association); `strong` = 1.0 (a key
-        // reasoning link); explicit `weight` overrides. Weight is the
-        // connection strength that drives chain shortest-paths.
-        let w = match (weight, strong) {
-            (Some(w), _) => w,
-            (None, true) => 1.0,
-            (None, false) => 0.5,
-        };
-        kaeru_core::link_with_weight(store, &from_id, &to_id, edge, w).map_err(to_mcp)?;
+        // Weight is required and stated by the caller — it is the signal chain
+        // shortest-paths route on, so there is no neutral default to fall back
+        // to. `link_with_weight` clamps to 0..1.
+        kaeru_core::link_with_weight(store, &from_id, &to_id, edge, weight).map_err(to_mcp)?;
         Ok(text(&format!(
-            "linked: {from} -[{}]-> {to} (weight {w:.2})",
+            "linked: {from} -[{}]-> {to} (weight {weight:.2})",
             edge.as_str()
         )))
     })
@@ -290,16 +284,8 @@ mod tests {
         let a = seed(&store, "a", "node-a");
         let b = seed(&store, "b", "node-b");
 
-        link(
-            &store,
-            "node-a",
-            "node-b",
-            "refers_to",
-            None,
-            false,
-            Some("a"),
-        )
-        .expect("cross-initiative link resolves");
+        link(&store, "node-a", "node-b", "refers_to", 0.5, Some("a"))
+            .expect("cross-initiative link resolves");
 
         assert_eq!(edge_count(&store, &a, &b), 1, "edge was created");
     }
@@ -311,7 +297,7 @@ mod tests {
         let a = seed(&store, "x", "src");
         let b = seed(&store, "x", "dst");
 
-        link(&store, &a, &b, "refers_to", None, false, Some("x")).expect("link by id resolves");
+        link(&store, &a, &b, "refers_to", 0.5, Some("x")).expect("link by id resolves");
 
         assert_eq!(edge_count(&store, &a, &b), 1, "edge was created from ids");
     }

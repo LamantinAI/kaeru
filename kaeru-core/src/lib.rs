@@ -50,7 +50,7 @@ pub use mutate::{
 pub use recall::{
     BoardColumn, BoardStatus, BoardTask, BoardView, ChainMembership, DEFAULT_STATUSES, EdgeRow,
     FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, Neighbour, NodeBrief, NodeFull, OpenTask,
-    ReflectionReport, SummaryView, between, board_node_id, board_view, board_view_at,
+    ReflectionReport, SummaryChild, SummaryView, between, board_node_id, board_view, board_view_at,
     chain_membership, chains_in_scope, chains_of, cloud_links, count_by_type,
     count_nodes_in_initiative, edges_in_initiative, edges_of, effective_statuses,
     effective_statuses_at, fuzzy_recall, lint, list_initiatives, local_nodes_for_review,
@@ -818,6 +818,7 @@ mod tests {
     #[test]
     fn pin_unpin_active_window_round_trip() {
         let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t"); // pinned nodes need a home to surface (#81)
 
         let a = write_episode(
             &store,
@@ -849,6 +850,24 @@ mod tests {
         assert!(!window2.contains(&a), "a is no longer pinned");
         assert!(window2.contains(&b), "b stays pinned");
         assert_eq!(window2.len(), 1);
+    }
+
+    #[test]
+    fn pinning_an_orphan_is_refused() {
+        let store = Store::open_in_memory().expect("open");
+        // No initiative → the node surfaces in no session's active window (#81).
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "orphan",
+            "body",
+        )
+        .unwrap();
+        assert!(
+            pin(&store, &id, "keep an eye on it").is_err(),
+            "pinning an initiative-less node is refused"
+        );
     }
 
     /// `recent_episodes` returns episodes within the window, capped and ordered
@@ -1411,7 +1430,7 @@ mod tests {
         assert!(view.root.body_excerpt.as_deref().is_some());
 
         // All three sources surface as children (via outgoing derived_from).
-        let child_ids: Vec<&String> = view.children.iter().map(|c| &c.id).collect();
+        let child_ids: Vec<&String> = view.children.iter().map(|c| &c.brief.id).collect();
         assert!(child_ids.contains(&&s1));
         assert!(child_ids.contains(&&s2));
         assert!(child_ids.contains(&&s3));

@@ -307,14 +307,14 @@ pub struct LinkParams {
     /// Snake_case or kebab-case both accepted.
     #[serde(default = "default_edge_type")]
     pub edge_type: String,
-    /// Connection strength `0..1` — drives knowledge-chain shortest-paths.
-    /// Omit for a neutral link (0.5); `strong=true` makes it 1.0.
-    #[serde(default)]
-    pub weight: Option<f64>,
-    /// Mark this as a key reasoning link (weight 1.0). Overridden by an
-    /// explicit `weight`.
-    #[serde(default)]
-    pub strong: bool,
+    /// Connection strength in `0..1` — REQUIRED, no default. How load-bearing
+    /// this edge is, and the only signal knowledge chains route on (path cost is
+    /// `1 − weight`). State it deliberately by how much the connection matters:
+    /// 0.9–1.0 load-bearing (a cause, a source a conclusion rests on, a
+    /// supersession — the edges a chain should follow); 0.6–0.8 supporting, not
+    /// decisive; 0.3–0.5 loose / associative. There is no neutral fallback on
+    /// purpose: an unweighted graph is what made every chain rank on noise.
+    pub weight: f64,
     #[serde(default)]
     pub initiative: Option<String>,
 }

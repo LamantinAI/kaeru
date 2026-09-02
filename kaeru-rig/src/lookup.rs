@@ -102,7 +102,9 @@ mem_tool!(
         match summary_view(store, &id) {
             Ok(view) => json!({
                 "root": brief(&view.root),
-                "children": briefs(&view.children),
+                "children": briefs(
+                    &view.children.iter().map(|c| c.brief.clone()).collect::<Vec<_>>()
+                ),
                 "in_chains": in_chains(store, &id)
             }),
             Err(e) => json!({ "error": e.to_string() }),

@@ -11,9 +11,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use cozo::{DataValue, ScriptMutability};
 
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId, Tier};
+use crate::mutate::initiatives_of_node;
 use crate::recall::{
     LayerBucket, NodeBrief, OpenTask, chains_in_scope, list_initiatives, open_claims, open_tasks,
     recall_by_layer_in_tier, recent_episodes, under_review_pinned,
@@ -31,6 +32,16 @@ fn now_secs_f64() -> f64 {
 /// place in the active window. Idempotent: re-pinning the same node
 /// updates the reason and timestamp.
 pub fn pin(store: &Store, node_id: &NodeId, reason: &str) -> Result<()> {
+    // A pin surfaces through `awake`'s active window, which is initiative-scoped
+    // — so pinning a node that belongs to no initiative pins it into no session
+    // (#81). Refuse rather than silently pin something no re-entry will show.
+    if initiatives_of_node(store, node_id)?.is_empty() {
+        return Err(Error::Invalid(format!(
+            "cannot pin {node_id}: it belongs to no initiative, so it surfaces in no session — \
+             `attach` it to an initiative first."
+        )));
+    }
+
     let now = now_secs_f64();
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
