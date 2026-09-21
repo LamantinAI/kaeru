@@ -546,6 +546,18 @@ class ReplyTests(HookCase):
                      "as I said, keep it simple — write the parser",
                      "we did it! now let's go to the next issue"):
             self.assertIsNone(self.run_hook(self.prompt(text)), text)
+        self.assertTrue(all(d["outcome"].startswith("unasked:") for d in self.decisions()))
+
+    def test_an_unrecognised_ask_still_leaves_a_trace_in_the_log(self):
+        """The detector's blind spot is only visible here — so it is logged, not acted on."""
+        self.assertIsNone(self.run_hook(self.prompt("I already told you that, it's in kaeru")))
+        d = self.decisions()[-1]
+        self.assertEqual(d["outcome"], "unasked:miss")
+        self.assertIsNone(d["after_shape"])
+        self.assertNotIn("reply", d)
+
+    def test_a_plain_statement_is_not_logged_at_all(self):
+        self.assertIsNone(self.run_hook(self.prompt("let's move on to the next issue then")))
         self.assertEqual(self.decisions(), [])
 
     def test_a_statement_in_between_clears_the_ask(self):

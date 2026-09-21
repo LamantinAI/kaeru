@@ -560,9 +560,10 @@ class Kaeru:
     opens one per gated ask and walks away leaks thousands of them.
     """
 
-    # The harness gives the hook ten seconds. The whole exchange — open,
-    # search, close — has to fit inside that with room to spare, or the hook
-    # is killed mid-flight and the session it opened is never closed.
+    # The whole exchange — open, search, close — fits in six seconds with room
+    # to spare inside any harness timeout worth configuring (Claude Code allows
+    # a hook 60 seconds by default, and a hook is free to be given less). Run
+    # past it and the hook is killed mid-flight with its session still open.
     BUDGET = 6.0
 
     def __init__(self) -> None:
@@ -881,24 +882,42 @@ def on_stop(event: dict, state: dict, session: str) -> dict | None:
     return {"decision": "block", "reason": message} if decision == "deny" else None
 
 
+def classify_reply(prompt: str) -> str | None:
+    """How the human's reply reads — or None when no marker fires."""
+    if MISS_MARKERS.search(prompt):
+        return "miss"
+    if COMPLAINT_MARKERS.search(prompt):
+        return "complaint"
+    if CAPTURE_MARKERS.search(prompt):
+        return "capture_nudge"
+    return None
+
+
 def on_user_prompt_submit(event: dict, state: dict, session: str) -> dict | None:
     last_ask = state.pop("last_ask", None)
     state["last_reply_question"] = False
     prompt = (event.get("prompt") or "").strip()
+    if not prompt:
+        return None
+    outcome = classify_reply(prompt)
     # A reply is only a reply if something was asked. Without that, "we decided
     # on postgres last week, now write the migration" reads as "it was in
     # memory" — the markers are loose on purpose, and only an ask gives them
-    # something to be about.
-    if not prompt or not last_ask:
+    # something to be about. So nothing is injected here.
+    #
+    # It is still LOGGED, under its own outcome. An ask the detector did not
+    # recognise leaves no `last_ask` behind, so a marker firing with no ask in
+    # front of it is the only trace the detector's own blind spots leave —
+    # `unasked:miss` counts them, as an upper bound rather than a count.
+    if not last_ask:
+        if outcome:
+            log_decision({
+                "session": session, "event": "UserPromptSubmit", "after_shape": None,
+                "after_decision": None, "after_reason": None,
+                "outcome": f"unasked:{outcome}", "reply_len": len(prompt),
+            })
         return None
-    if MISS_MARKERS.search(prompt):
-        outcome = "miss"
-    elif COMPLAINT_MARKERS.search(prompt):
-        outcome = "complaint"
-    elif CAPTURE_MARKERS.search(prompt):
-        outcome = "capture_nudge"
-    else:
-        outcome = "answered"
+    outcome = outcome or "answered"
     # The reply's text is NOT logged: a human answering a question sometimes
     # pastes the key the agent asked for. Its length is enough to measure with.
     log_decision({

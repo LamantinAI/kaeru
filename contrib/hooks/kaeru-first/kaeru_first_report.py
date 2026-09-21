@@ -34,7 +34,15 @@ def main(argv: list[str]) -> int:
         return 0
     rows = [json.loads(ln) for ln in path.read_text(encoding="utf-8").splitlines() if ln.strip()]
     asks = [r for r in rows if r.get("event") in ("PreToolUse", "Stop")]
-    replies = [r for r in rows if r.get("event") == "UserPromptSubmit"]
+    prompts = [r for r in rows if r.get("event") == "UserPromptSubmit"]
+    # A reply classified with no ask in front of it: the detector did not see
+    # the ask, or there was none. Kept apart from the rest — it measures the
+    # detector, not the gate.
+    def unprompted(row: dict) -> bool:
+        return str(row.get("outcome") or "").startswith("unasked:")
+
+    unasked = [r for r in prompts if unprompted(r)]
+    replies = [r for r in prompts if not unprompted(r)]
     print(f"{len(asks)} ask(s) gated, {len(replies)} human reply(ies) classified, "
           f"{len({r.get('session') for r in rows})} session(s)\n")
 
@@ -61,6 +69,15 @@ def main(argv: list[str]) -> int:
     print(f"\nmisses (human said it was in memory): {len(misses)}; of those the gate had let through: {len(passed_then_miss)}")
     for k, n in collections.Counter(r.get("after_reason") for r in passed_then_miss).most_common():
         print(f"  let through because {str(k):28s} {n:4d}")
+
+    # The gate can only act on an ask it recognised. These are the replies that
+    # read like an answer with no recognised ask before them — an upper bound
+    # on what the detector does not see, since the markers are loose and a
+    # statement can trip them on its own.
+    if unasked:
+        print(f"\nno ask recognised before the reply — the detector's blind spot, at most: {len(unasked)}")
+        for k, n in collections.Counter(r.get("outcome") for r in unasked).most_common():
+            print(f"  {str(k):30s} {n:5d}")
     return 0
 
 

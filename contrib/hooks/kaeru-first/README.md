@@ -132,6 +132,14 @@ number that matters — misses the gate had let through, and why. The log also
 carries `name_hits` for every shown block, so whether a name match predicts a
 useful block is one more thing that can be measured rather than argued.
 
+A reply whose markers fire with **no recognised ask** before it is logged too,
+as `unasked:miss` and friends, and counted apart. Nothing is injected for it —
+the markers are loose, and a statement can trip them on its own — but it is
+the only trace an ask the detector never saw leaves behind, so it stands as an
+upper bound on the detector's blind spot. The reply's own text is never
+logged, only its length: an answer to *"which key is it?"* is exactly the
+thing a log should not hold.
+
 ## Lexicons
 
 Everything the hook knows about a human language is **data**: the stopwords,
