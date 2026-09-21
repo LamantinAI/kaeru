@@ -339,6 +339,18 @@ const SCHEMA_STATEMENTS: &[&str] = &[
         pending_report: String? default null,
     }
     "#,
+    // When the hygiene pass last unloaded a node from `core` (#94). A layer
+    // move is an in-place rewrite and does not touch the node's timestamp,
+    // so a node demoted `core` → `hot` is instantly an old `hot` episode and
+    // the archive rule takes it a second step on the very next pass. This
+    // stamp is what the grace period reads. Not bi-temporal — maintenance
+    // state, not knowledge history.
+    r#"
+    :create hygiene_demotion {
+        node_id: String =>
+        at: Float default 0.0,
+    }
+    "#,
     // Which clouds an initiative may be shared into. A junction rather than a
     // column on `initiative`: the natural shape is a set, and an absent set
     // means "no restriction", which is exactly what an empty junction says

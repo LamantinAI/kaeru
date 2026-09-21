@@ -261,6 +261,17 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   `awake` marks a listed node the graph has ruled on (`⚠ superseded by …`),
   because hygiene runs on a write trigger while a superseded fact is wrong
   immediately.
+- **"Never more than one step" holds across passes, not only within one
+  (#94).** A layer move is an in-place rewrite and does not refresh the
+  node's timestamp, so a `core` episode demoted to `hot` was instantly an
+  old unreferenced `hot` episode — exactly the archive rule — and the next
+  pass sent it to `cold`. The pass stamps what it unloads from `core` in
+  `hygiene_demotion`, and the archive rule skips a node for one journal age
+  after that; the stamp is dropped once it has expired. The guarantee is the
+  one a user relies on: a misjudged `core` node lands where it can be seen
+  and put back, not in an archive nobody opens. A pass is therefore
+  idempotent on an unchanged graph — a new test says so on the node the old
+  one could not see.
 - **The task board is the one deliberate exception.** `set_status` validates strictly against the initiative's status registry and refuses an unknown key. That is not enforcement of a *workflow* — any task may move to any column, in any order — it protects the registry's role as the single source of truth for a shared vocabulary: a typo must not silently spawn a phantom column. Widening the vocabulary stays an explicit act (`add_status`). The board describes columns; it never gates transitions.
 
 ## Backend Rules

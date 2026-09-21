@@ -84,6 +84,10 @@ const MIGRATIONS: &[Migration] = &[
         name: "0008_supersedes_orientation",
         up: m0008_supersedes_orientation,
     },
+    Migration {
+        name: "0009_hygiene_demotion",
+        up: m0009_hygiene_demotion,
+    },
 ];
 
 /// Applies pending migrations. `fresh` is `true` when the vault was just
@@ -405,6 +409,19 @@ fn m0007_initiative_cloud(db: &DbInstance) -> Result<()> {
     if !relation_exists(db, "initiative_cloud")? {
         db.run_script(
             ":create initiative_cloud { initiative: String, cloud: String }",
+            BTreeMap::new(),
+            ScriptMutability::Mutable,
+        )?;
+    }
+    Ok(())
+}
+
+/// `0009` — the grace period's stamp (#94): when the pass last unloaded a
+/// node from `core`, so the archive rule can leave it alone for a while.
+fn m0009_hygiene_demotion(db: &DbInstance) -> Result<()> {
+    if !relation_exists(db, "hygiene_demotion")? {
+        db.run_script(
+            ":create hygiene_demotion { node_id: String => at: Float default 0.0 }",
             BTreeMap::new(),
             ScriptMutability::Mutable,
         )?;

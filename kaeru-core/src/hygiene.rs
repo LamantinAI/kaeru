@@ -11,9 +11,13 @@
 //! * **It only moves layers.** No deletion, no rewriting of names or bodies,
 //!   no merging, no touching `visibility` — the cloud fate of a node stays a
 //!   human decision. Every action reverses with one `layer` call.
-//! * **It never demotes `core` more than one step.** A misjudged `core` node
-//!   lands in `hot`, still inside the window of recent nodes, not in an
-//!   archive nobody opens.
+//! * **It never demotes `core` more than one step** — and the promise holds
+//!   across passes, not only within one (#94). A misjudged `core` node lands
+//!   in `hot`, still inside the window of recent nodes, not in an archive
+//!   nobody opens, and it stays there for a full journal age before the
+//!   archive rule may look at it: a layer move does not refresh the node's
+//!   timestamp, so without that grace the very next pass took it the rest of
+//!   the way.
 //! * **It weighs a node by support, never by contact.** An inbound
 //!   `supersedes`, `contradicts` or `falsifies` cancels a node; counting it
 //!   as a reference made the edge that says "obsolete" the edge that kept it
@@ -299,6 +303,8 @@ struct Scanned {
     in_degree: usize,
     /// The verdict a live node has passed on this one, if any.
     cancelled_by: Option<Verdict>,
+    /// When the pass last unloaded this node from `core`, if it did (#94).
+    demoted_at: Option<f64>,
     pinned: bool,
 }
 
@@ -352,6 +358,23 @@ fn scan(store: &Store, initiative: &str) -> Result<Vec<Scanned>> {
     // is an open doubt, and stops at not protecting its target.
     let cancelled_by = verdicts_against(store)?;
 
+    // When the pass last unloaded a node from `core`, for the grace period
+    // the archive rule owes it (#94).
+    let demotions = store.db_ref().run_script(
+        "?[node_id, at] := *hygiene_demotion{node_id, at}",
+        BTreeMap::new(),
+        ScriptMutability::Immutable,
+    )?;
+    let mut demoted_at: BTreeMap<String, f64> = BTreeMap::new();
+    for r in &demotions.rows {
+        if let (Some(id), Some(at)) = (
+            r.first().and_then(|v| v.get_str()),
+            r.get(1).and_then(|v| v.get_float()),
+        ) {
+            demoted_at.insert(id.to_string(), at);
+        }
+    }
+
     let pins = store.db_ref().run_script(
         "?[node_id] := *session_pin{node_id}",
         BTreeMap::new(),
@@ -389,6 +412,7 @@ fn scan(store: &Store, initiative: &str) -> Result<Vec<Scanned>> {
             ts: validity_seconds(r.get(4)).unwrap_or(0.0),
             in_degree: in_degree.get(&id).copied().unwrap_or(0),
             cancelled_by: cancelled_by.get(&id).cloned(),
+            demoted_at: demoted_at.get(&id).copied(),
             pinned: pinned.contains(&id),
             id,
         });
@@ -445,9 +469,24 @@ pub fn collect(store: &Store, initiative: &str) -> Result<Vec<HygieneCandidate>>
                 }
             }
             // The journal: episodes that were interesting the day they were
-            // written. Archive once they are old AND unreferenced.
+            // written. Archive once they are old AND unreferenced — unless
+            // the pass itself put the node here (#94). A layer move is an
+            // in-place rewrite that does not refresh the node's timestamp,
+            // so a node demoted out of `core` is instantly an old `hot`
+            // episode and the next pass would archive it. That would make
+            // "never more than one step" true per pass and false across
+            // two, which is the promise a user actually relies on: a
+            // misjudged `core` node lands in the working set, where it can
+            // be seen and put back, not in an archive nobody opens.
             Layer::Hot | Layer::Warm => {
-                if node.node_type == "episode" && node.ts < journal_cutoff && node.in_degree == 0 {
+                let in_grace = node
+                    .demoted_at
+                    .is_some_and(|at| now - at < cfg.hygiene_journal_age_secs as f64);
+                if node.node_type == "episode"
+                    && node.ts < journal_cutoff
+                    && node.in_degree == 0
+                    && !in_grace
+                {
                     out.push(HygieneCandidate {
                         node_id: node.id.clone(),
                         name: node.name.clone(),
@@ -557,7 +596,10 @@ pub fn apply_batch(
         set_layer_as(store, &candidate.node_id, candidate.to, HYGIENE_ACTOR)?;
         match candidate.action {
             HygieneAction::Archive => report.archived += 1,
-            HygieneAction::DemoteFromCore => report.demoted += 1,
+            HygieneAction::DemoteFromCore => {
+                stamp_demotion(store, &candidate.node_id)?;
+                report.demoted += 1;
+            }
             HygieneAction::Promote => report.promoted += 1,
         }
         report.lines.push(format!(
@@ -569,6 +611,47 @@ pub fn apply_batch(
             candidate.reason
         ));
     }
+    Ok(())
+}
+
+/// Records that the pass unloaded `node_id` from `core`, so the archive rule
+/// can leave it in the working set for a while (#94).
+///
+/// Overwrites any earlier stamp: what matters is the most recent move, and a
+/// node demoted a second time starts its grace period again.
+fn stamp_demotion(store: &Store, node_id: &NodeId) -> Result<()> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
+    params.insert(
+        "at".to_string(),
+        DataValue::from(now_validity_seconds() as f64),
+    );
+    store.db_ref().run_script(
+        r#"
+        ?[node_id, at] <- [[$id, $at]]
+        :put hygiene_demotion {node_id => at}
+        "#,
+        params,
+        ScriptMutability::Mutable,
+    )?;
+    Ok(())
+}
+
+/// Drops demotion stamps whose grace period has run out — they answer
+/// nothing after that, and the relation would otherwise grow one row per
+/// node the pass has ever unloaded.
+fn prune_demotions(store: &Store) -> Result<()> {
+    let cutoff = now_validity_seconds() as f64 - store.config().hygiene_journal_age_secs as f64;
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("cutoff".to_string(), DataValue::from(cutoff));
+    store.db_ref().run_script(
+        r#"
+        ?[node_id] := *hygiene_demotion{node_id, at}, at < $cutoff
+        :rm hygiene_demotion {node_id}
+        "#,
+        params,
+        ScriptMutability::Mutable,
+    )?;
     Ok(())
 }
 
@@ -594,6 +677,7 @@ pub fn record_run(
             None => DataValue::Null,
         },
     );
+    prune_demotions(store)?;
     let script = r#"
         ?[initiative, last_run_at, nodes_at_last_run, pending_report] <-
             [[$init, $at, $nodes, $report]]
@@ -1500,5 +1584,92 @@ mod tests {
 
         force_pass(&store, "proj", || true).expect("pass");
         assert_eq!(get_layer(&store, &stale).expect("layer"), Layer::Core);
+    }
+
+    // ── one step, across passes too (#94) ──────────────────────────────────
+
+    /// Backdates the pass's own demotion stamp, so the grace period can be
+    /// tested without waiting a fortnight.
+    fn backdate_demotion(store: &Store, id: &NodeId, days: u64) {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+        params.insert(
+            "at".to_string(),
+            DataValue::from((now_validity_seconds() - days * 86_400) as f64),
+        );
+        store
+            .db_ref()
+            .run_script(
+                "?[node_id, at] <- [[$id, $at]] :put hygiene_demotion {node_id => at}",
+                params,
+                ScriptMutability::Mutable,
+            )
+            .expect("backdate the stamp");
+    }
+
+    /// The promise is "never more than one step". A layer move does not
+    /// refresh the node's timestamp, so a demoted `core` episode was an old
+    /// unreferenced `hot` episode the moment it landed — and the next pass
+    /// archived it. Two passes over an unchanged graph moved it twice.
+    #[test]
+    fn a_demoted_core_episode_stays_in_the_working_set() {
+        let store = eager_store();
+        let old = episode_in(&store, "proj", "old-core-note");
+        set_layer(&store, &old, Layer::Core).expect("core");
+        backdate(&store, &old, 60);
+
+        force_pass(&store, "proj", || true).expect("pass 1");
+        assert_eq!(
+            get_layer(&store, &old).expect("layer"),
+            Layer::Hot,
+            "pass 1 unloads it from core"
+        );
+
+        let report = force_pass(&store, "proj", || true)
+            .expect("pass 2")
+            .expect("the pass ran");
+        assert_eq!(report.archived, 0, "pass 2 has nothing to archive");
+        assert_eq!(
+            get_layer(&store, &old).expect("layer"),
+            Layer::Hot,
+            "and it is still where a user can see it and put it back"
+        );
+    }
+
+    /// The grace is a delay, not an exemption: once the node has sat in the
+    /// working set for a full journal age without anything pointing at it,
+    /// it is an ordinary stale journal entry again.
+    #[test]
+    fn the_grace_period_expires() {
+        let store = eager_store();
+        let old = episode_in(&store, "proj", "old-core-note");
+        set_layer(&store, &old, Layer::Core).expect("core");
+        backdate(&store, &old, 60);
+
+        force_pass(&store, "proj", || true).expect("pass 1");
+        backdate_demotion(&store, &old, 30);
+
+        force_pass(&store, "proj", || true).expect("pass 2");
+        assert_eq!(get_layer(&store, &old).expect("layer"), Layer::Cold);
+
+        let left = store
+            .run_read("?[node_id] := *hygiene_demotion{node_id}")
+            .expect("read stamps");
+        assert!(
+            left.rows.is_empty(),
+            "an expired stamp answers nothing and is not kept"
+        );
+    }
+
+    /// The grace belongs to nodes the PASS moved. A stale journal entry
+    /// nobody demoted is archived on the first pass, as it always was.
+    #[test]
+    fn a_journal_entry_the_pass_never_moved_is_archived_at_once() {
+        let store = eager_store();
+        let old = episode_in(&store, "proj", "deployed-something");
+        backdate(&store, &old, 30);
+
+        force_pass(&store, "proj", || true).expect("pass");
+        assert_eq!(get_layer(&store, &old).expect("layer"), Layer::Cold);
     }
 }
