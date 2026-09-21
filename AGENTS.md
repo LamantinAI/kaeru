@@ -229,6 +229,21 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   guarantees nobody chooses. The `seen:` stamp is written where delivery
   happens — `awake` — following `take_pending_report`, which already clears the
   hygiene headline as it hands it over.
+- **`supersedes` runs one way: `src` supersedes `dst` (#93).** The
+  replacement is the source, so an **inbound** `supersedes` says a node has
+  been replaced — which is what lets a read ask "is this still current?" at
+  all. It was being written both ways until 0.7.4: `supersedes()` and
+  `occupy_slot` said old → new, while `mark_resolved`, `resolve_review` and
+  every agent calling `link` said new → old. Two orientations made the
+  question unanswerable for half the graph, so the two primitives were
+  turned around and `0008_supersedes_orientation` flips what they had
+  already written — attributing an edge to a primitive through the audit
+  trail, and never touching one it cannot attribute, because an
+  agent-written edge is already right and flipping it would invert its
+  meaning. A pair that carries both directions is left alone and reported by
+  `lint`: choosing between two deliberate writes is a judgement, not a
+  migration. When adding a writer or a reader of this edge, state the
+  direction in its doc comment.
 - **The task board is the one deliberate exception.** `set_status` validates strictly against the initiative's status registry and refuses an unknown key. That is not enforcement of a *workflow* — any task may move to any column, in any order — it protects the registry's role as the single source of truth for a shared vocabulary: a typo must not silently spawn a phantom column. Widening the vocabulary stays an explicit act (`add_status`). The board describes columns; it never gates transitions.
 
 ## Backend Rules

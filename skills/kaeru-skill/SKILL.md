@@ -319,6 +319,11 @@ Edge types are a closed vocabulary: `refers_to` (default), `causal`,
 `derived_from`, `contradicts`, `part_of`, `blocks`, `targets`,
 `supersedes`, `verifies`, `falsifies`, `temporal`, `consolidated_to`.
 
+`supersedes` is the one whose direction carries meaning: write it from the
+replacement to what it replaces — `link(from="<new>", to="<old>",
+edge_type="supersedes")`. An inbound `supersedes` therefore says "this node
+has been replaced".
+
 ## Inquire (read)
 
 ```

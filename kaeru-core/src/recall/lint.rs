@@ -1,5 +1,6 @@
 //! `lint` — read-only graph-hygiene snapshot. Surfaces orphan nodes,
-//! the unresolved-review queue, and dangling edges in one report.
+//! the unresolved-review queue, dangling edges and contradictory
+//! supersessions in one report.
 
 use std::collections::BTreeMap;
 
@@ -31,6 +32,16 @@ pub struct LintReport {
     /// at NOW walks into nothing, so they usually want re-pointing at
     /// the successor node or retracting.
     pub dangling_edges: Vec<(NodeId, NodeId, String)>,
+    /// Pairs joined by a `supersedes` edge in BOTH directions, as
+    /// `(a, b)` with `a < b` so the pair is reported once.
+    ///
+    /// `supersedes` runs one way — `src` supersedes `dst` (#93) — so a pair
+    /// that carries both says each node replaced the other, and nothing can
+    /// tell which is current. The migration that settled the direction
+    /// deliberately leaves these alone: choosing between two deliberate
+    /// writes is a judgement, so they surface here instead. `unlink` the
+    /// wrong one.
+    pub supersedes_conflicts: Vec<(NodeId, NodeId)>,
 }
 
 /// Returns a diagnostic snapshot of graph hygiene at NOW. Read-only.
@@ -123,10 +134,50 @@ pub fn lint(store: &Store) -> Result<LintReport> {
         })
         .collect();
 
+    // Contradictory supersessions: both `a → b` and `b → a`. Reported once
+    // per pair, and only when both endpoints are live — a pair hanging off a
+    // retracted node is already in `dangling_edges`.
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    let conflict_script = match store.current_initiative() {
+        Some(init) => {
+            params.insert("init".to_string(), DataValue::Str(init.into()));
+            r#"
+                alive[id] := *node{id, type @ 'NOW'}
+                member[id] := *node_initiative{initiative, node_id: id}, initiative = $init
+                ?[src, dst] := *edge{src, dst, edge_type @ 'NOW'}, edge_type = 'supersedes',
+                               *edge{src: dst, dst: src, edge_type @ 'NOW'},
+                               src < dst, alive[src], alive[dst],
+                               member[src], member[dst]
+            "#
+        }
+        None => {
+            r#"
+                alive[id] := *node{id, type @ 'NOW'}
+                ?[src, dst] := *edge{src, dst, edge_type @ 'NOW'}, edge_type = 'supersedes',
+                               *edge{src: dst, dst: src, edge_type @ 'NOW'},
+                               src < dst, alive[src], alive[dst]
+            "#
+        }
+    };
+    let rows = store
+        .db_ref()
+        .run_script(conflict_script, params, ScriptMutability::Immutable)?;
+    let supersedes_conflicts: Vec<(NodeId, NodeId)> = rows
+        .rows
+        .iter()
+        .filter_map(|r| {
+            Some((
+                r.first().and_then(|v| v.get_str())?.to_string(),
+                r.get(1).and_then(|v| v.get_str())?.to_string(),
+            ))
+        })
+        .collect();
+
     Ok(LintReport {
         orphans,
         unresolved_reviews,
         dangling_edges,
+        supersedes_conflicts,
     })
 }
 
@@ -180,6 +231,36 @@ mod tests {
                 .iter()
                 .any(|(s, d, _)| s == &new_id && d == &b),
             "edges of the live replacement are not dangling"
+        );
+    }
+
+    /// `supersedes` runs one way, so a pair carrying both directions says
+    /// each node replaced the other. `lint` reports the pair once; a pair
+    /// that carries one direction is ordinary and silent.
+    #[test]
+    fn lint_reports_a_pair_that_supersedes_itself_both_ways() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("demo");
+
+        let new = crate::jot(&store, "the new truth").expect("jot");
+        let old = crate::jot(&store, "the old truth").expect("jot");
+        crate::link(&store, &new, &old, EdgeType::Supersedes).expect("link new -> old");
+        assert!(
+            crate::lint(&store)
+                .expect("lint")
+                .supersedes_conflicts
+                .is_empty(),
+            "one direction is how the edge is meant to be written"
+        );
+
+        crate::link(&store, &old, &new, EdgeType::Supersedes).expect("link old -> new");
+        let report = crate::lint(&store).expect("lint");
+        let mut pair = vec![new, old];
+        pair.sort();
+        assert_eq!(
+            report.supersedes_conflicts,
+            vec![(pair[0].clone(), pair[1].clone())],
+            "reported once, not once per direction"
         );
     }
 }

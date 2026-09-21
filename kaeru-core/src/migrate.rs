@@ -36,9 +36,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use cozo::{DbInstance, ScriptMutability};
+use cozo::{DataValue, DbInstance, ScriptMutability};
 
 use crate::errors::{Error, Result};
+use crate::graph::temporal::parse_validity;
 
 /// One forward-only migration. `name` must be unique and sort in application
 /// order; `up` must be idempotent (safe to run against a vault that already
@@ -78,6 +79,10 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         name: "0007_initiative_cloud",
         up: m0007_initiative_cloud,
+    },
+    Migration {
+        name: "0008_supersedes_orientation",
+        up: m0008_supersedes_orientation,
     },
 ];
 
@@ -407,6 +412,235 @@ fn m0007_initiative_cloud(db: &DbInstance) -> Result<()> {
     Ok(())
 }
 
+/// `0008` — one direction for `supersedes` (#93).
+///
+/// The type meant opposite things depending on who wrote it: `supersedes()`
+/// and `occupy_slot` wrote old → new, while `mark_resolved`, `resolve_review`
+/// and every agent calling `link a b supersedes` wrote new → old. The
+/// surviving orientation is **`src` supersedes `dst`** — the reading of the
+/// verb, and what live vaults are already full of — so this migration turns
+/// the two primitive-written kinds around.
+///
+/// Only edges it can **attribute to a primitive** are touched, because an
+/// agent-written edge is already right and flipping it would invert its
+/// meaning. Attribution comes from the audit trail:
+///
+///   * `op = "supersedes"` carries `affected_refs = [old, new]`, which names
+///     the stored edge `old → new` exactly;
+///   * `op = "occupy_slot"` carries only the new holder, so the succession
+///     edge is the one ending at that node written in the seconds before the
+///     audit — `occupy_slot` writes the link, then the layer move, then the
+///     audit, with nothing in between that waits on anything.
+///
+/// A pair that already has BOTH directions stored is left alone: something
+/// wrote the other one deliberately, and `lint` reports it for a human.
+///
+/// The rows are rewritten in place rather than retracted and re-asserted.
+/// The edge never changed — only the way it was encoded — so a read at a past
+/// moment should see the correct direction too, and a retraction here would
+/// instead tell every such reader that the succession stopped being true
+/// today.
+///
+/// Idempotent: a second run finds no stored row under the old orientation.
+fn m0008_supersedes_orientation(db: &DbInstance) -> Result<()> {
+    // How long after its edge the `occupy_slot` audit may land. Generous: the
+    // writes in between are two local Cozo scripts.
+    const SLOT_AUDIT_WINDOW_SECS: f64 = 5.0;
+
+    if !relation_exists(db, "edge")? || !relation_exists(db, "node")? {
+        return Ok(());
+    }
+
+    // Every `supersedes` edge live at NOW, with the moment it was asserted.
+    let live = db.run_script(
+        r#"
+        ?[src, dst, validity] := *edge{src, dst, edge_type, validity @ 'NOW'},
+                                 edge_type = 'supersedes'
+        "#,
+        BTreeMap::new(),
+        ScriptMutability::Immutable,
+    )?;
+    let mut edges: Vec<(String, String, f64)> = Vec::new();
+    for row in &live.rows {
+        let (Some(src), Some(dst)) = (
+            row.first().and_then(|v| v.get_str()),
+            row.get(1).and_then(|v| v.get_str()),
+        ) else {
+            continue;
+        };
+        let secs = parse_validity(row.get(2)).map(|(s, _)| s).unwrap_or(0.0);
+        edges.push((src.to_string(), dst.to_string(), secs));
+    }
+    if edges.is_empty() {
+        return Ok(());
+    }
+    let stored: BTreeSet<(String, String)> = edges
+        .iter()
+        .map(|(src, dst, _)| (src.clone(), dst.clone()))
+        .collect();
+
+    // The audit trail, which is what says who wrote an edge.
+    let audits = db.run_script(
+        r#"
+        ?[validity, properties] := *node{id, type, validity, properties @ 'NOW'},
+                                   type = 'audit_event'
+        "#,
+        BTreeMap::new(),
+        ScriptMutability::Immutable,
+    )?;
+    let mut backwards: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut slot_events: Vec<(String, f64)> = Vec::new();
+    for row in &audits.rows {
+        let Some(DataValue::Json(payload)) = row.get(1) else {
+            continue;
+        };
+        let op = payload.0.get("op").and_then(|v| v.as_str()).unwrap_or("");
+        let refs: Vec<String> = payload
+            .0
+            .get("affected_refs")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+        match op {
+            "supersedes" if refs.len() == 2 => {
+                backwards.insert((refs[0].clone(), refs[1].clone()));
+            }
+            "occupy_slot" if refs.len() == 1 => {
+                let secs = parse_validity(row.first()).map(|(s, _)| s).unwrap_or(0.0);
+                slot_events.push((refs[0].clone(), secs));
+            }
+            _ => {}
+        }
+    }
+    for (holder, audited_at) in &slot_events {
+        for (src, dst, secs) in &edges {
+            if dst == holder && *secs <= *audited_at && audited_at - secs <= SLOT_AUDIT_WINDOW_SECS
+            {
+                backwards.insert((src.clone(), dst.clone()));
+            }
+        }
+    }
+
+    for (src, dst) in backwards {
+        if !stored.contains(&(src.clone(), dst.clone())) {
+            continue; // already flipped by an earlier run, or long retracted
+        }
+        if stored.contains(&(dst.clone(), src.clone())) {
+            continue; // both directions exist — a human decides, `lint` says so
+        }
+        flip_edge(db, &src, &dst)?;
+    }
+    Ok(())
+}
+
+/// Rewrites every stored row of the `supersedes` edge `src → dst` as
+/// `dst → src`, history included, and moves its initiative membership with
+/// it. Used only by `0008`.
+fn flip_edge(db: &DbInstance, src: &str, dst: &str) -> Result<()> {
+    let mut read: BTreeMap<String, DataValue> = BTreeMap::new();
+    read.insert("s".to_string(), DataValue::Str(src.into()));
+    read.insert("d".to_string(), DataValue::Str(dst.into()));
+    let rows = db.run_script(
+        r#"
+        ?[validity, weight, properties] :=
+            *edge{src: $s, dst: $d, edge_type, validity, weight, properties},
+            edge_type = 'supersedes'
+        "#,
+        read,
+        ScriptMutability::Immutable,
+    )?;
+
+    for row in &rows.rows {
+        let (secs, asserted) = parse_validity(row.first())?;
+        let validity = DataValue::List(vec![DataValue::from(secs), DataValue::Bool(asserted)]);
+
+        let mut rm: BTreeMap<String, DataValue> = BTreeMap::new();
+        rm.insert("s".to_string(), DataValue::Str(src.into()));
+        rm.insert("d".to_string(), DataValue::Str(dst.into()));
+        rm.insert("v".to_string(), validity.clone());
+        db.run_script(
+            r#"
+            ?[src, dst, edge_type, validity] <- [[$s, $d, 'supersedes', $v]]
+            :rm edge {src, dst, edge_type, validity}
+            "#,
+            rm,
+            ScriptMutability::Mutable,
+        )?;
+
+        let mut put: BTreeMap<String, DataValue> = BTreeMap::new();
+        put.insert("s".to_string(), DataValue::Str(dst.into()));
+        put.insert("d".to_string(), DataValue::Str(src.into()));
+        put.insert("v".to_string(), validity);
+        put.insert(
+            "w".to_string(),
+            row.get(1).cloned().unwrap_or(DataValue::from(1.0)),
+        );
+        put.insert(
+            "p".to_string(),
+            row.get(2).cloned().unwrap_or(DataValue::Null),
+        );
+        db.run_script(
+            r#"
+            ?[src, dst, edge_type, validity, weight, properties] <-
+                [[$s, $d, 'supersedes', $v, $w, $p]]
+            :put edge {src, dst, edge_type, validity => weight, properties}
+            "#,
+            put,
+            ScriptMutability::Mutable,
+        )?;
+    }
+
+    // The junction keys an edge by `src|dst|type`, so it has to turn too.
+    if relation_exists(db, "edge_initiative")? {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert(
+            "old".to_string(),
+            DataValue::Str(format!("{src}|{dst}|supersedes").into()),
+        );
+        let memberships = db.run_script(
+            "?[initiative] := *edge_initiative{initiative, edge_pk}, edge_pk = $old",
+            params,
+            ScriptMutability::Immutable,
+        )?;
+        for row in &memberships.rows {
+            let Some(initiative) = row.first().and_then(|v| v.get_str()) else {
+                continue;
+            };
+            let mut move_params: BTreeMap<String, DataValue> = BTreeMap::new();
+            move_params.insert("init".to_string(), DataValue::Str(initiative.into()));
+            move_params.insert(
+                "old".to_string(),
+                DataValue::Str(format!("{src}|{dst}|supersedes").into()),
+            );
+            move_params.insert(
+                "new".to_string(),
+                DataValue::Str(format!("{dst}|{src}|supersedes").into()),
+            );
+            db.run_script(
+                r#"
+                ?[initiative, edge_pk] <- [[$init, $new]]
+                :put edge_initiative {initiative, edge_pk}
+                "#,
+                move_params.clone(),
+                ScriptMutability::Mutable,
+            )?;
+            db.run_script(
+                r#"
+                ?[initiative, edge_pk] <- [[$init, $old]]
+                :rm edge_initiative {initiative, edge_pk}
+                "#,
+                move_params,
+                ScriptMutability::Mutable,
+            )?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
@@ -414,7 +648,10 @@ mod tests {
     use cozo::{DbInstance, ScriptMutability};
 
     use super::{column_exists, index_exists, relation_exists, run_migrations};
+    use crate::graph::EdgeType;
+    use crate::graph::audit::write_audit;
     use crate::store::Store;
+    use crate::{jot, link};
 
     /// A v0.1.0-shaped `node` (no `visibility` / `layer`), as a real legacy
     /// vault carries it. The column-backfill migrations read this exact set.
@@ -685,5 +922,179 @@ mod tests {
         }
 
         let _ = fs::remove_dir_all(&path);
+    }
+
+    // ── 0008: one direction for `supersedes` (#93) ─────────────────────────
+
+    /// Edges live at NOW as `(src, dst)` pairs of a given type.
+    fn supersedes_edges(store: &Store) -> Vec<(String, String)> {
+        let rows = store
+            .run_read(
+                r#"
+                ?[src, dst] := *edge{src, dst, edge_type @ 'NOW'}, edge_type = 'supersedes'
+                "#,
+            )
+            .expect("read edges");
+        rows.rows
+            .iter()
+            .filter_map(|r| {
+                Some((
+                    r.first()?.get_str()?.to_string(),
+                    r.get(1)?.get_str()?.to_string(),
+                ))
+            })
+            .collect()
+    }
+
+    /// The legacy shape: `supersedes()` wrote old → new and left an audit
+    /// event naming both. That edge turns around; an agent's own edge, which
+    /// no audit attributes to a primitive, must not.
+    #[test]
+    fn m0008_flips_what_a_primitive_wrote_and_nothing_else() {
+        let store = Store::open_in_memory().expect("open");
+        let old = jot(&store, "the old truth").expect("jot");
+        let new = jot(&store, "the new truth").expect("jot");
+        link(&store, &old, &new, EdgeType::Supersedes).expect("legacy edge");
+        write_audit(
+            store.db_ref(),
+            "supersedes",
+            "system",
+            &[old.clone(), new.clone()],
+        )
+        .expect("audit");
+
+        let answer = jot(&store, "the answer").expect("jot");
+        let question = jot(&store, "the question").expect("jot");
+        link(&store, &answer, &question, EdgeType::Supersedes).expect("agent edge");
+
+        super::m0008_supersedes_orientation(store.db_ref()).expect("migrate");
+
+        let edges = supersedes_edges(&store);
+        assert!(
+            edges.contains(&(new.clone(), old.clone())),
+            "the successor now points at what it replaced: {edges:?}"
+        );
+        assert!(
+            !edges.contains(&(old.clone(), new.clone())),
+            "and the old orientation is gone: {edges:?}"
+        );
+        assert!(
+            edges.contains(&(answer, question)),
+            "an edge no primitive wrote is already right: {edges:?}"
+        );
+    }
+
+    /// `occupy_slot` wrote the succession edge and then an audit naming only
+    /// the new holder, so the edge is identified by ending at that holder a
+    /// moment earlier.
+    #[test]
+    fn m0008_flips_a_slot_succession() {
+        let store = Store::open_in_memory().expect("open");
+        let prev = jot(&store, "handoff-one").expect("jot");
+        let next = jot(&store, "handoff-two").expect("jot");
+        link(&store, &prev, &next, EdgeType::Supersedes).expect("legacy edge");
+        write_audit(store.db_ref(), "occupy_slot", "system", &[next.clone()]).expect("audit");
+
+        super::m0008_supersedes_orientation(store.db_ref()).expect("migrate");
+
+        assert_eq!(
+            supersedes_edges(&store),
+            vec![(next, prev)],
+            "the new holder supersedes the old one"
+        );
+    }
+
+    /// Both orientations stored means somebody wrote the second one
+    /// deliberately. The migration does not choose between them — `lint` puts
+    /// the pair in front of a human.
+    #[test]
+    fn m0008_leaves_a_pair_that_has_both_directions() {
+        let store = Store::open_in_memory().expect("open");
+        let old = jot(&store, "v1").expect("jot");
+        let new = jot(&store, "v2").expect("jot");
+        link(&store, &old, &new, EdgeType::Supersedes).expect("legacy");
+        link(&store, &new, &old, EdgeType::Supersedes).expect("the other way");
+        write_audit(
+            store.db_ref(),
+            "supersedes",
+            "system",
+            &[old.clone(), new.clone()],
+        )
+        .expect("audit");
+
+        super::m0008_supersedes_orientation(store.db_ref()).expect("migrate");
+
+        let mut edges = supersedes_edges(&store);
+        edges.sort();
+        let mut expected = vec![(old.clone(), new.clone()), (new, old)];
+        expected.sort();
+        assert_eq!(edges, expected, "both survive, untouched");
+    }
+
+    /// A vault written by THIS build already writes new → old, so the pass
+    /// has nothing to do — and running it twice must not undo its own work.
+    #[test]
+    fn m0008_is_a_no_op_on_a_current_vault_and_idempotent() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("proj");
+        let old = jot(&store, "the old truth").expect("jot");
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let new = crate::supersedes(
+            &store,
+            &old,
+            crate::NodeType::Episode,
+            crate::Tier::Operational,
+            "v2",
+            "the new truth",
+        )
+        .expect("supersedes");
+        let before = supersedes_edges(&store);
+        assert_eq!(
+            before,
+            vec![(new.clone(), old.clone())],
+            "written new → old"
+        );
+
+        super::m0008_supersedes_orientation(store.db_ref()).expect("first run");
+        super::m0008_supersedes_orientation(store.db_ref()).expect("second run");
+
+        assert_eq!(supersedes_edges(&store), before, "nothing moved");
+    }
+
+    /// The junction keys an edge by `src|dst|type`, so a flipped edge has to
+    /// take its initiative membership with it or it leaves the scope.
+    #[test]
+    fn m0008_moves_the_initiative_membership_with_the_edge() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("proj");
+        let old = jot(&store, "v1").expect("jot");
+        let new = jot(&store, "v2").expect("jot");
+        link(&store, &old, &new, EdgeType::Supersedes).expect("legacy");
+        write_audit(
+            store.db_ref(),
+            "supersedes",
+            "system",
+            &[old.clone(), new.clone()],
+        )
+        .expect("audit");
+
+        super::m0008_supersedes_orientation(store.db_ref()).expect("migrate");
+
+        let rows = store
+            .run_read("?[edge_pk] := *edge_initiative{initiative, edge_pk}, initiative = 'proj'")
+            .expect("read junction");
+        let keys: Vec<String> = rows
+            .rows
+            .iter()
+            .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
+            .collect();
+        assert!(
+            keys.contains(&format!("{new}|{old}|supersedes")),
+            "membership followed the edge: {keys:?}"
+        );
+        assert!(
+            !keys.contains(&format!("{old}|{new}|supersedes")),
+            "and the old key is gone: {keys:?}"
+        );
     }
 }

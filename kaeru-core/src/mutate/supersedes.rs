@@ -20,7 +20,8 @@ use crate::store::Store;
 /// Three substrate writes happen in sequence:
 ///  1. retract `old_id` (assertion = false at now);
 ///  2. assert a new node with a new id at now;
-///  3. write a `supersedes` edge from old → new.
+///  3. write a `supersedes` edge from new → old — `src` supersedes `dst`,
+///     the one direction the graph uses (#93).
 /// Followed by one `audit_event` capturing the operation as a whole.
 ///
 /// Reads through `at(t)` for `t` *after* the supersedes will resolve through
@@ -93,8 +94,8 @@ pub fn supersedes(
     // `link` would write; this whole operation gets one audit at the end.
     let edge_secs = now_validity_seconds();
     let mut p3: BTreeMap<String, DataValue> = BTreeMap::new();
-    p3.insert("src".to_string(), DataValue::Str(old_id.clone().into()));
-    p3.insert("dst".to_string(), DataValue::Str(new_id.clone().into()));
+    p3.insert("src".to_string(), DataValue::Str(new_id.clone().into()));
+    p3.insert("dst".to_string(), DataValue::Str(old_id.clone().into()));
     let s3 = format!(
         r#"
         ?[src, dst, edge_type, validity, weight, properties] <-
@@ -107,7 +108,7 @@ pub fn supersedes(
         .run_script(&s3, p3, ScriptMutability::Mutable)?;
 
     attach_node_to_initiative(store, &new_id)?;
-    attach_edge_to_initiative(store, old_id, &new_id, "supersedes")?;
+    attach_edge_to_initiative(store, &new_id, old_id, "supersedes")?;
     // The successor stands where the predecessor stood in any saved trail —
     // same reasoning as in `consolidate` (#71).
     carry_chain_membership(store, old_id, &new_id)?;

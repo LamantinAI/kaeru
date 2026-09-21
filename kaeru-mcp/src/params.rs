@@ -339,6 +339,9 @@ pub struct LinkParams {
     /// first, then across all initiatives.
     pub to: String,
     /// Edge type — a CLOSED vocabulary, one of exactly these: `refers_to` (default), `causal`, `derived_from`, `contradicts`, `part_of`, `blocks`, `targets`, `supersedes`, `verifies`, `falsifies`, `temporal`, `consolidated_to`.
+    ///
+    /// `supersedes` is directed: `src` supersedes `dst` — the replacement is
+    /// the `src`, so an inbound `supersedes` means the node is obsolete.
     /// Nothing else is accepted (`related_to` and friends are not edge types).
     /// Snake_case or kebab-case both accepted.
     #[serde(default = "default_edge_type")]

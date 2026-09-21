@@ -46,6 +46,23 @@ pub fn lint(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, M
         for (src, dst, edge_type) in &report.dangling_edges {
             out.push_str(&format!("  - {src} -[{edge_type}]-> {dst}\n"));
         }
+        if !report.supersedes_conflicts.is_empty() {
+            out.push_str(&format!(
+                "\ncontradictory supersessions ({}) — `supersedes` runs one way, from the \
+                 replacement to what it replaced, so a pair carrying both says each one replaced \
+                 the other and nothing can say which is current. `unlink` the wrong direction:\n",
+                report.supersedes_conflicts.len()
+            ));
+            for (a, b) in &report.supersedes_conflicts {
+                out.push_str(&format!(
+                    "  - {}{} ⇄ {}{}\n",
+                    a,
+                    brief_suffix(store, a),
+                    b,
+                    brief_suffix(store, b)
+                ));
+            }
+        }
         Ok(text(&out))
     })
 }

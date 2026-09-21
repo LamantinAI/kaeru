@@ -224,7 +224,7 @@ impl KaeruServer {
 
     // ----- Slots & hygiene ------------------------------------------------
     #[tool(
-        description = "Make a node the live holder of a ROLE in an initiative — `handoff`, `entrypoint`, `queue`, `prod-state`. A role holds exactly one node: taking it archives the previous holder to `cold` and links `supersedes`, so a project can never end up with three current handoffs. Nothing is deleted; the predecessor stays readable via `at` / `surface layers=cold`."
+        description = "Make a node the live holder of a ROLE in an initiative — `handoff`, `entrypoint`, `queue`, `prod-state`. A role holds exactly one node: taking it archives the previous holder to `cold` and links `supersedes` from the new holder to it, so a project can never end up with three current handoffs. Nothing is deleted; the predecessor stays readable via `at` / `surface layers=cold`."
     )]
     fn slot(&self, Parameters(p): Parameters<SlotParams>) -> Result<CallToolResult, McpError> {
         let result = tools::slots::slot(&self.store, &p.initiative, &p.slot, &p.name);
@@ -295,7 +295,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Create a typed edge between two nodes (by name or id). Endpoints resolve in the active initiative first, then across all initiatives, so a link may span initiatives. Edge type defaults to `refers_to`. `weight` (0..1) is REQUIRED — it is HOW LOAD-BEARING the edge is and the only signal knowledge chains route on (path cost is 1−weight); there is no default because an unweighted graph makes every chain rank on noise. State it by the scale: 0.9–1.0 load-bearing (a cause, a source a conclusion rests on, a supersession — the edges a chain should follow); 0.6–0.8 supporting but not decisive; 0.3–0.5 loose / associative."
+        description = "Create a typed edge between two nodes (by name or id). Endpoints resolve in the active initiative first, then across all initiatives, so a link may span initiatives. Edge type defaults to `refers_to`. `weight` (0..1) is REQUIRED — it is HOW LOAD-BEARING the edge is and the only signal knowledge chains route on (path cost is 1−weight); there is no default because an unweighted graph makes every chain rank on noise. State it by the scale: 0.9–1.0 load-bearing (a cause, a source a conclusion rests on, a supersession — the edges a chain should follow); 0.6–0.8 supporting but not decisive; 0.3–0.5 loose / associative. DIRECTION matters for `supersedes`: `link <new> <old> --edge_type supersedes` — the replacement points at what it replaced, so an INBOUND `supersedes` means this node is obsolete."
     )]
     async fn link(
         &self,
@@ -843,7 +843,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Replace a node with a fresh one carrying new content, connected by a supersedes edge. Use when the change is large enough to warrant a new identity; `revise` edits in place instead. new_type is optional — it defaults to the old node's."
+        description = "Replace a node with a fresh one carrying new content, connected by a supersedes edge from the successor to the node it replaces. Use when the change is large enough to warrant a new identity; `revise` edits in place instead. new_type is optional — it defaults to the old node's."
     )]
     fn supersede(
         &self,

@@ -1795,9 +1795,10 @@ mod tests {
         .expect("supersedes");
         assert_ne!(new, old, "new id is fresh");
 
-        // walk along supersedes edge: from old reaches new.
-        let reached = walk(&store, &old, &[EdgeType::Supersedes], 1).expect("walk");
-        assert!(reached.contains(&new), "supersedes edge connects old → new");
+        // walk along the supersedes edge: the successor points at what it
+        // replaced (#93), never the other way.
+        let reached = walk(&store, &new, &[EdgeType::Supersedes], 1).expect("walk");
+        assert!(reached.contains(&old), "supersedes edge connects new → old");
 
         // History of old has assertion + retraction.
         let hist_old = history(&store, &old).expect("history old");

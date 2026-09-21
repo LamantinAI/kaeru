@@ -7,8 +7,8 @@
 //! equally current, because writing a new one has no effect on the old one.
 //!
 //! [`occupy_slot`] makes that structural. Taking a slot closes the previous
-//! holder: a `supersedes` edge records the succession and the predecessor
-//! drops to `cold`. Nothing is deleted — `at`, `history` and `surface` still
+//! holder: a `supersedes` edge from the new holder to the old one records
+//! the succession, and the predecessor drops to `cold`. Nothing is deleted — `at`, `history` and `surface` still
 //! reach it; it simply stops competing for the context window.
 //!
 //! Concurrency: the read-check-write here is NOT self-synchronised. Callers
@@ -79,9 +79,9 @@ pub fn slots_in(store: &Store, initiative: &str) -> Result<Vec<(String, NodeId)>
 }
 
 /// Makes `node_id` the live holder of `slot` in `initiative`, closing the
-/// previous holder if there was one: `supersedes` edge from old to new (the
-/// direction [`crate::supersedes`] uses), then the predecessor drops to
-/// `cold`.
+/// previous holder if there was one: `supersedes` edge from the new holder to
+/// the old one (`src` supersedes `dst`, the one direction the graph uses —
+/// #93), then the predecessor drops to `cold`.
 ///
 /// Re-taking a slot with the node that already holds it is a no-op — it must
 /// not supersede itself or demote itself to `cold`.
@@ -100,7 +100,7 @@ pub fn occupy_slot(
 
     let displaced = match previous {
         Some(ref prev) if prev != node_id => {
-            super::edge::link(store, prev, node_id, EdgeType::Supersedes)?;
+            super::edge::link(store, node_id, prev, EdgeType::Supersedes)?;
             super::layer::set_layer(store, prev, Layer::Cold)?;
             Some(prev.clone())
         }
@@ -215,10 +215,16 @@ mod tests {
             "displaced node still resolves at NOW"
         );
 
-        let reachable = crate::walk(&store, &first, &[EdgeType::Supersedes], 1).expect("walk");
+        let reachable = crate::walk(&store, &second, &[EdgeType::Supersedes], 1).expect("walk");
         assert!(
-            reachable.contains(&second),
-            "supersedes edge points from the old holder to the new one: {reachable:?}"
+            reachable.contains(&first),
+            "the new holder supersedes the old one, never the other way (#93): {reachable:?}"
+        );
+        // The walk includes its own seed, so the assertion is about reach.
+        let backwards = crate::walk(&store, &first, &[EdgeType::Supersedes], 1).expect("walk");
+        assert!(
+            !backwards.contains(&second),
+            "the displaced holder supersedes nothing: {backwards:?}"
         );
     }
 

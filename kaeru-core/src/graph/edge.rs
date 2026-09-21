@@ -16,6 +16,18 @@ use crate::errors::Error;
 pub enum EdgeType {
     DerivedFrom,
     RefersTo,
+    /// **`src` supersedes `dst`: the NEW node points at the one it replaces.**
+    ///
+    /// The direction is load-bearing and was settled in #93, where the same
+    /// type was being written both ways: `supersedes()` and `occupy_slot`
+    /// said old → new, while `mark_resolved`, `resolve_review` and every
+    /// agent calling `link a b supersedes` said new → old. A reader asking
+    /// "is this node still current?" was therefore right about half the
+    /// edges. The surviving orientation is the one that reads the way the
+    /// verb does, and the one live vaults are already full of; the migration
+    /// `0008_supersedes_orientation` flips what the primitives wrote.
+    ///
+    /// So an **inbound** `supersedes` means *this node has been replaced*.
     Supersedes,
     Causal,
     Temporal,

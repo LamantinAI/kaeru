@@ -19,7 +19,8 @@ use crate::store::Store;
 
 /// Closes an open question by recording that `by` supersedes the `question`.
 ///
-/// Effect: a `supersedes` edge from `by` → `question` and one
+/// Effect: a `supersedes` edge from `by` → `question` — the answer is the
+/// replacement, which is the direction the graph uses (#93) — and one
 /// `mark_resolved` audit event. Reads through `walk(by, [Supersedes], 1)`
 /// then connect resolution to the closed question.
 ///
