@@ -29,6 +29,13 @@ mem_tool!(
                 "pinned": briefs_by_ids(store, &ctx.pinned),
                 "recent": briefs_by_ids(store, &ctx.recent),
                 "under_review": briefs_by_ids(store, &ctx.under_review),
+                // What the graph has already ruled on, by id: a listed node
+                // something live has replaced or refuted (#92).
+                "superseded": ctx
+                    .verdicts
+                    .iter()
+                    .map(|(id, v)| (id.clone(), v.phrase()))
+                    .collect::<std::collections::BTreeMap<_, _>>(),
                 "open_tasks": open_tasks_json(&ctx.open_tasks),
                 "open_claims": briefs(&ctx.open_claims),
                 "chains": briefs(&ctx.chains),

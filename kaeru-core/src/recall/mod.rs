@@ -27,6 +27,7 @@ pub mod reflect;
 pub mod summary_view;
 pub mod tagged;
 pub mod under_review;
+pub mod verdicts;
 pub mod walk;
 
 pub use between::{EdgeRow, between, cloud_links, edges_of, operational_neighbours};
@@ -57,6 +58,7 @@ pub use reflect::{ReflectionReport, reflect};
 pub use summary_view::{SummaryChild, SummaryView, summary_view};
 pub use tagged::{tagged, tags_like};
 pub use under_review::under_review_pinned;
+pub use verdicts::{CANCELLING, VERDICT, Verdict, verdicts_against};
 pub use walk::walk;
 
 /// Compact handle on a node — id, type, name, and a truncated body

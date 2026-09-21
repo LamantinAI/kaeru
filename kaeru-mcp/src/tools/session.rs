@@ -1,9 +1,10 @@
 //! Session-restoration & vault-meta tools: `awake`, `overview`,
 //! `initiatives`, `recent`, `pin`, `unpin`, `config`.
 
+use std::collections::BTreeMap;
 use std::str::FromStr;
 
-use kaeru_core::{Layer, Store};
+use kaeru_core::{Layer, Store, Verdict};
 use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
@@ -25,6 +26,20 @@ fn readback_overflow(total: usize, how: &str) -> String {
     match total.saturating_sub(READBACK_CAP) {
         0 => String::new(),
         n => format!("  … and {n} more — {how}\n"),
+    }
+}
+
+/// `  ⚠ superseded by `x`` for a listed node the graph has already ruled on
+/// (#92), or `""` for one it has not.
+///
+/// The warning rides along inside a listing the agent asked for, at the
+/// moment it is about to trust the node — hygiene unloads these from `core`
+/// too, but it runs on a write trigger and a superseded fact is wrong the
+/// moment it is superseded.
+fn verdict_mark(verdicts: &BTreeMap<String, Verdict>, id: &str) -> String {
+    match verdicts.get(id) {
+        Some(v) => format!("  ⚠ {}", v.phrase()),
+        None => String::new(),
     }
 }
 
@@ -71,7 +86,13 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
                 bucket.nodes.len()
             ));
             for b in &bucket.nodes {
-                out.push_str(&format!("  - {} ({}) — {}\n", b.name, b.node_type, b.id));
+                out.push_str(&format!(
+                    "  - {} ({}) — {}{}\n",
+                    b.name,
+                    b.node_type,
+                    b.id,
+                    verdict_mark(&ctx.verdicts, &b.id)
+                ));
             }
         }
         out.push('\n');
@@ -83,7 +104,13 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
             ctx.cortex.len()
         ));
         for b in &ctx.cortex {
-            out.push_str(&format!("  - {} ({}) — {}\n", b.name, b.node_type, b.id));
+            out.push_str(&format!(
+                "  - {} ({}) — {}{}\n",
+                b.name,
+                b.node_type,
+                b.id,
+                verdict_mark(&ctx.verdicts, &b.id)
+            ));
         }
         out.push('\n');
 
@@ -855,6 +882,47 @@ mod tests {
         assert!(
             format!("{err:?}").contains("for_days"),
             "and says which half is missing: {err:?}"
+        );
+    }
+
+    /// A superseded fact is wrong the moment it is superseded, and hygiene
+    /// only unloads it on the next pass — so the re-entry listing says so
+    /// where the agent is about to read it (#92).
+    #[test]
+    fn a_superseded_node_is_marked_in_the_re_entry_listing() {
+        let store = store_t();
+        let stale = kaeru_core::write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::High,
+            "resume-point-a",
+            "paused at 50 of 99",
+        )
+        .expect("write");
+        kaeru_core::attach_node(&store, &stale, "t").expect("attach");
+        kaeru_core::set_layer(&store, &stale, kaeru_core::Layer::Core).expect("core");
+        let successor = kaeru_core::write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::High,
+            "state-evening",
+            "the run finished",
+        )
+        .expect("write");
+        kaeru_core::attach_node(&store, &successor, "t").expect("attach");
+
+        let before = text_of(awake(&store, Some("t")).expect("awake"));
+        assert!(
+            !before.contains("⚠"),
+            "nothing is marked before anything is superseded:\n{before}"
+        );
+
+        kaeru_core::link(&store, &successor, &stale, EdgeType::Supersedes).expect("link");
+
+        let after = text_of(awake(&store, Some("t")).expect("awake"));
+        assert!(
+            after.contains("resume-point-a") && after.contains("⚠ superseded by `state-evening`"),
+            "the stale core node carries its verdict:\n{after}"
         );
     }
 }

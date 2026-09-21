@@ -6,7 +6,7 @@
 //! an agent makes when re-entering a project: it returns the pinned set,
 //! recently-written episodes, and the open-review queue in one bundle.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use cozo::{DataValue, ScriptMutability};
@@ -15,6 +15,7 @@ use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{Layer, NodeId, Tier};
 use crate::mutate::initiatives_of_node;
+use crate::recall::verdicts::{Verdict, verdicts_against};
 use crate::recall::{
     DueReminder, LayerBucket, NodeBrief, OpenTask, chains_in_scope, due_reminders,
     list_initiatives, open_claims, open_tasks, recall_by_layer_in_tier, recent_episodes,
@@ -109,6 +110,14 @@ pub struct AwakenedContext {
     /// Nodes with inbound `contradicts` edges valid at NOW —
     /// the open-review queue from `mark_under_review`.
     pub under_review: Vec<NodeId>,
+    /// Of the nodes listed above, the ones something live has already
+    /// replaced or refuted (#92), by id.
+    ///
+    /// The hygiene pass unloads these from `core`, but it runs on a write
+    /// trigger and a superseded fact is wrong the moment it is superseded —
+    /// so the warning also travels with the listing the agent is reading
+    /// anyway, at the moment it is about to trust the node.
+    pub verdicts: BTreeMap<NodeId, Verdict>,
     /// Tasks that haven't reached their board's terminal column, deadline
     /// first. Re-entry's read-back of what is still *owed*: a due date the
     /// working set never mentioned is a due date that silently passes.
@@ -142,25 +151,43 @@ pub struct AwakenedContext {
 /// mutation primitives.
 pub fn awake(store: &Store) -> Result<AwakenedContext> {
     let window = store.config().awake_default_window_secs;
+    let layered = recall_by_layer_in_tier(
+        store,
+        &[Layer::Core, Layer::Hot, Layer::Warm],
+        Some(Tier::Operational),
+    )?;
+    let cortex: Vec<NodeBrief> = recall_by_layer_in_tier(
+        store,
+        &[Layer::Core, Layer::Hot, Layer::Warm],
+        Some(Tier::Archival),
+    )?
+    .into_iter()
+    .flat_map(|b| b.nodes)
+    .collect();
+
+    // Only for what this context actually lists — a vault's whole verdict
+    // set is not re-entry context, and the point is the node in front of the
+    // agent, not an inventory.
+    let listed: HashSet<&str> = layered
+        .iter()
+        .flat_map(|b| b.nodes.iter())
+        .chain(cortex.iter())
+        .map(|b| b.id.as_str())
+        .collect();
+    let verdicts: BTreeMap<NodeId, Verdict> = verdicts_against(store)?
+        .into_iter()
+        .filter(|(id, _)| listed.contains(id.as_str()))
+        .collect();
+
     Ok(AwakenedContext {
         initiative: store.current_initiative(),
         all_initiatives: list_initiatives(store)?,
-        layered: recall_by_layer_in_tier(
-            store,
-            &[Layer::Core, Layer::Hot, Layer::Warm],
-            Some(Tier::Operational),
-        )?,
-        cortex: recall_by_layer_in_tier(
-            store,
-            &[Layer::Core, Layer::Hot, Layer::Warm],
-            Some(Tier::Archival),
-        )?
-        .into_iter()
-        .flat_map(|b| b.nodes)
-        .collect(),
+        layered,
+        cortex,
         pinned: active_window(store)?,
         recent: recent_episodes(store, window)?,
         under_review: under_review_pinned(store)?,
+        verdicts,
         open_tasks: open_tasks(store)?,
         open_claims: open_claims(store)?,
         chains: chains_in_scope(store)?,

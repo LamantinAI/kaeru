@@ -48,6 +48,7 @@ pub use mutate::{
     stamp_reminder_seen, supersedes, synthesise, unlink, update_hypothesis_status, upsert_edge,
     upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
+pub use recall::verdicts::Verdict;
 pub use recall::{
     BoardColumn, BoardStatus, BoardTask, BoardView, ChainMembership, DEFAULT_STATUSES, DueReminder,
     EdgeRow, FUZZY_RECALL_LIMIT_CAP, LayerBucket, LintReport, Neighbour, NodeBrief, NodeFull,
@@ -60,7 +61,7 @@ pub use recall::{
     recall_by_layer_in_tier, recall_id_by_name, recall_id_by_name_at, recall_id_by_name_ever,
     recall_id_by_name_global, recent_episodes, recollect_idea, recollect_outcome,
     recollect_provenance, reflect, shortest_path, suggest_initiative, suggest_node_name,
-    summary_view, tagged, tags_like, under_review_pinned, walk,
+    summary_view, tagged, tags_like, under_review_pinned, verdicts_against, walk,
 };
 pub use sanitize::strip_tool_call_markup;
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};

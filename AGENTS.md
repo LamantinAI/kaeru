@@ -244,6 +244,23 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   `lint`: choosing between two deliberate writes is a judgement, not a
   migration. When adding a writer or a reader of this edge, state the
   direction in its doc comment.
+- **Hygiene weighs a node by support, not by contact (#92).** Every rule in
+  the pass reads one number — how many live nodes point at this one — and it
+  used to count `supersedes`, `contradicts` and `falsifies` among them, so
+  the edge that cancels a node was the edge that kept it loaded: superseded
+  `core` facts were injected into every session for weeks, a node two others
+  refuted was *promoted*, and `flag` (which writes an inbound `contradicts`)
+  made a doubted fact immortal. Those three types are now excluded from the
+  count, and a **verdict** — `supersedes` or `falsifies` — demotes a `core`
+  node one step on its own, at any age, naming what replaced it.
+  `contradicts` deliberately does neither: a flag is an open question, and
+  an open question about a load-bearing fact is a reason to resolve it, not
+  to unload it mid-review. `consolidated_to` is not a cancellation either —
+  it runs old → new, so the inbound one sits on the summary. The list lives
+  in `recall::verdicts` so the pass and `awake` cannot drift apart, and
+  `awake` marks a listed node the graph has ruled on (`⚠ superseded by …`),
+  because hygiene runs on a write trigger while a superseded fact is wrong
+  immediately.
 - **The task board is the one deliberate exception.** `set_status` validates strictly against the initiative's status registry and refuses an unknown key. That is not enforcement of a *workflow* — any task may move to any column, in any order — it protects the registry's role as the single source of truth for a shared vocabulary: a typo must not silently spawn a phantom column. Widening the vocabulary stays an explicit act (`add_status`). The board describes columns; it never gates transitions.
 
 ## Backend Rules

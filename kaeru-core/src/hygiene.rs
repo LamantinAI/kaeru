@@ -14,6 +14,11 @@
 //! * **It never demotes `core` more than one step.** A misjudged `core` node
 //!   lands in `hot`, still inside the window of recent nodes, not in an
 //!   archive nobody opens.
+//! * **It weighs a node by support, never by contact.** An inbound
+//!   `supersedes`, `contradicts` or `falsifies` cancels a node; counting it
+//!   as a reference made the edge that says "obsolete" the edge that kept it
+//!   loaded (#92). A verdict — superseded or refuted — is a demotion reason
+//!   in its own right, at any age.
 //! * **It never promotes into `core`.** Growth of the uncapped, always-injected
 //!   layer stays a deliberate act; the pass can only suggest by promoting to
 //!   `hot`.
@@ -37,6 +42,7 @@ use crate::errors::Result;
 use crate::graph::temporal::validity_seconds;
 use crate::graph::{Layer, NodeId};
 use crate::mutate::{now_validity_seconds, set_layer_as};
+use crate::recall::verdicts::{CANCELLING, Verdict, verdicts_against};
 use crate::store::Store;
 
 /// Audit actor stamped on every move the pass makes.
@@ -55,7 +61,8 @@ pub const HYGIENE_EPISODE_PREFIX: &str = "hygiene-";
 pub enum HygieneAction {
     /// Journal entry nobody references any more → `cold`.
     Archive,
-    /// Untouched, unreferenced `core` node → one step down, to `hot`.
+    /// `core` node the pass unloads by one step, to `hot`: either untouched
+    /// and unreferenced, or cancelled by a verdict — see [`VERDICT`].
     DemoteFromCore,
     /// Node many live nodes point at → one step up (never into `core`).
     Promote,
@@ -287,7 +294,11 @@ struct Scanned {
     node_type: String,
     layer: Layer,
     ts: f64,
+    /// Inbound edges from live nodes that **support** this one — cancelling
+    /// types excluded, see [`CANCELLING`].
     in_degree: usize,
+    /// The verdict a live node has passed on this one, if any.
+    cancelled_by: Option<Verdict>,
     pinned: bool,
 }
 
@@ -313,23 +324,33 @@ fn scan(store: &Store, initiative: &str) -> Result<Vec<Scanned>> {
 
     // Inbound edges from nodes that are themselves live at NOW: a reference
     // held by a retracted node is not evidence that anyone still needs this.
+    // Counted per type, because a cancelling edge is not support (#92).
     let inbound = store.db_ref().run_script(
         r#"
         live[src] := *node{id: src @ 'NOW'}
-        ?[dst, count(src)] := *edge{src, dst, edge_type @ 'NOW'}, live[src]
+        ?[dst, edge_type, count(src)] := *edge{src, dst, edge_type @ 'NOW'}, live[src]
         "#,
         BTreeMap::new(),
         ScriptMutability::Immutable,
     )?;
     let mut in_degree: BTreeMap<String, usize> = BTreeMap::new();
     for r in &inbound.rows {
-        if let (Some(dst), Some(n)) = (
+        let (Some(dst), Some(edge_type), Some(n)) = (
             r.first().and_then(|v| v.get_str()),
-            r.get(1).and_then(|v| v.get_int()),
-        ) {
-            in_degree.insert(dst.to_string(), n.max(0) as usize);
+            r.get(1).and_then(|v| v.get_str()),
+            r.get(2).and_then(|v| v.get_int()),
+        ) else {
+            continue;
+        };
+        if CANCELLING.contains(&edge_type) {
+            continue;
         }
+        *in_degree.entry(dst.to_string()).or_insert(0) += n.max(0) as usize;
     }
+
+    // What the graph has already ruled on. Verdicts only: a `contradicts`
+    // is an open doubt, and stops at not protecting its target.
+    let cancelled_by = verdicts_against(store)?;
 
     let pins = store.db_ref().run_script(
         "?[node_id] := *session_pin{node_id}",
@@ -367,6 +388,7 @@ fn scan(store: &Store, initiative: &str) -> Result<Vec<Scanned>> {
             layer,
             ts: validity_seconds(r.get(4)).unwrap_or(0.0),
             in_degree: in_degree.get(&id).copied().unwrap_or(0),
+            cancelled_by: cancelled_by.get(&id).cloned(),
             pinned: pinned.contains(&id),
             id,
         });
@@ -396,9 +418,22 @@ pub fn collect(store: &Store, initiative: &str) -> Result<Vec<HygieneCandidate>>
 
         match node.layer {
             // `core` is the expensive layer: injected whole, every session.
-            // Demote only what nothing references and nobody has touched.
+            // Demote what nothing references and nobody has touched — and
+            // what the graph itself says is obsolete, however recent and
+            // however well connected (#92). A superseded fact injected into
+            // every session is worse than a stale one: it is read as current
+            // and planned from, which is how this was found.
             Layer::Core => {
-                if node.ts < core_cutoff && node.in_degree == 0 {
+                if let Some(verdict) = &node.cancelled_by {
+                    out.push(HygieneCandidate {
+                        node_id: node.id.clone(),
+                        name: node.name.clone(),
+                        action: HygieneAction::DemoteFromCore,
+                        from: Layer::Core,
+                        to: Layer::Hot,
+                        reason: verdict.phrase(),
+                    });
+                } else if node.ts < core_cutoff && node.in_degree == 0 {
                     out.push(HygieneCandidate {
                         node_id: node.id.clone(),
                         name: node.name.clone(),
@@ -480,7 +515,8 @@ pub fn collect(store: &Store, initiative: &str) -> Result<Vec<HygieneCandidate>>
                 from: Layer::Core,
                 to: Layer::Hot,
                 reason: format!(
-                    "core over its ceiling ({core_total} of {}) — least referenced ({} inbound),                      untouched {age_days}d",
+                    "core over its ceiling ({core_total} of {}) — least referenced \
+                     ({} inbound), untouched {age_days}d",
                     cfg.hygiene_core_trigger, node.in_degree
                 ),
             });
@@ -1327,5 +1363,142 @@ mod tests {
             Layer::Core,
             "the most referenced one stays"
         );
+    }
+
+    // ── support, not contact (#92) ─────────────────────────────────────────
+
+    /// The edge that cancels a node used to protect it: an inbound
+    /// `supersedes` counted as "something still references this", so three
+    /// superseded `core` nodes were injected into every session for weeks
+    /// while an identical unreferenced one beside them was demoted at once.
+    /// Now the supersession is a demotion reason of its own — no waiting for
+    /// the age rule, because the node is obsolete today.
+    #[test]
+    fn a_superseded_core_node_is_demoted_and_says_why() {
+        let store = eager_store();
+        let stale = episode_in(&store, "proj", "resume-point-a");
+        let successor = episode_in(&store, "proj", "state-evening");
+        set_layer(&store, &stale, Layer::Core).expect("core");
+        link(&store, &successor, &stale, EdgeType::Supersedes).expect("link");
+
+        let candidates = collect(&store, "proj").expect("collect");
+        let demotion = candidates
+            .iter()
+            .find(|c| c.node_id == stale)
+            .expect("the superseded node is a candidate");
+        assert_eq!(demotion.action, HygieneAction::DemoteFromCore);
+        assert_eq!(demotion.to, Layer::Hot);
+        assert_eq!(demotion.reason, "superseded by `state-evening`");
+
+        force_pass(&store, "proj", || true).expect("pass");
+        assert_eq!(get_layer(&store, &stale).expect("layer"), Layer::Hot);
+    }
+
+    /// `refute` writes a `falsifies` edge; the verdict reads the same way.
+    #[test]
+    fn a_refuted_core_node_is_demoted() {
+        let store = eager_store();
+        let wrong = episode_in(&store, "proj", "the-wrong-fact");
+        let evidence = episode_in(&store, "proj", "the-measurement");
+        set_layer(&store, &wrong, Layer::Core).expect("core");
+        link(&store, &evidence, &wrong, EdgeType::Falsifies).expect("link");
+
+        force_pass(&store, "proj", || true).expect("pass");
+        assert_eq!(get_layer(&store, &wrong).expect("layer"), Layer::Hot);
+    }
+
+    /// Support still protects — the rule reads the edge TYPE, not the count.
+    #[test]
+    fn a_referenced_core_node_is_still_protected() {
+        let store = eager_store();
+        let fact = episode_in(&store, "proj", "the-load-bearing-fact");
+        let referrer = episode_in(&store, "proj", "a-note-about-it");
+        set_layer(&store, &fact, Layer::Core).expect("core");
+        backdate(&store, &fact, 60);
+        link(&store, &referrer, &fact, EdgeType::RefersTo).expect("link");
+
+        force_pass(&store, "proj", || true).expect("pass");
+        assert_eq!(
+            get_layer(&store, &fact).expect("layer"),
+            Layer::Core,
+            "something live points at it, so it stays"
+        );
+    }
+
+    /// `flag` writes an inbound `contradicts`. It must not protect the node
+    /// — that made doubting a `core` fact the way to make it immortal — and
+    /// it must not demote it either: the question is open, and an open
+    /// question about a load-bearing fact is a reason to resolve it, not to
+    /// unload it mid-review.
+    #[test]
+    fn a_flag_neither_protects_a_core_node_nor_demotes_it() {
+        let store = eager_store();
+        let fresh = episode_in(&store, "proj", "the-doubted-fact");
+        let stale = episode_in(&store, "proj", "the-old-doubted-fact");
+        for id in [&fresh, &stale] {
+            set_layer(&store, id, Layer::Core).expect("core");
+            let doubt = episode_in(&store, "proj", "why-i-doubt-it");
+            link(&store, &doubt, id, EdgeType::Contradicts).expect("link");
+        }
+        backdate(&store, &stale, 60);
+
+        force_pass(&store, "proj", || true).expect("pass");
+        assert_eq!(
+            get_layer(&store, &fresh).expect("layer"),
+            Layer::Core,
+            "a doubt is not a verdict"
+        );
+        assert_eq!(
+            get_layer(&store, &stale).expect("layer"),
+            Layer::Hot,
+            "but it no longer shields an untouched core node from the age rule"
+        );
+    }
+
+    /// The promote rule reads the same number. A node two live nodes
+    /// contradict was being raised INTO the working set, reason: "2 live
+    /// nodes reference it".
+    #[test]
+    fn contradicted_nodes_are_not_promoted() {
+        let store = eager_store();
+        let wrong = episode_in(&store, "proj", "the-contested-note");
+        for i in 0..2 {
+            let objection = episode_in(&store, "proj", &format!("objection-{i}"));
+            link(&store, &objection, &wrong, EdgeType::Contradicts).expect("link");
+        }
+
+        let report = force_pass(&store, "proj", || true)
+            .expect("pass")
+            .expect("the pass ran");
+        assert_eq!(report.promoted, 0, "objections are not support");
+        assert_eq!(get_layer(&store, &wrong).expect("layer"), Layer::Warm);
+    }
+
+    /// And the archive rule: a refuted journal entry nothing else points at
+    /// is exactly what `cold` is for.
+    #[test]
+    fn a_refuted_journal_entry_is_archived() {
+        let store = eager_store();
+        let old = episode_in(&store, "proj", "what-we-believed-then");
+        let evidence = episode_in(&store, "proj", "what-we-measured");
+        backdate(&store, &old, 60);
+        link(&store, &evidence, &old, EdgeType::Falsifies).expect("link");
+
+        force_pass(&store, "proj", || true).expect("pass");
+        assert_eq!(get_layer(&store, &old).expect("layer"), Layer::Cold);
+    }
+
+    /// A pin still outranks every rule, cancellation included.
+    #[test]
+    fn a_pinned_superseded_core_node_stays() {
+        let store = eager_store();
+        let stale = episode_in(&store, "proj", "pinned-resume-point");
+        let successor = episode_in(&store, "proj", "the-successor");
+        set_layer(&store, &stale, Layer::Core).expect("core");
+        link(&store, &successor, &stale, EdgeType::Supersedes).expect("link");
+        crate::pin(&store, &stale, "keeping it in view on purpose").expect("pin");
+
+        force_pass(&store, "proj", || true).expect("pass");
+        assert_eq!(get_layer(&store, &stale).expect("layer"), Layer::Core);
     }
 }
