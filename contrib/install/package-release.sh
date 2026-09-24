@@ -135,13 +135,141 @@ package_target() {
 #
 # Native build, old distro, no cross-linking of RocksDB's C++. The container is
 # the same shape the Windows build already uses.
+# The check that 0.7.1 and 0.7.2 did not have, and shipped a SIGSEGV for.
+#
+# Both of those binaries opened an empty directory happily, opened a vault
+# they had created themselves happily, and died on a vault written by an
+# earlier release — which is every user's vault. Testing the build against
+# nothing is testing the one case that always worked.
+#
+# So: the PREVIOUS release creates and fills a vault, and the binary about to
+# ship has to open it and read from it, in a plain Debian container with no
+# toolchain in it. A crash here is exit 139 and a release that does not
+# happen.
+#
+# `KAERU_SKIP_VAULT_CHECK=1` skips it, loudly. Do not use it to ship.
+verify_linux_opens_an_existing_vault() {
+    local new_binary="target-linux-release/release/kaeru-mcp"
+    local work prev_tag prev_binary vault port
+    port=9977
+
+    if [[ "${KAERU_SKIP_VAULT_CHECK:-0}" == "1" ]]; then
+        echo "!!  SKIPPING the existing-vault check — the binary is UNVERIFIED." >&2
+        return 0
+    fi
+
+    prev_tag=$(git tag -l 'v*' --sort=-v:refname | grep -v "^${TAG}$" | head -n1)
+    [[ -n "$prev_tag" ]] || { echo "!!  no previous tag to build a vault with" >&2; exit 1; }
+
+    work=$(mktemp -d)
+    vault="$work/vault"
+    mkdir -p "$vault"
+    echo "==> verifying $LINUX_TARGET against a vault written by $prev_tag"
+
+    # The previous release's own linux asset, which is known to work.
+    if ! gh release download "$prev_tag" \
+            --pattern "kaeru-${prev_tag}-${LINUX_TARGET}.tar.gz" \
+            --dir "$work" >/dev/null 2>&1; then
+        echo "!!  could not download $prev_tag's linux asset — cannot verify" >&2
+        exit 1
+    fi
+    tar -xzf "$work/kaeru-${prev_tag}-${LINUX_TARGET}.tar.gz" -C "$work"
+    prev_binary=$(find "$work" -name kaeru-mcp -type f | head -n1)
+    chmod +x "$prev_binary"
+
+    # Fill the vault with the old binary: schema, a few nodes, an audit trail.
+    _serve_and_write "$prev_binary" "$vault" "$port" "$prev_tag" write
+
+    # Then open the same vault with what we are about to ship.
+    _serve_and_write "$new_binary" "$vault" "$port" "$TAG" read
+
+    echo "    ✓ $TAG opens and reads a vault written by $prev_tag"
+    # After the verdict, never before it: a cleanup failure is not a reason
+    # to fail a check that passed.
+    rm -rf "$work" 2>/dev/null || true
+}
+
+# Runs a kaeru-mcp binary against `vault` in a clean container and either
+# writes a few nodes into it or reads them back. Anything other than a clean
+# start is fatal — a SIGSEGV shows up here as a container exit of 139.
+_serve_and_write() {
+    local binary="$1" vault="$2" port="$3" label="$4" mode="$5"
+    local log cid
+    log=$(mktemp)
+
+    # As us, not as root: the container writes RocksDB files into a
+    # directory this script has to clean up afterwards, and a release that
+    # passes its own check must not then die on `rm`.
+    cid=$(docker run -d --network host --user "$(id -u):$(id -g)" \
+        -e KAERU_VAULT_PATH=/vault -e KAERU_MCP_LISTEN_PORT="$port" \
+        -e RUST_LOG=info \
+        -v "$(realpath "$binary")":/usr/local/bin/kaeru-mcp:ro \
+        -v "$vault":/vault \
+        debian:bookworm-slim /usr/local/bin/kaeru-mcp)
+
+    local ready=0 i
+    for i in $(seq 1 40); do
+        if docker logs "$cid" 2>&1 | grep -q "substrate ready"; then ready=1; break; fi
+        if [[ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]]; then break; fi
+        sleep 0.5
+    done
+
+    if [[ "$ready" != "1" ]]; then
+        local code
+        code=$(docker inspect -f '{{.State.ExitCode}}' "$cid")
+        echo "!!  $label never reached 'substrate ready' (container exit $code):" >&2
+        docker logs "$cid" 2>&1 | tail -20 >&2
+        [[ "$code" == "139" ]] && echo "!!  exit 139 is a SIGSEGV — this is the 0.7.1 defect." >&2
+        docker rm -f "$cid" >/dev/null 2>&1 || true
+        exit 1
+    fi
+
+    local body result
+    if [[ "$mode" == "write" ]]; then
+        for n in 1 2 3; do
+            body='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"jot","arguments":{"body":"release check note '"$n"'","initiative":"release-check"}}}'
+            _mcp_call "$port" "$body" >/dev/null
+        done
+    else
+        body='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"query":"release*","initiative":"release-check"}}}'
+        result=$(_mcp_call "$port" "$body")
+        if ! grep -q "release check note" <<<"$result"; then
+            echo "!!  $label started but could not read the vault's existing content:" >&2
+            echo "$result" | head -5 >&2
+            docker rm -f "$cid" >/dev/null 2>&1 || true
+            exit 1
+        fi
+    fi
+
+    docker rm -f "$cid" >/dev/null 2>&1 || true
+    rm -f "$log"
+}
+
+# One MCP tool call over the streamable-HTTP transport: initialize, then the
+# call itself. rmcp refuses a request whose Accept does not include
+# text/event-stream, which is why it is spelled out here.
+_mcp_call() {
+    local port="$1" body="$2" sid
+    sid=$(curl -sS -D - -o /dev/null -X POST "http://127.0.0.1:$port/mcp" \
+        -H 'Content-Type: application/json' \
+        -H 'Accept: application/json, text/event-stream' \
+        -d '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-check","version":"1"}}}' \
+        | tr -d '\r' | awk -F': ' 'tolower($1)=="mcp-session-id"{print $2}')
+    curl -sS -X POST "http://127.0.0.1:$port/mcp" \
+        -H 'Content-Type: application/json' \
+        -H 'Accept: application/json, text/event-stream' \
+        -H "Mcp-Session-Id: $sid" \
+        -d "$body"
+}
+
 build_linux_in_container() {
     echo "==> building $LINUX_TARGET natively in $LINUX_IMAGE"
     local out="target-linux-release/release/kaeru-mcp"
-    local before after started
-    before=$(stat -c %Y "$out" 2>/dev/null || echo 0)
-    started=$(date +%s)
+    local status=0
 
+    # The old binary is removed INSIDE the container, which owns it: the
+    # build runs as root (it apt-installs clang), so the host cannot delete
+    # what it produced.
     docker run --rm --network host \
         -e HTTP_PROXY="${HTTP_PROXY:-}" -e HTTPS_PROXY="${HTTPS_PROXY:-}" \
         -e http_proxy="${http_proxy:-}" -e https_proxy="${https_proxy:-}" \
@@ -150,16 +278,23 @@ build_linux_in_container() {
         -v "$ROOT:/io" -v "$HOME/.cargo/registry:/root/.cargo/registry" \
         -w /io \
         "$LINUX_IMAGE" \
-        bash -c 'apt-get update -qq && apt-get install -y -qq clang libclang-dev >/dev/null &&
-                 cargo build --release --target-dir /io/target-linux-release -p kaeru-mcp --bin kaeru-mcp'
+        bash -c 'rm -f /io/target-linux-release/release/kaeru-mcp &&
+                 apt-get update -qq && apt-get install -y -qq clang libclang-dev >/dev/null &&
+                 cargo build --release --target-dir /io/target-linux-release -p kaeru-mcp --bin kaeru-mcp' \
+        || status=$?
 
-    [[ -f "$out" ]] || { echo "!!  $out does not exist — the build produced nothing" >&2; exit 1; }
-    after=$(stat -c %Y "$out")
-    # A container that fails without stopping the script would otherwise ship
-    # the previous release's binary. The Windows build learned this first.
-    if [[ "$after" == "$before" || "$after" -lt "$started" ]]; then
-        echo "!!  $out was not rebuilt by this run — left over from an earlier build." >&2
-        echo "!!  Something failed inside the container. Do NOT ship this." >&2
+    # Two questions, and the container's own exit code is the honest answer
+    # to the first. Judging freshness by mtime was tried and does not work:
+    # cargo HARD-LINKS `release/kaeru-mcp` to `release/deps/kaeru-mcp-<hash>`,
+    # so a relink after the file is deleted carries the old timestamp and a
+    # perfectly good build reads as stale. It stopped two releases that were
+    # fine before anyone noticed why.
+    if [[ "$status" != "0" ]]; then
+        echo "!!  the build container exited $status — do NOT ship this." >&2
+        exit 1
+    fi
+    if [[ ! -f "$out" ]]; then
+        echo "!!  $out does not exist — the container produced nothing." >&2
         exit 1
     fi
 
@@ -173,6 +308,7 @@ build_linux_in_container() {
 }
 
 build_linux_in_container
+verify_linux_opens_an_existing_vault
 
 for target in "${TARGETS[@]}"; do
     echo "==> building $target"
