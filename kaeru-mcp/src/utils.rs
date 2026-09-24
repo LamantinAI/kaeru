@@ -217,11 +217,13 @@ pub fn search_deepen_hint(top: &str) -> String {
 
 /// Footer for a `search` that matched nothing. A miss is the moment the agent
 /// is most likely to conclude "memory is empty" and stop — so it gets the
-/// three widenings, cheapest first, instead of a bare `(no matches)`.
+/// widenings, cheapest first, instead of a bare `(no matches)`.
 pub fn search_empty_hint(query: &str) -> String {
+    let prefix = kaeru_core::prefix_widening(query)
+        .map(|widened| format!("`search \"{widened}\"` (prefix match) · "))
+        .unwrap_or_default();
     format!(
-        "\n↳ widen it: `search \"{query}*\"` (prefix match) · `tagged topic:<theme>` \
-         (browse by tag) · `recent 7d` (what's fresh)."
+        "\n↳ widen it: {prefix}`tagged topic:<theme>` (browse by tag) · `recent 7d` (what's fresh)."
     )
 }
 
@@ -900,5 +902,26 @@ mod id_shape_tests {
         assert_eq!(name.len(), 36);
         assert_eq!(name.chars().nth(8), Some('-'));
         assert!(!looks_like_id(name));
+    }
+}
+
+#[cfg(test)]
+mod search_hint_tests {
+    use super::search_empty_hint;
+
+    /// The widening appended `*` to the whole query, so a query that already
+    /// ended in one came back as `…**`.
+    #[test]
+    fn the_prefix_widening_stars_each_word_once() {
+        let hint = search_empty_hint("воркшоп аналитик*");
+        assert!(hint.contains("`search \"воркшоп* аналитик*\"`"), "{hint}");
+        assert!(!hint.contains("**"), "{hint}");
+    }
+
+    #[test]
+    fn nothing_to_widen_offers_the_other_two() {
+        let hint = search_empty_hint("воркшоп* аналитик*");
+        assert!(!hint.contains("prefix match"), "{hint}");
+        assert!(hint.contains("tagged") && hint.contains("recent"), "{hint}");
     }
 }

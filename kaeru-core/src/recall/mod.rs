@@ -41,7 +41,7 @@ pub use by_name::{
     count_by_type, local_nodes_for_review, node_brief_by_id, read_node_full, recall_id_by_name,
     recall_id_by_name_at, recall_id_by_name_ever, recall_id_by_name_global, suggest_node_name,
 };
-pub use fts::{FUZZY_RECALL_LIMIT_CAP, fuzzy_recall};
+pub use fts::{FUZZY_RECALL_LIMIT_CAP, fuzzy_recall, prefix_widening};
 pub use initiatives::{
     count_nodes_in_initiative, edges_in_initiative, list_initiatives, near_duplicate_initiatives,
     nodes_in_initiative, suggest_initiative,
