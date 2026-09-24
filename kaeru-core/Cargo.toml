@@ -14,3 +14,6 @@ cozo.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 config.workspace = true
+
+[dev-dependencies]
+proptest = "1"

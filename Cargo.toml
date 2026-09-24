@@ -87,5 +87,10 @@ codegen-units = 1
 # clean clone (`failed to find branch …`). A commit sha is immutable; this is
 # the same commit Cargo.lock already locked. Drop the patch once the fix
 # ships in a released graph_builder (see neo4j-labs/graph PR #144).
+[workspace.dev-dependencies]
+# Property tests for the substrate's invariants (#97): hand-picked examples
+# are what missed #93 and #94.
+proptest = "1"
+
 [patch.crates-io]
 graph_builder = { git = "https://github.com/lawless-m/graph", rev = "790ef623533fa39574ddd11308e3abc3993c0994" }

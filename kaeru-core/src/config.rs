@@ -51,6 +51,13 @@ pub struct KaeruConfig {
     pub summary_view_children_cap: usize,
     /// Maximum body characters per [`crate::NodeBrief`] excerpt.
     pub body_excerpt_chars: usize,
+    /// How many characters of re-entry context the capped layers may spend
+    /// between them — the `awake` window's budget, in the unit context is
+    /// actually billed in rather than in nodes (#97). Roughly four characters
+    /// to a token, so the default is about a thousand tokens. `core` is not
+    /// billed against it: it promises to load whole, and hygiene bounds its
+    /// size instead.
+    pub awake_budget_chars: usize,
     /// Maximum hops for [`crate::recollect_provenance`].
     pub provenance_max_hops: u8,
     /// Default `max_hops` recommended for [`crate::walk`] callers.
@@ -116,6 +123,7 @@ impl KaeruConfig {
             awake_default_window_secs: 24 * 60 * 60,
             summary_view_children_cap: 12,
             body_excerpt_chars: 240,
+            awake_budget_chars: 4_000,
             provenance_max_hops: 5,
             default_max_hops: 2,
             max_hops_cap: 3,

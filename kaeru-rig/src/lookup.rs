@@ -462,7 +462,14 @@ mem_tool_in!(
             Ok(buckets) => {
                 let out: Vec<Value> = buckets
                     .iter()
-                    .map(|bk| json!({ "layer": bk.layer.as_str(), "nodes": briefs(&bk.nodes) }))
+                    .map(|bk| json!({
+                        "layer": bk.layer.as_str(),
+                        "nodes": briefs(&bk.nodes),
+                        // What this costs to read, and what the budget left
+                        // out — a node count is not the unit (#97).
+                        "chars": bk.chars,
+                        "omitted": bk.omitted,
+                    }))
                     .collect();
                 json!({ "layers": out })
             }

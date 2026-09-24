@@ -329,6 +329,18 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   (2)` produced 8 calls, "trails exist, read one" produced 0 from 7
   deliveries. When adding any background signal, ask where it will be read
   before asking what it will say.
+- **Re-entry is sorted by support and priced in characters (#97).** The
+  `awake` window was "the newest fifteen by write time" — a FIFO over writes,
+  not over need, so the node a project keeps pointing at dropped out the
+  moment fifteen newer notes existed. It is ordered by how many live nodes
+  point at a node now (`recall::support`, the same count #92 made meaningful
+  by excluding cancelling edges), newest-first among equals. The capped
+  layers share one budget in characters (`awake_budget_chars`, roughly four
+  to a token) rather than a node count, each bucket states what it cost, and
+  anything left out is named — a window that truncates silently reads like a
+  project holding nothing more. `core` is not billed against the budget: it
+  promises to load whole, and hygiene bounds its size instead, where the
+  bound is visible and reversible.
 - **The task board is the one deliberate exception.** `set_status` validates strictly against the initiative's status registry and refuses an unknown key. That is not enforcement of a *workflow* — any task may move to any column, in any order — it protects the registry's role as the single source of truth for a shared vocabulary: a typo must not silently spawn a phantom column. Widening the vocabulary stays an explicit act (`add_status`). The board describes columns; it never gates transitions.
 
 ## Backend Rules

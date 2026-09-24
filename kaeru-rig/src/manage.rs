@@ -35,6 +35,16 @@ mem_tool_in!(
                 "initiative": ctx.initiative,
                 "all_initiatives": ctx.all_initiatives,
                 "cortex": briefs(&ctx.cortex),
+                "layered": ctx
+                    .layered
+                    .iter()
+                    .map(|b| json!({
+                        "layer": b.layer.as_str(),
+                        "nodes": briefs(&b.nodes),
+                        "chars": b.chars,
+                        "omitted": b.omitted,
+                    }))
+                    .collect::<Vec<_>>(),
                 "pinned": briefs_by_ids(store, &ctx.pinned),
                 "recent": briefs_by_ids(store, &ctx.recent),
                 "under_review": briefs_by_ids(store, &ctx.under_review),

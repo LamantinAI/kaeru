@@ -80,10 +80,21 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
         // Layer-prioritised re-entry context: whole Core first, then Hot,
         // then Warm — load these into working context in this order.
         for bucket in &ctx.layered {
+            // The cost of re-entry, stated. It used to be a node count, which
+            // is not the unit context is billed in (#97) — roughly four
+            // characters to a token.
             out.push_str(&format!(
-                "{} layer ({}):\n",
+                "{} layer ({}, ~{}k chars){}:\n",
                 bucket.layer.as_str(),
-                bucket.nodes.len()
+                bucket.nodes.len(),
+                format_args!("{:.1}", bucket.chars as f64 / 1000.0),
+                match bucket.omitted {
+                    0 => String::new(),
+                    n => format!(
+                        " — {n} more not loaded, budget spent; `surface layers={}` for the rest",
+                        bucket.layer.as_str()
+                    ),
+                }
             ));
             for b in &bucket.nodes {
                 out.push_str(&format!(
