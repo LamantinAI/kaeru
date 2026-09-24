@@ -284,6 +284,26 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   same reason: `timeparse` (what `2h` means to `when` / `since` / `due`) and
   `naming` (the name `claim` invents from its text) were in `kaeru-mcp`, which
   is why the rig `at` used to take a bare number.
+- **Two writes to one key stay in the order they were issued (#96).**
+  `Validity` is whole seconds and the substrate resolves the assertion at
+  equal timestamps, so `link` then an immediate `unlink` used to leave the
+  edge live — the write nobody made last. A write to a key that already
+  carries a row at or after NOW now lands one second past it
+  (`node_version_seconds` / `edge_version_seconds`). That is invisible to
+  readers because Cozo counts `Validity` in microseconds while kaeru writes
+  seconds into it, so every row we write is long past by the substrate's
+  clock. Use these helpers in any new primitive that mints a version of an
+  **existing** key; a brand-new id needs no query. The RMW pairs keep sharing
+  one timestamp on purpose — see `reassert_node_now`.
+- **A multi-write operation retracts last (#96).** `supersedes` and
+  `consolidate` are several writes and not a transaction, so the order
+  decides what a failure in the middle leaves behind: assert the successor,
+  wire its edges and memberships, retract the predecessor at the end. Both
+  versions readable is a state `lint` reports; neither readable — which
+  retracting first produced, on the path `settle` uses for every promotion
+  into cortex — is a state nothing could. Keep that order when adding a verb
+  that replaces a node; making it all-or-nothing needs one Cozo script and is
+  still open.
 - **The task board is the one deliberate exception.** `set_status` validates strictly against the initiative's status registry and refuses an unknown key. That is not enforcement of a *workflow* — any task may move to any column, in any order — it protects the registry's role as the single source of truth for a shared vocabulary: a typo must not silently spawn a phantom column. Widening the vocabulary stays an explicit act (`add_status`). The board describes columns; it never gates transitions.
 
 ## Backend Rules

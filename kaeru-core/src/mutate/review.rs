@@ -9,8 +9,8 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 
 use super::{
-    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, now_validity_seconds,
-    tags_literal,
+    attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, edge_version_seconds,
+    now_validity_seconds, tags_literal,
 };
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
@@ -29,7 +29,7 @@ use crate::store::Store;
 /// inbound `contradicts` edges, which this verb never touches; use
 /// [`resolve_review`] to close a review.
 pub fn mark_resolved(store: &Store, question_id: &NodeId, by: &NodeId) -> Result<()> {
-    let edge_secs = now_validity_seconds();
+    let edge_secs = edge_version_seconds(store, by, question_id, "supersedes")?;
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("src".to_string(), DataValue::Str(by.clone().into()));
     params.insert(
@@ -101,7 +101,7 @@ pub fn mark_under_review(store: &Store, target_id: &NodeId, reason: &str) -> Res
         .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     // Step 2 — contradicts edge from review → target.
-    let edge_secs = now_validity_seconds();
+    let edge_secs = edge_version_seconds(store, &review_id, target_id, "contradicts")?;
     let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
     p2.insert("src".to_string(), DataValue::Str(review_id.clone().into()));
     p2.insert("dst".to_string(), DataValue::Str(target_id.clone().into()));
@@ -171,7 +171,7 @@ pub fn resolve_review(
     // Step 2 — retract each contradicts edge (bi-temporal `[now, false]`, the
     // same mechanism as `unlink`: the assertion stays in history).
     for src in &reviewers {
-        let edge_secs = now_validity_seconds();
+        let edge_secs = edge_version_seconds(store, src, target_id, "contradicts")?;
         let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
         p.insert("src".to_string(), DataValue::Str(src.clone().into()));
         p.insert("dst".to_string(), DataValue::Str(target_id.clone().into()));
@@ -224,7 +224,7 @@ pub fn resolve_review(
         attach_node_to_initiative(store, &resolution_id)?;
 
         for src in &reviewers {
-            let edge_secs = now_validity_seconds();
+            let edge_secs = edge_version_seconds(store, &resolution_id, src, "supersedes")?;
             let mut pe: BTreeMap<String, DataValue> = BTreeMap::new();
             pe.insert(
                 "src".to_string(),

@@ -17,8 +17,8 @@
 use chrono::Utc;
 
 use super::{
-    ReassertRow, merge_tags, now_validity_seconds, read_node_now, reassert_node_now,
-    retract_node_at,
+    ReassertRow, merge_tags, node_version_seconds, now_validity_seconds, read_node_now,
+    reassert_node_now, retract_node_at,
 };
 use crate::errors::{Error, Result};
 use crate::graph::NodeId;
@@ -51,7 +51,7 @@ pub fn stamp_reminder_seen(store: &Store, node_id: &NodeId) -> Result<bool> {
 
     // Re-assert first, retract second, same timestamp — the ordering
     // invariant every RMW rewrite in this module shares.
-    let secs = now_validity_seconds();
+    let secs = node_version_seconds(store, node_id)?;
     reassert_node_now(
         store,
         node_id,

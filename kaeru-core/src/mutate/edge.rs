@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
-use super::{attach_edge_to_initiative, now_validity_seconds};
+use super::{attach_edge_to_initiative, edge_version_seconds};
 use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{EdgeType, NodeId};
@@ -38,7 +38,10 @@ pub fn link_with_weight(
         DataValue::Str(edge_type.as_str().into()),
     );
 
-    let now_secs = now_validity_seconds();
+    // One second past the key's newest row when that row is already at NOW,
+    // so a correction inside the same second is not outranked by what it
+    // corrects (#96).
+    let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
     // `{w:.6}` keeps a decimal point so Cozo reads it as a Float, not an Int.
     let script = format!(
         r#"
@@ -177,7 +180,7 @@ pub fn link_remote_to(
     );
     params.insert("dst_store".to_string(), DataValue::Str(dst_store.into()));
 
-    let now_secs = now_validity_seconds();
+    let now_secs = edge_version_seconds(store, src, dst_cloud_id, edge_type.as_str())?;
     let script = format!(
         r#"
         ?[src, dst, edge_type, validity, weight, properties, dst_store] <-
@@ -215,7 +218,9 @@ pub fn unlink(store: &Store, src: &NodeId, dst: &NodeId, edge_type: EdgeType) ->
         DataValue::Str(edge_type.as_str().into()),
     );
 
-    let now_secs = now_validity_seconds();
+    // A retraction issued after an assertion must outrank it even when both
+    // land in the same second — that is the whole point of the bump (#96).
+    let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
     let script = format!(
         r#"
         ?[src, dst, edge_type, validity, weight, properties] <-

@@ -16,7 +16,8 @@ use serde_json::{Value, json};
 
 use super::{
     ReassertRow, attach_node_to_initiative_named, build_body_tags, merge_tags,
-    now_validity_seconds, read_node_now, reassert_node_now, retract_node_at, tags_literal,
+    node_version_seconds, now_validity_seconds, read_node_now, reassert_node_now, retract_node_at,
+    tags_literal,
 };
 use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
@@ -58,7 +59,7 @@ pub fn set_status(store: &Store, initiative: &str, task_id: &NodeId, status: &st
     // unlike `complete_task`) and any manual tags.
     let tags = merge_tags(&current.tags, &["status:", "lang:", "topic:"], fresh);
 
-    let secs = now_validity_seconds();
+    let secs = node_version_seconds(store, task_id)?;
     reassert_node_now(
         store,
         task_id,
@@ -157,7 +158,7 @@ where
     }
     f(&mut statuses)?;
 
-    let secs = now_validity_seconds();
+    let secs = node_version_seconds(store, &board_id)?;
     put_board(store, &board_id, initiative, &statuses, secs)?;
     retract_node_at(store, &board_id, secs)?;
     write_audit(

@@ -9,8 +9,9 @@ use cozo::{DataValue, ScriptMutability};
 
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, attach_node_to_initiative_named,
-    build_body_tags, carry_chain_membership, initiatives_of_node, merge_tags, now_validity_seconds,
-    read_derived_from_targets, read_node_now, tags_literal,
+    build_body_tags, carry_chain_membership, edge_version_seconds, initiatives_of_node, merge_tags,
+    node_version_seconds, now_validity_seconds, read_derived_from_targets, read_node_now,
+    tags_literal,
 };
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
@@ -33,9 +34,12 @@ use crate::store::Store;
 ///     turn into?".
 ///  6. Single audit event covering the consolidation as a whole.
 ///
-/// Like `supersedes`, the substrate-level writes are not atomic; a failure
-/// between steps leaves the graph in an intermediate state recoverable via
-/// `lint`.
+/// Like `supersedes`, the substrate-level writes are not atomic — so, as
+/// there, the new node is asserted and wired first and the old one retracted
+/// **last** (#96). A failure in between then leaves both versions readable,
+/// which `lint` reports, rather than neither, which nothing could see. That
+/// mattered most here: `settle` runs this path for every promotion into
+/// cortex.
 pub fn consolidate_out(
     store: &Store,
     operational_id: &NodeId,
@@ -110,22 +114,7 @@ fn consolidate(
     let new_type_str = new_type.as_str();
     let new_tier_str = new_tier.as_str();
 
-    // Step 1 — retract old.
-    let retract_secs = now_validity_seconds();
-    let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
-    p1.insert("old_id".to_string(), DataValue::Str(old_id.clone().into()));
-    let s1 = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$old_id, [{retract_secs}.0, false], 'placeholder', 'operational', '', null, null, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&s1, p1, ScriptMutability::Mutable)?;
-
-    // Step 2 — assert new node at the target tier.
+    // Step 1 — assert the new node at the target tier.
     let assert_secs = now_validity_seconds();
     let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
     p2.insert("id".to_string(), DataValue::Str(new_id.clone().into()));
@@ -165,10 +154,10 @@ fn consolidate(
         }
     }
 
-    // Step 3 — replicate derived_from edges so provenance survives the
+    // Step 2 — replicate derived_from edges so provenance survives the
     // tier boundary.
     for target in &provenance_targets {
-        let edge_secs = now_validity_seconds();
+        let edge_secs = edge_version_seconds(store, &new_id, target, "derived_from")?;
         let mut p_edge: BTreeMap<String, DataValue> = BTreeMap::new();
         p_edge.insert("src".to_string(), DataValue::Str(new_id.clone().into()));
         p_edge.insert("dst".to_string(), DataValue::Str(target.clone().into()));
@@ -185,8 +174,8 @@ fn consolidate(
         attach_edge_to_initiative(store, &new_id, target, "derived_from")?;
     }
 
-    // Step 4 — consolidated_to edge: old → new.
-    let edge_secs = now_validity_seconds();
+    // Step 3 — consolidated_to edge: old → new.
+    let edge_secs = edge_version_seconds(store, old_id, &new_id, "consolidated_to")?;
     let mut p_link: BTreeMap<String, DataValue> = BTreeMap::new();
     p_link.insert("src".to_string(), DataValue::Str(old_id.clone().into()));
     p_link.insert("dst".to_string(), DataValue::Str(new_id.clone().into()));
@@ -202,10 +191,31 @@ fn consolidate(
         .run_script(&s_link, p_link, ScriptMutability::Mutable)?;
     attach_edge_to_initiative(store, old_id, &new_id, "consolidated_to")?;
 
-    // Step 5 — the successor takes the predecessor's place in every saved
+    // Step 4 — the successor takes the predecessor's place in every saved
     // trail. Without this the node drops out of the chains it was a step of,
     // and the step lost is the one the trail existed to reach (#71).
     carry_chain_membership(store, old_id, &new_id)?;
+
+    // Step 5 — retract the predecessor, LAST. The writes are not one
+    // transaction, and retracting first meant a failure in the middle left
+    // NEITHER version readable at NOW (#96): `settle` runs this path for
+    // every promotion into cortex, so that was the knowledge disappearing
+    // from every read surface. Retracting last leaves both readable, which
+    // is what `lint` is for. Past the node's newest row, so consolidating
+    // something written in this same second still retracts it.
+    let retract_secs = node_version_seconds(store, old_id)?;
+    let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
+    p1.insert("old_id".to_string(), DataValue::Str(old_id.clone().into()));
+    let s1 = format!(
+        r#"
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
+            [[$old_id, [{retract_secs}.0, false], 'placeholder', 'operational', '', null, null, null, null]]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        "#
+    );
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
 
     write_audit(
         store.db_ref(),
@@ -303,5 +313,45 @@ mod tests {
                 .expect("consolidate");
         let inits = super::super::initiatives_of_node(&store, &settled).expect("junction read");
         assert_eq!(inits, vec!["demo".to_string()]);
+    }
+
+    /// `settle` runs this path for every promotion into cortex, and doing it
+    /// in the second the draft was written used to leave both the draft and
+    /// its settled form live (#96) — the retraction tied with the draft's own
+    /// assertion and lost. The predecessor is retracted last now, past its
+    /// newest row.
+    #[test]
+    fn settling_within_the_second_retracts_the_draft() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("demo");
+        let draft = crate::jot(&store, "a thought that settled fast").expect("jot");
+
+        let settled = crate::consolidate_out(
+            &store,
+            &draft,
+            NodeType::Outcome,
+            "settled-fast",
+            "the settled form",
+        )
+        .expect("settle");
+
+        assert!(
+            crate::node_brief_by_id(&store, &draft)
+                .expect("read")
+                .is_none(),
+            "the draft is gone from NOW"
+        );
+        let brief = crate::node_brief_by_id(&store, &settled)
+            .expect("read")
+            .expect("the settled node reads");
+        assert_eq!(brief.name, "settled-fast");
+        // The successor was attached before anything was retracted, so it is
+        // reachable from the initiative rather than orphaned by a half-done
+        // operation.
+        let members = crate::nodes_in_initiative(&store, "demo").expect("members");
+        assert!(
+            members.iter().any(|b| b.id == settled),
+            "the settled node is in the initiative: {members:?}"
+        );
     }
 }

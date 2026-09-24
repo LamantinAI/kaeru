@@ -13,7 +13,9 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, JsonData, ScriptMutability};
 use serde_json::Value as JsonValue;
 
-use super::{NODE_VALUE_COLUMNS, node_row_values, now_validity_seconds, tags_literal};
+use super::{
+    NODE_VALUE_COLUMNS, edge_version_seconds, node_row_values, node_version_seconds, tags_literal,
+};
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
 use crate::graph::{EdgeType, Layer, NodeId, NodeType, Tier, Visibility};
@@ -64,7 +66,7 @@ pub fn upsert_node(
     // / visibility are enum `as_str()`, never attacker-controlled, so
     // inlining their quoted form is safe.
     let tags_lit = tags_literal(tags);
-    let now_secs = now_validity_seconds();
+    let now_secs = node_version_seconds(store, id)?;
     // The row is assembled from NODE_VALUE_COLUMNS rather than a hand-written
     // list: a column added to the schema fails loudly here (no value supplied)
     // instead of quietly landing on its default in every cloud pull.
@@ -163,7 +165,7 @@ pub fn upsert_edge(
         DataValue::Str(edge_type.as_str().into()),
     );
 
-    let now_secs = now_validity_seconds();
+    let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
     let script = format!(
         r#"
         ?[src, dst, edge_type, validity, weight, properties] <-

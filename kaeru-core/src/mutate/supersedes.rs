@@ -7,7 +7,7 @@ use cozo::{DataValue, ScriptMutability};
 
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, carry_chain_membership,
-    now_validity_seconds, read_node_now, tags_literal,
+    node_version_seconds, now_validity_seconds, read_node_now, tags_literal,
 };
 use crate::errors::Result;
 use crate::graph::audit::write_audit;
@@ -17,21 +17,27 @@ use crate::store::Store;
 /// Replaces `old_id` with a freshly-asserted node carrying the new content,
 /// connected to the old by a `supersedes` edge.
 ///
-/// Three substrate writes happen in sequence:
-///  1. retract `old_id` (assertion = false at now);
-///  2. assert a new node with a new id at now;
-///  3. write a `supersedes` edge from new → old — `src` supersedes `dst`,
-///     the one direction the graph uses (#93).
+/// The substrate writes happen in this sequence, and the sequence is the
+/// safety property (#96):
+///  1. assert the new node under a fresh id;
+///  2. write a `supersedes` edge from new → old — `src` supersedes `dst`,
+///     the one direction the graph uses (#93);
+///  3. attach the successor to the initiative and carry its chain
+///     memberships, so it is reachable;
+///  4. retract `old_id` **last**.
 /// Followed by one `audit_event` capturing the operation as a whole.
 ///
 /// Reads through `at(t)` for `t` *after* the supersedes will resolve through
 /// the substrate's bi-temporal mechanics: `old_id` reads as nothing,
 /// `new_id` reads as the new content. Earlier `t` still resolves the old.
 ///
-/// Note: the three writes are not atomic at the substrate level. A failure
-/// between steps leaves the graph in an intermediate state — recoverable
-/// through `lint`, but not transparent. A transactional path is a future
-/// improvement.
+/// Note: the writes are not atomic at the substrate level, which is why the
+/// order above matters. Retracting first — as this did until 0.7.4 — meant a
+/// failure in between left NEITHER version readable at NOW: the knowledge
+/// gone from every read surface, surviving only in `history`. Retracting last
+/// leaves both readable, a state `lint` reports and a human can settle. A
+/// transactional path (one Cozo script) would make it all-or-nothing and is
+/// still future work.
 pub fn supersedes(
     store: &Store,
     old_id: &NodeId,
@@ -52,23 +58,7 @@ pub fn supersedes(
         .map(|n| n.layer)
         .unwrap_or_else(|| "warm".to_string());
 
-    // Step 1 — retract old. Required non-key fields get placeholder values;
-    // they are never observable because the row is a retraction.
-    let retract_secs = now_validity_seconds();
-    let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
-    p1.insert("old_id".to_string(), DataValue::Str(old_id.clone().into()));
-    let s1 = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$old_id, [{retract_secs}, false], 'placeholder', 'operational', '', null, null, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&s1, p1, ScriptMutability::Mutable)?;
-
-    // Step 2 — assert new node.
+    // Step 1 — assert the successor.
     let assert_secs = now_validity_seconds();
     let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
     p2.insert("id".to_string(), DataValue::Str(new_id.clone().into()));
@@ -90,7 +80,7 @@ pub fn supersedes(
         .db_ref()
         .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
-    // Step 3 — supersedes edge. Inlined here to avoid the inner audit that
+    // Step 2 — supersedes edge. Inlined here to avoid the inner audit that
     // `link` would write; this whole operation gets one audit at the end.
     let edge_secs = now_validity_seconds();
     let mut p3: BTreeMap<String, DataValue> = BTreeMap::new();
@@ -107,11 +97,39 @@ pub fn supersedes(
         .db_ref()
         .run_script(&s3, p3, ScriptMutability::Mutable)?;
 
+    // Step 3 — memberships and trails, so the successor is reachable
+    // before anything else disappears.
     attach_node_to_initiative(store, &new_id)?;
     attach_edge_to_initiative(store, &new_id, old_id, "supersedes")?;
     // The successor stands where the predecessor stood in any saved trail —
     // same reasoning as in `consolidate` (#71).
     carry_chain_membership(store, old_id, &new_id)?;
+
+    // Step 4 — retract the predecessor, LAST. Required non-key fields get
+    // placeholder values; they are never observable because the row is a
+    // retraction.
+    //
+    // The order is the whole point (#96): these writes are not one
+    // transaction, and retracting first meant a failure in the middle left
+    // NEITHER version readable at NOW — the knowledge gone from every read
+    // surface, recoverable only through `history`. Retracting last leaves
+    // both readable instead, which `lint` is built to notice. The timestamp
+    // is past the predecessor's newest row, so a supersession inside the
+    // second that wrote it still retracts it.
+    let retract_secs = node_version_seconds(store, old_id)?;
+    let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
+    p1.insert("old_id".to_string(), DataValue::Str(old_id.clone().into()));
+    let s1 = format!(
+        r#"
+        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
+            [[$old_id, [{retract_secs}, false], 'placeholder', 'operational', '', null, null, null, null]]
+        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+        "#
+    );
+    store
+        .db_ref()
+        .run_script(&s1, p1, ScriptMutability::Mutable)?;
+
     write_audit(
         store.db_ref(),
         "supersedes",
@@ -157,5 +175,44 @@ mod tests {
             snap.visibility, "local",
             "visibility deliberately not inherited — `shared` means \"is in the cloud\", and the successor isn't there yet"
         );
+    }
+
+    /// Superseding a node in the second it was written used to leave BOTH
+    /// versions live: the retraction shared a timestamp with the node's own
+    /// assertion, and at equal timestamps the assertion wins (#96). The
+    /// successor is now written first and the predecessor retracted last,
+    /// past its own newest row.
+    #[test]
+    fn superseding_within_the_second_retracts_the_predecessor() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let old = crate::jot(&store, "the first answer").expect("jot");
+
+        let new = supersedes(
+            &store,
+            &old,
+            NodeType::Episode,
+            Tier::Operational,
+            "the-second-answer",
+            "what we know now",
+        )
+        .expect("supersede");
+
+        assert!(
+            crate::node_brief_by_id(&store, &old)
+                .expect("read")
+                .is_none(),
+            "the predecessor is retracted, not left beside its replacement"
+        );
+        assert!(
+            crate::node_brief_by_id(&store, &new)
+                .expect("read")
+                .is_some(),
+            "and the successor reads at NOW"
+        );
+        // Written before the retraction, so a failure in between would have
+        // left something reachable rather than nothing.
+        let reached = crate::walk(&store, &new, &[crate::EdgeType::Supersedes], 1).expect("walk");
+        assert!(reached.contains(&old), "the edge is in place: {reached:?}");
     }
 }

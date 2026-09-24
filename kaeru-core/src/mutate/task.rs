@@ -16,8 +16,8 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 
 use super::{
-    ReassertRow, attach_node_to_initiative, build_body_tags, merge_tags, now_validity_seconds,
-    read_node_now, reassert_node_now, retract_node_at, tags_literal,
+    ReassertRow, attach_node_to_initiative, build_body_tags, merge_tags, node_version_seconds,
+    now_validity_seconds, read_node_now, reassert_node_now, retract_node_at, tags_literal,
 };
 use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
@@ -103,7 +103,7 @@ pub fn complete_task(store: &Store, task_id: &NodeId) -> Result<()> {
 
     // Re-assert first, retract second, same timestamp — see
     // `reassert_node_now` for the ordering invariant.
-    let secs = now_validity_seconds();
+    let secs = node_version_seconds(store, task_id)?;
     reassert_node_now(
         store,
         task_id,

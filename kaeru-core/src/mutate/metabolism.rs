@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 
 use super::{
-    ReassertRow, build_body_tags, merge_tags, now_validity_seconds, read_connected_edges,
-    read_node_now, reassert_node_now, retract_node_at,
+    ReassertRow, build_body_tags, edge_version_seconds, merge_tags, node_version_seconds,
+    read_connected_edges, read_node_now, reassert_node_now, retract_node_at,
 };
 use crate::errors::{Error, Result};
 use crate::graph::NodeId;
@@ -27,10 +27,10 @@ use crate::store::Store;
 pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
     let edges = read_connected_edges(store, node_id)?;
 
-    // Retract each connected edge with a single timestamp; ordering of
-    // retractions inside a single forget call is irrelevant.
-    let edge_secs = now_validity_seconds();
+    // Each edge is retracted past its own newest row, so an edge written in
+    // this same second is still retracted rather than outranking us (#96).
     for (src, dst, edge_type) in &edges {
+        let edge_secs = edge_version_seconds(store, src, dst, edge_type)?;
         let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
         p.insert("src".to_string(), DataValue::Str(src.clone().into()));
         p.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
@@ -51,7 +51,7 @@ pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
     }
 
     // Retract the node itself.
-    let node_secs = now_validity_seconds();
+    let node_secs = node_version_seconds(store, node_id)?;
     let mut p_node: BTreeMap<String, DataValue> = BTreeMap::new();
     p_node.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
     let s_node = format!(
@@ -93,8 +93,10 @@ pub fn improve(store: &Store, node_id: &NodeId, new_name: &str, new_body: &str) 
     let tags = merge_tags(&current.tags, &["lang:", "topic:"], fresh);
 
     // Re-assert first, retract second, same timestamp — see
-    // `reassert_node_now` for the ordering invariant.
-    let secs = now_validity_seconds();
+    // `reassert_node_now` for the ordering invariant. The timestamp is past
+    // the node's newest row, so a revision inside the second that wrote it
+    // still wins (#96).
+    let secs = node_version_seconds(store, node_id)?;
     reassert_node_now(
         store,
         node_id,

@@ -49,10 +49,33 @@ Edges live in a parallel `edge` relation (also `Validity`-keyed) carrying `src`,
 `edge_initiative`, `chain_member`) deliberately **do not** put `Validity` in the
 PK — membership is a set fact, not a versioned one.
 
-> **Known edge case — whole-second resolution.** Validity is floored to the
-> second. Two opposing mutations on the same node within one second (e.g. `link`
-> then an immediate `unlink`) resolve ambiguously. Human-paced and cron-paced use
-> always crosses the boundary; the test suite sleeps across it.
+> **Whole-second resolution, and how order survives it.** Validity is floored
+> to the second, and at equal timestamps the substrate resolves the
+> *assertion* — so two opposing mutations on one key inside a second used to
+> resolve by sign rather than by order: a `link` corrected by an immediate
+> `unlink` left the edge live (#96). Agents are not human-paced, so that was
+> routine rather than exotic.
+>
+> A write to a key that already carries a row at or after NOW therefore lands
+> one second past it (`node_version_seconds` / `edge_version_seconds` in
+> `mutate`). Nothing is hidden by writing "ahead": Cozo counts `Validity` in
+> microseconds and kaeru writes whole seconds into it, so every row is far in
+> the past by the substrate's own clock and `@ 'NOW'` resolves the highest one
+> immediately. A burst of corrections to one key can run a few seconds ahead
+> of the wall clock in that key's own history — the right trade against a read
+> that answers with the write nobody made last.
+>
+> The RMW rewrites are unaffected: there one operation writes the re-assertion
+> and the retraction at the *same* timestamp on purpose, and the assertion
+> winning is what makes the pair atomic in effect.
+
+> **Multi-write operations are ordered, not yet atomic.** `supersedes` and
+> `consolidate` (which `settle` runs for every promotion into cortex) are
+> several substrate writes, not one transaction. They now assert the
+> successor, wire its edges and memberships, and retract the predecessor
+> **last** — so a failure in the middle leaves both versions readable, which
+> `lint` reports, instead of neither, which nothing could (#96). Making it
+> genuinely all-or-nothing needs the writes to run as one Cozo script.
 
 ### Schema migrations
 

@@ -12,6 +12,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::{Error, Result};
+use crate::graph::temporal::parse_validity;
 use crate::graph::{Layer, NodeId};
 use crate::store::Store;
 
@@ -74,6 +75,77 @@ pub(crate) fn now_validity_seconds() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// The timestamp a new version of **this key** must carry so that two writes
+/// to it inside one second stay in the order they were issued (#96).
+///
+/// `Validity` is floored to whole seconds, and at equal timestamps the
+/// substrate resolves the *assertion*, not the later write. That is exactly
+/// what an RMW pair wants — one operation writing both rows — and exactly
+/// what two separate operations do not: a `link` corrected by an immediate
+/// `unlink` left the edge live, because the assertion outranked the
+/// retraction that came after it. Agents are not human-paced; a correction
+/// inside the same second is ordinary.
+///
+/// So a write to a key that already carries a row at or after NOW lands one
+/// second later than that row. Nothing is hidden by it: Cozo's `Validity`
+/// counts microseconds and kaeru writes whole seconds into it, so every row
+/// we write is far in the past by the substrate's own clock and `@ 'NOW'`
+/// resolves the highest one immediately.
+///
+/// The cost is that a burst of corrections to one key can run a few seconds
+/// ahead of the wall clock in that key's history. That is the right trade:
+/// the alternative is a read that answers with the write nobody made last.
+fn next_seconds_after(latest: Option<u64>) -> u64 {
+    let now = now_validity_seconds();
+    match latest {
+        Some(t) if t >= now => t + 1,
+        _ => now,
+    }
+}
+
+/// [`next_seconds_after`] for a node id: the newest timestamp any version of
+/// it carries, bumped past NOW when it is already there.
+pub(crate) fn node_version_seconds(store: &Store, id: &NodeId) -> Result<u64> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+    let rows = store.db_ref().run_script(
+        "?[validity] := *node{id, validity}, id = $id",
+        params,
+        ScriptMutability::Immutable,
+    )?;
+    Ok(next_seconds_after(max_seconds(&rows)))
+}
+
+/// [`next_seconds_after`] for an edge key (`src`, `dst`, `edge_type`).
+pub(crate) fn edge_version_seconds(
+    store: &Store,
+    src: &NodeId,
+    dst: &NodeId,
+    edge_type: &str,
+) -> Result<u64> {
+    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+    params.insert("src".to_string(), DataValue::Str(src.clone().into()));
+    params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+    params.insert("et".to_string(), DataValue::Str(edge_type.into()));
+    let rows = store.db_ref().run_script(
+        "?[validity] := *edge{src, dst, edge_type, validity}, src = $src, dst = $dst, \
+         edge_type = $et",
+        params,
+        ScriptMutability::Immutable,
+    )?;
+    Ok(next_seconds_after(max_seconds(&rows)))
+}
+
+/// The newest timestamp in a one-column `validity` result, assertions and
+/// retractions alike — both occupy the key.
+fn max_seconds(rows: &cozo::NamedRows) -> Option<u64> {
+    rows.rows
+        .iter()
+        .filter_map(|r| parse_validity(r.first()).ok())
+        .map(|(secs, _)| secs as u64)
+        .max()
 }
 
 /// Maximum number of `topic:<word>` tags derived from a node.
@@ -855,10 +927,11 @@ mod tests {
     use cozo::{DataValue, ScriptMutability};
 
     use super::{
-        NODE_VALUE_COLUMNS, ReassertRow, merge_tags, read_node_now, reassert_node_now,
-        retract_node_at,
+        NODE_VALUE_COLUMNS, ReassertRow, merge_tags, node_version_seconds, now_validity_seconds,
+        read_node_now, reassert_node_now, retract_node_at,
     };
     use crate::graph::NodeId;
+    use crate::graph::{EdgeType, new_node_id};
     use crate::store::Store;
 
     /// The `node` schema and [`NODE_VALUE_COLUMNS`] must agree exactly.
@@ -1153,6 +1226,105 @@ mod tests {
                 "status:done".to_string(),
                 "lang:en".to_string(),
             ]
+        );
+    }
+
+    // ── one key, one order (#96) ───────────────────────────────────────────
+
+    /// The defect: `Validity` is whole seconds and at equal timestamps the
+    /// substrate resolves the ASSERTION, so a `link` corrected by an
+    /// immediate `unlink` left the edge live — the opposite of what the
+    /// caller asked for last. Agents correct themselves inside a second all
+    /// the time.
+    #[test]
+    fn a_retraction_issued_after_an_assertion_wins_within_the_second() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("proj");
+        let a = crate::jot(&store, "a").expect("jot");
+        let b = crate::jot(&store, "b").expect("jot");
+
+        // Align to the start of a second so both writes share one wall clock.
+        let start = now_validity_seconds();
+        while now_validity_seconds() == start {}
+
+        crate::link(&store, &a, &b, EdgeType::RefersTo).expect("link");
+        crate::unlink(&store, &a, &b, EdgeType::RefersTo).expect("unlink");
+
+        let alive = crate::between(&store, &a, &b)
+            .expect("between")
+            .iter()
+            .any(|r| r.edge_type == "refers_to");
+        assert!(!alive, "the unlink came last, so the edge is gone");
+    }
+
+    /// And back again: the pair is ordered, not merely biased towards
+    /// retraction. Three writes in one second end where the last one says.
+    #[test]
+    fn a_re_link_after_an_unlink_wins_too() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("proj");
+        let a = crate::jot(&store, "a").expect("jot");
+        let b = crate::jot(&store, "b").expect("jot");
+
+        let start = now_validity_seconds();
+        while now_validity_seconds() == start {}
+
+        crate::link(&store, &a, &b, EdgeType::RefersTo).expect("link");
+        crate::unlink(&store, &a, &b, EdgeType::RefersTo).expect("unlink");
+        crate::link(&store, &a, &b, EdgeType::RefersTo).expect("link again");
+
+        let alive = crate::between(&store, &a, &b)
+            .expect("between")
+            .iter()
+            .any(|r| r.edge_type == "refers_to");
+        assert!(alive, "the second link came last, so the edge is back");
+    }
+
+    /// The same rule on the node side: a node revised in the second it was
+    /// written reads as the revision, and one forgotten in that second is
+    /// gone rather than resurrected by its own assertion.
+    #[test]
+    fn a_node_written_and_then_changed_within_the_second_reads_as_the_change() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("proj");
+        let start = now_validity_seconds();
+        while now_validity_seconds() == start {}
+
+        let id = crate::jot(&store, "first words").expect("jot");
+        crate::improve(&store, &id, "renamed", "second words").expect("improve");
+        let brief = crate::node_brief_by_id(&store, &id)
+            .expect("read")
+            .expect("still there");
+        assert_eq!(brief.name, "renamed", "the revision came last");
+
+        let doomed = crate::jot(&store, "doomed").expect("jot");
+        crate::forget(&store, &doomed).expect("forget");
+        assert!(
+            crate::node_brief_by_id(&store, &doomed)
+                .expect("read")
+                .is_none(),
+            "forgotten in the same second it was written"
+        );
+    }
+
+    /// A timestamp is only bumped past a row that is already at NOW — an
+    /// ordinary write to a key last touched days ago carries the wall clock.
+    #[test]
+    fn an_untouched_key_is_not_bumped_into_the_future() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("proj");
+        let id = crate::jot(&store, "quiet node").expect("jot");
+        let now = now_validity_seconds();
+        assert!(
+            node_version_seconds(&store, &id).expect("read") >= now,
+            "never behind the clock"
+        );
+
+        let fresh = new_node_id();
+        assert_eq!(
+            node_version_seconds(&store, &fresh).expect("read"),
+            now_validity_seconds(),
+            "a key with no rows at all is just now"
         );
     }
 }
