@@ -81,6 +81,22 @@ pub fn history(
             let mark = if r.asserted { "+" } else { "-" };
             out.push_str(&format!("  [{mark}] t={:.0}  {}\n", r.seconds, r.name));
         }
+        // `layer`, `visibility` and an edge's `weight` are rewritten in place,
+        // so they mint no version and would otherwise be missing from the one
+        // verb that answers "how did this change?" (#95). The audit trail
+        // holds the moment and the actor; the old value is not recorded
+        // anywhere, and saying so is the point.
+        let rewrites = kaeru_core::unversioned_changes(store, &id).map_err(to_mcp)?;
+        if !rewrites.is_empty() {
+            out.push_str(&format!(
+                "\nin-place changes ({}) — not versions: the field was overwritten, so the \
+                 value it held before is not recoverable:\n",
+                rewrites.len()
+            ));
+            for c in &rewrites {
+                out.push_str(&format!("  [~] t={}  {} by {}\n", c.seconds, c.op, c.actor));
+            }
+        }
         // More than one version means there's a past worth time-travelling to.
         if revs.len() > 1 {
             out.push_str(&history_read_version_hint(name));
@@ -94,10 +110,12 @@ pub fn history(
 /// when the read time-travelled.
 fn render(s: &NodeSnapshot, when: Option<&str>) -> String {
     let mut out = String::new();
+    let mut time_travelled = false;
     if let Some(w) = when {
         let w = w.trim();
         if !w.is_empty() {
             out.push_str(&format!("[as of {w}]\n"));
+            time_travelled = true;
         }
     }
     out.push_str(&format!("{} ({} / {})\n", s.name, s.tier, s.node_type));
@@ -105,6 +123,14 @@ fn render(s: &NodeSnapshot, when: Option<&str>) -> String {
         "layer: {}   visibility: {}\n",
         s.layer, s.visibility
     ));
+    // Both are rewritten in place rather than versioned, so a read of the
+    // past carries today's values for them — and a reader trusts a line that
+    // does not say otherwise (#95).
+    if time_travelled {
+        out.push_str(
+            "↳ layer and visibility are CURRENT values, not the ones held at that moment —              they are rewritten in place, not versioned. `history` lists when they were              changed and by whom.\n",
+        );
+    }
     if let Some(ts) = s.ts {
         out.push_str(&format!("recorded: {}\n", fmt_ts(ts)));
     }
@@ -241,6 +267,52 @@ mod tests {
         assert!(
             !out.contains("timeline: `history"),
             "no history-hint for one version:\n{out}"
+        );
+    }
+
+    /// The read of a past moment used to present today's layer as that
+    /// moment's, with nothing to say it was not (#95). It is labelled now,
+    /// and `history` shows the change the versions cannot.
+    #[test]
+    fn a_past_read_says_which_fields_are_todays() {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        let id = kaeru_core::write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Medium,
+            "a-note",
+            "body",
+        )
+        .expect("write");
+        kaeru_core::attach_node(&store, &id, "t").expect("attach");
+        let written_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_secs();
+
+        // Across the second boundary, so "then" and "now" are distinct
+        // moments to the substrate.
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        kaeru_core::set_layer(&store, &id, kaeru_core::Layer::Core).expect("layer");
+
+        let now_read = text_of(at(&store, "a-note", None, Some("t")).expect("at"));
+        assert!(
+            !now_read.contains("CURRENT values"),
+            "a read of NOW has nothing to warn about:\n{now_read}"
+        );
+
+        let past =
+            text_of(at(&store, "a-note", Some(&format!("{written_at}")), Some("t")).expect("at"));
+        assert!(
+            past.contains("layer: core") && past.contains("CURRENT values"),
+            "the past read carries today's layer, and says so:\n{past}"
+        );
+
+        let hist = text_of(history(&store, "a-note", Some("t")).expect("history"));
+        assert!(
+            hist.contains("in-place changes (1)") && hist.contains("set_layer by system"),
+            "the change is listed where a reader looks for it:\n{hist}"
         );
     }
 }

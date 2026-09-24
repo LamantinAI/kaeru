@@ -13,18 +13,46 @@ The store is a single embedded [CozoDB](https://cozodb.org) instance with the
 RocksDB backend, running **in-process** with the agent's daemon — no server, no
 network hop to the data.
 
-Every domain relation is **bi-temporal**. The primary key of the `node` and
+Every domain relation is **versioned**. The primary key of the `node` and
 `edge` relations includes a `Validity` — a `(timestamp, is_assert)` pair native
 to Cozo. Writing a fact *asserts* it at a timestamp; changing it *retracts* the
-old value and asserts a new one at a later timestamp. Nothing is deleted or
-overwritten in place:
+old value and asserts a new one at a later timestamp.
 
-- **Time-travel is free.** A read `@ 'NOW'` sees the currently-valid version; a
-  read as-of any past instant reconstructs what the graph looked like then. This
-  is what `at` (full node read, optionally `when:`) and `history` expose.
+One word of precision, because the docs used to overstate it: there is **one**
+time axis here, and it is transaction time — when kaeru was told. Valid time,
+when the fact was true in the world, is not stored, so "bi-temporal" is the
+wrong word for what the substrate gives you. Elsewhere in this document the
+term still appears for the mechanism Cozo calls by that name.
+
+Most of a node is never deleted or overwritten in place:
+
+- **Time-travel is free — for the versioned fields.** A read `@ 'NOW'` sees
+  the currently-valid version; a read as-of any past instant reconstructs what
+  the graph looked like then. This is what `at` (full node read, optionally
+  `when:`) and `history` expose.
 - **Conflict resolution is non-destructive.** A `supersede` retracts the prior
   version through the substrate rather than clobbering it, so the old reasoning
   survives and remains inspectable.
+
+> **What is versioned, and what is not (#95).** `type`, `tier`, `name`, `body`
+> and `tags` are versioned: a read of the past shows what they were. `layer`,
+> `visibility` and an edge's `weight` are **not** — changing one rewrites the
+> current row in place, so a read of any moment reports today's value.
+>
+> That is deliberate. A layer change asserted as a new version used to leave
+> two rows competing at NOW, and the loser took the node out of every read
+> while its edges survived. It also keeps the hygiene pass from making a node
+> it demoted look freshly written, which would reset the very age rules the
+> pass runs on.
+>
+> Nothing is hidden by it: `at --when` labels those two fields as current
+> rather than historical, and `history` lists the in-place changes beside the
+> versions, each with its moment and its actor (`system` for an agent's call,
+> `hygiene` for the sweep) — read from the audit trail, which is where they
+> are recorded. The **old value** is not recorded anywhere, and the output
+> says that too. The junction relations (`node_initiative`, `edge_initiative`,
+> `chain_member`) are likewise unversioned by design: membership is a set
+> fact, not a history.
 
 The core node schema (simplified):
 

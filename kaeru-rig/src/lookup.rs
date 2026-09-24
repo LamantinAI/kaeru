@@ -10,7 +10,7 @@
 use kaeru_core::{
     Layer, at, between, fuzzy_recall, history, neighbours, parse_when, read_node_full,
     recall_by_layer, recall_id_by_name, recollect_idea, recollect_outcome, recollect_provenance,
-    summary_view, tagged, tags_like,
+    summary_view, tagged, tags_like, unversioned_changes,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -147,7 +147,10 @@ mem_tool_in!(
             Ok(Some(s)) => json!({
                 "name": s.name, "type": s.node_type, "tier": s.tier, "body": s.body,
                 "tags": s.tags, "layer": s.layer, "visibility": s.visibility,
-                "at_unix_seconds": seconds
+                "at_unix_seconds": seconds,
+                // Rewritten in place rather than versioned, so these two are
+                // today's values whatever moment was asked for (#95).
+                "not_versioned": ["layer", "visibility"],
             }),
             Ok(None) => json!({ "found": false, "query": args.name, "at": when }),
             Err(e) => json!({ "error": e.to_string() }),
@@ -292,7 +295,16 @@ mem_tool_in!(
                     .iter()
                     .map(|r| json!({ "seconds": r.seconds, "asserted": r.asserted, "name": r.name }))
                     .collect();
-                json!({ "revisions": out })
+                // `layer`, `visibility` and an edge's `weight` mint no version,
+                // so without this the one verb that answers "how did this
+                // change?" does not mention them at all (#95). The moment and
+                // the actor are recorded; the old value never was.
+                let rewrites: Vec<Value> = unversioned_changes(store, &id)
+                    .unwrap_or_default()
+                    .iter()
+                    .map(|c| json!({ "seconds": c.seconds, "op": c.op, "actor": c.actor }))
+                    .collect();
+                json!({ "revisions": out, "in_place_changes": rewrites })
             }
             Err(e) => json!({ "error": e.to_string() }),
         }

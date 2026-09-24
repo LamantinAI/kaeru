@@ -27,6 +27,7 @@ pub mod reflect;
 pub mod summary_view;
 pub mod tagged;
 pub mod under_review;
+pub mod unversioned;
 pub mod verdicts;
 pub mod walk;
 
@@ -58,6 +59,7 @@ pub use reflect::{ReflectionReport, reflect};
 pub use summary_view::{SummaryChild, SummaryView, summary_view};
 pub use tagged::{tagged, tags_like};
 pub use under_review::under_review_pinned;
+pub use unversioned::{UNVERSIONED_OPS, UnversionedChange, unversioned_changes};
 pub use verdicts::{CANCELLING, VERDICT, Verdict, verdicts_against};
 pub use walk::walk;
 
