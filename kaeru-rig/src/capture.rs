@@ -100,6 +100,48 @@ async fn maybe_share(
     }
 }
 
+/// Makes the edge a capture asked for, and returns what to say about it.
+///
+/// Never fails the capture: the thought is stored either way, and refusing
+/// to keep it because a name was mistyped is worse than an island. Every
+/// refusal names itself — an edge silently not made is how a vault goes
+/// flat (#102).
+fn link_at_capture(
+    store: &kaeru_core::Store,
+    id: &str,
+    to: Option<&str>,
+    edge_type: Option<&str>,
+    weight: Option<f64>,
+) -> Option<Value> {
+    if to.is_none() && weight.is_none() && edge_type.is_none() {
+        return None;
+    }
+    let Some(target) = to.map(str::trim).filter(|t| !t.is_empty()) else {
+        return Some(json!({
+            "linked": false,
+            "reason": "`edge_type` / `weight` without `link_to` — name the other end",
+        }));
+    };
+    let Some(weight) = weight else {
+        return Some(json!({
+            "linked": false, "to": target,
+            "reason": "`weight` (0..1) is required — it is what knowledge chains route on,                        and there is no default on purpose",
+        }));
+    };
+    let parsed = match edge_type.unwrap_or("refers_to").parse::<EdgeType>() {
+        Ok(e) => e,
+        Err(e) => return Some(json!({ "linked": false, "to": target, "error": e.to_string() })),
+    };
+    let target_id = resolve(store, target);
+    match link_with_weight(store, &id.to_string(), &target_id, parsed, weight) {
+        Ok(()) => Some(json!({
+            "linked": true, "to": target, "edge_type": parsed.as_str(),
+            "weight": weight.clamp(0.0, 1.0),
+        })),
+        Err(e) => Some(json!({ "linked": false, "to": target, "error": e.to_string() })),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct JotArgs {
     pub body: String,
@@ -113,6 +155,16 @@ pub struct JotArgs {
     pub after: Option<String>,
     #[serde(default)]
     pub for_days: Option<i64>,
+    /// The node this one connects to, by name or id — the edge is made in
+    /// THIS call, while both ends are still in mind (#102).
+    #[serde(default)]
+    pub link_to: Option<String>,
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// Required with `link_to`, and no default: the capture lands without
+    /// it, the edge does not.
+    #[serde(default)]
+    pub weight: Option<f64>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -133,12 +185,16 @@ mem_tool_cloud!(
         "cloud": { "type": "string", "description": "which cloud to share into, when several are configured" },
         "after": { "type": "string", "description": "not relevant until this date (YYYY-MM-DD); needs `for_days`" },
         "for_days": { "type": "integer", "description": "how many days it keeps surfacing once the date arrives; needs `after`" },
+        "link_to": { "type": "string", "description": "node (name or id) to link this capture to, in the same call" },
+        "edge_type": { "type": "string", "description": "edge type for `link_to` (default refers_to)" },
+        "weight": { "type": "number", "description": "how load-bearing the `link_to` edge is, 0..1 — required with `link_to`" },
         "initiative": { "type": "string", "description": "optional initiative (project) to file this under; omit for your default" }
     }, "required": ["body"] },
     |mem, a| {
         let init = target_initiative(mem, &a.initiative);
         let (body, layer_raw) = (a.body.clone(), a.layer.clone());
         let (after, for_days) = (a.after.clone(), a.for_days);
+        let (link_to, edge_type, weight) = (a.link_to.clone(), a.edge_type.clone(), a.weight);
         let written = mem
             .run_in(init.clone(), move |store| {
                 let layer = match parse_layer(layer_raw.as_deref()) {
@@ -152,9 +208,18 @@ mem_tool_cloud!(
                             .flatten()
                             .map(|b| b.name)
                             .unwrap_or_default();
+                        let edge = link_at_capture(
+                            store, &id, link_to.as_deref(), edge_type.as_deref(), weight,
+                        );
                         match apply_reminder(store, &id, after.as_deref(), for_days) {
-                            Ok(note) => json!({ "saved": true, "id": id, "name": name, "reminder": note }),
-                            Err(e) => json!({ "saved": true, "id": id, "name": name, "reminder_error": e }),
+                            Ok(note) => json!({
+                                "saved": true, "id": id, "name": name,
+                                "reminder": note, "link": edge
+                            }),
+                            Err(e) => json!({
+                                "saved": true, "id": id, "name": name,
+                                "reminder_error": e, "link": edge
+                            }),
                         }
                     }
                     Err(e) => json!({ "saved": false, "error": e.to_string() }),
@@ -179,6 +244,16 @@ pub struct EpisodeArgs {
     pub after: Option<String>,
     #[serde(default)]
     pub for_days: Option<i64>,
+    /// The node this one connects to, by name or id — the edge is made in
+    /// THIS call, while both ends are still in mind (#102).
+    #[serde(default)]
+    pub link_to: Option<String>,
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// Required with `link_to`, and no default: the capture lands without
+    /// it, the edge does not.
+    #[serde(default)]
+    pub weight: Option<f64>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -200,12 +275,16 @@ mem_tool_cloud!(
         "cloud": { "type": "string", "description": "which cloud to share into, when several are configured" },
         "after": { "type": "string", "description": "not relevant until this date (YYYY-MM-DD); needs `for_days`" },
         "for_days": { "type": "integer", "description": "how many days it keeps surfacing once the date arrives; needs `after`" },
+        "link_to": { "type": "string", "description": "node (name or id) to link this capture to, in the same call" },
+        "edge_type": { "type": "string", "description": "edge type for `link_to` (default refers_to)" },
+        "weight": { "type": "number", "description": "how load-bearing the `link_to` edge is, 0..1 — required with `link_to`" },
         "initiative": { "type": "string", "description": "optional initiative (project) to file this under; omit for your default" }
     }, "required": ["name", "body"] },
     |mem, a| {
         let init = target_initiative(mem, &a.initiative);
         let (name, body, layer_raw) = (a.name.clone(), a.body.clone(), a.layer.clone());
         let (after, for_days) = (a.after.clone(), a.for_days);
+        let (link_to, edge_type, weight) = (a.link_to.clone(), a.edge_type.clone(), a.weight);
         let written = mem
             .run_in(init.clone(), move |store| {
                 let layer = match parse_layer(layer_raw.as_deref()) {
@@ -220,10 +299,21 @@ mem_tool_cloud!(
                     &body,
                     layer,
                 ) {
-                    Ok(id) => match apply_reminder(store, &id, after.as_deref(), for_days) {
-                        Ok(note) => json!({ "saved": true, "id": id, "name": name, "reminder": note }),
-                        Err(e) => json!({ "saved": true, "id": id, "name": name, "reminder_error": e }),
-                    },
+                    Ok(id) => {
+                        let edge = link_at_capture(
+                            store, &id, link_to.as_deref(), edge_type.as_deref(), weight,
+                        );
+                        match apply_reminder(store, &id, after.as_deref(), for_days) {
+                            Ok(note) => json!({
+                                "saved": true, "id": id, "name": name,
+                                "reminder": note, "link": edge
+                            }),
+                            Err(e) => json!({
+                                "saved": true, "id": id, "name": name,
+                                "reminder_error": e, "link": edge
+                            }),
+                        }
+                    }
                     Err(e) => json!({ "saved": false, "error": e.to_string() }),
                 }
             })
@@ -248,6 +338,16 @@ pub struct CiteArgs {
     pub after: Option<String>,
     #[serde(default)]
     pub for_days: Option<i64>,
+    /// The node this one connects to, by name or id — the edge is made in
+    /// THIS call, while both ends are still in mind (#102).
+    #[serde(default)]
+    pub link_to: Option<String>,
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// Required with `link_to`, and no default: the capture lands without
+    /// it, the edge does not.
+    #[serde(default)]
+    pub weight: Option<f64>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -270,6 +370,9 @@ mem_tool_cloud!(
         "cloud": { "type": "string", "description": "which cloud to share into, when several are configured" },
         "after": { "type": "string", "description": "not relevant until this date (YYYY-MM-DD); needs `for_days`" },
         "for_days": { "type": "integer", "description": "how many days it keeps surfacing once the date arrives; needs `after`" },
+        "link_to": { "type": "string", "description": "node (name or id) to link this capture to, in the same call" },
+        "edge_type": { "type": "string", "description": "edge type for `link_to` (default refers_to)" },
+        "weight": { "type": "number", "description": "how load-bearing the `link_to` edge is, 0..1 — required with `link_to`" },
         "initiative": { "type": "string", "description": "optional initiative (project) to file this under; omit for your default" }
     }, "required": ["name", "body"] },
     |mem, a| {
@@ -277,6 +380,7 @@ mem_tool_cloud!(
         let (name, url, body, layer_raw) =
             (a.name.clone(), a.url.clone(), a.body.clone(), a.layer.clone());
         let (after, for_days) = (a.after.clone(), a.for_days);
+        let (link_to, edge_type, weight) = (a.link_to.clone(), a.edge_type.clone(), a.weight);
         let written = mem
             .run_in(init.clone(), move |store| {
                 let layer = match parse_layer(layer_raw.as_deref()) {
@@ -284,10 +388,21 @@ mem_tool_cloud!(
                     Err(e) => return json!({ "saved": false, "error": e }),
                 };
                 match cite_with_layer(store, &name, url.as_deref(), &body, layer) {
-                    Ok(id) => match apply_reminder(store, &id, after.as_deref(), for_days) {
-                        Ok(note) => json!({ "saved": true, "id": id, "name": name, "reminder": note }),
-                        Err(e) => json!({ "saved": true, "id": id, "name": name, "reminder_error": e }),
-                    },
+                    Ok(id) => {
+                        let edge = link_at_capture(
+                            store, &id, link_to.as_deref(), edge_type.as_deref(), weight,
+                        );
+                        match apply_reminder(store, &id, after.as_deref(), for_days) {
+                            Ok(note) => json!({
+                                "saved": true, "id": id, "name": name,
+                                "reminder": note, "link": edge
+                            }),
+                            Err(e) => json!({
+                                "saved": true, "id": id, "name": name,
+                                "reminder_error": e, "link": edge
+                            }),
+                        }
+                    }
                     Err(e) => json!({ "saved": false, "error": e.to_string() }),
                 }
             })
@@ -554,6 +669,16 @@ pub struct TaskArgs {
     pub due: Option<String>,
     #[serde(default)]
     pub layer: Option<String>,
+    /// The node this one connects to, by name or id — the edge is made in
+    /// THIS call, while both ends are still in mind (#102).
+    #[serde(default)]
+    pub link_to: Option<String>,
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// Required with `link_to`, and no default: the capture lands without
+    /// it, the edge does not.
+    #[serde(default)]
+    pub weight: Option<f64>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -571,6 +696,9 @@ mem_tool_in!(
         "body": { "type": "string", "description": "what needs doing" },
         "due": { "type": "string", "description": "deadline: `2026-07-01`, an RFC-3339 datetime, or `3d` / `2w` from now" },
         "layer": { "type": "string", "description": "memory layer at creation: core / hot / warm (default) / cold / frozen" },
+        "link_to": { "type": "string", "description": "node (name or id) to link this capture to, in the same call" },
+        "edge_type": { "type": "string", "description": "edge type for `link_to` (default refers_to)" },
+        "weight": { "type": "number", "description": "how load-bearing the `link_to` edge is, 0..1 — required with `link_to`" },
         "initiative": { "type": "string", "description": "optional initiative (project) to file this under; omit for your default" }
     }, "required": ["body"] },
     |store, args| {
@@ -586,7 +714,16 @@ mem_tool_in!(
             None => None,
         };
         match write_task_with_layer(store, &args.body, due.as_deref(), layer) {
-            Ok(id) => json!({ "created": true, "id": id, "due": due }),
+            Ok(id) => {
+                let edge = link_at_capture(
+                    store,
+                    &id,
+                    args.link_to.as_deref(),
+                    args.edge_type.as_deref(),
+                    args.weight,
+                );
+                json!({ "created": true, "id": id, "due": due, "link": edge })
+            }
             Err(e) => json!({ "created": false, "error": e.to_string() }),
         }
     }

@@ -304,6 +304,20 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   into cortex — is a state nothing could. Keep that order when adding a verb
   that replaces a node; making it all-or-nothing needs one Cozo script and is
   still open.
+- **A capture can make its edge in the same call (#102).** `episode`, `jot`,
+  `cite` and `task` take `link_to` plus `weight`, and the edge is written
+  inside the capture. The nudge that asked for a link afterwards was measured
+  and lost: one live vault reached 23 nodes and 0 edges while it asked every
+  time. It arrives after the write, in the result of a call the agent has
+  finished thinking about, and acting on it costs a fresh decision — what to
+  link to, of what type, how strongly. Offering the edge inside the capture
+  spends that decision while both ends are still in mind, so an island costs
+  an omission rather than an extra call. Two rules hold: the capture NEVER
+  fails because of the edge (a mistyped name must not cost the thought), and
+  every refusal is named out loud, because an edge silently not made is
+  exactly how a vault goes flat. `weight` stays required — the reason it has
+  no default on `link` does not stop applying because the edge is made
+  earlier. `claim` keeps its own `about` instead; one way per verb.
 - **The task board is the one deliberate exception.** `set_status` validates strictly against the initiative's status registry and refuses an unknown key. That is not enforcement of a *workflow* — any task may move to any column, in any order — it protects the registry's role as the single source of truth for a shared vocabulary: a typo must not silently spawn a phantom column. Widening the vocabulary stays an explicit act (`add_status`). The board describes columns; it never gates transitions.
 
 ## Backend Rules

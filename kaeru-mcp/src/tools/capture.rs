@@ -14,8 +14,8 @@ use rmcp::model::CallToolResult;
 use crate::cloud_client::{CloudClient, CloudRegistry};
 use crate::tools::cloud::{EdgeChange, propagate_edge, push_to_cloud};
 use crate::utils::{
-    apply_reminder, arrival_note, capture_result, markup_strip_note, parse_layer,
-    parse_wants_shared, resolve_link_endpoint, text, to_mcp, with_initiative,
+    CaptureLink, apply_reminder, arrival_note, capture_result, link_at_capture, markup_strip_note,
+    parse_layer, parse_wants_shared, resolve_link_endpoint, text, to_mcp, with_initiative,
 };
 
 /// When `want_share`, attempts to push the just-created node `id` to the
@@ -61,6 +61,7 @@ pub async fn episode(
     after: Option<&str>,
     for_days: Option<i64>,
     initiative: Option<&str>,
+    link: CaptureLink<'_>,
 ) -> Result<CallToolResult, McpError> {
     let want_share = parse_wants_shared(visibility)?;
     // Before the write: afterwards the initiative always has a node (#86).
@@ -77,11 +78,13 @@ pub async fn episode(
         )
         .map_err(to_mcp)
     })?;
+    let linked = with_initiative(store, initiative, || Ok(link_at_capture(store, &id, link)))?;
     let reminder = apply_reminder(store, &id, after, for_days)?;
     let mut msg = format!("wrote episode: {name} — {id}");
     if let Some(note) = markup_strip_note(&[("name", name), ("body", body)]) {
         msg.push_str(&note);
     }
+    msg.push_str(&linked);
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
     if let Some(note) = &reminder {
         msg.push_str(note);
@@ -101,6 +104,7 @@ pub async fn jot(
     after: Option<&str>,
     for_days: Option<i64>,
     initiative: Option<&str>,
+    link: CaptureLink<'_>,
 ) -> Result<CallToolResult, McpError> {
     let want_share = parse_wants_shared(visibility)?;
     let arrival = arrival_note(store, initiative);
@@ -113,11 +117,13 @@ pub async fn jot(
         .flatten()
         .map(|b| b.name)
         .unwrap_or_default();
+    let linked = with_initiative(store, initiative, || Ok(link_at_capture(store, &id, link)))?;
     let reminder = apply_reminder(store, &id, after, for_days)?;
     let mut msg = format!("jotted: {name} — {id}");
     if let Some(note) = markup_strip_note(&[("body", body)]) {
         msg.push_str(&note);
     }
+    msg.push_str(&linked);
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
     if let Some(note) = &reminder {
         msg.push_str(note);
@@ -258,6 +264,7 @@ pub async fn cite(
     after: Option<&str>,
     for_days: Option<i64>,
     initiative: Option<&str>,
+    link: CaptureLink<'_>,
 ) -> Result<CallToolResult, McpError> {
     let want_share = parse_wants_shared(visibility)?;
     let arrival = arrival_note(store, initiative);
@@ -265,6 +272,7 @@ pub async fn cite(
         let layer = parse_layer(layer)?;
         kaeru_core::cite_with_layer(store, name, url, body, layer).map_err(to_mcp)
     })?;
+    let linked = with_initiative(store, initiative, || Ok(link_at_capture(store, &id, link)))?;
     let reminder = apply_reminder(store, &id, after, for_days)?;
     let mut msg = match url {
         Some(u) => format!("cited: {name} ({u}) — {id}"),
@@ -273,6 +281,7 @@ pub async fn cite(
     if let Some(note) = markup_strip_note(&[("name", name), ("body", body)]) {
         msg.push_str(&note);
     }
+    msg.push_str(&linked);
     maybe_share(store, cloud, &id, initiative, want_share, &mut msg).await?;
     if let Some(note) = &reminder {
         msg.push_str(note);
@@ -287,7 +296,23 @@ pub async fn cite(
 mod tests {
     use kaeru_core::{EpisodeKind, Significance, Store};
 
-    use super::{CloudRegistry, episode, jot, link};
+    use rmcp::model::CallToolResult;
+
+    use super::{CaptureLink, CloudRegistry, episode, jot, link};
+
+    fn text_of(r: CallToolResult) -> String {
+        r.content
+            .iter()
+            .filter_map(|c| c.as_text().map(|t| t.text.clone()))
+            .collect::<Vec<_>>()
+            .join("")
+    }
+
+    fn store_t() -> Store {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        store
+    }
 
     /// Seeds a node under `initiative` and returns its id.
     fn seed(store: &Store, initiative: &str, name: &str) -> String {
@@ -318,6 +343,7 @@ mod tests {
             None,
             None,
             None,
+            CaptureLink::default(),
         )
         .await;
         assert!(res.is_err(), "a core node with no initiative is refused");
@@ -337,6 +363,7 @@ mod tests {
             None,
             None,
             Some("proj"),
+            CaptureLink::default(),
         )
         .await;
         assert!(res.is_ok(), "core is fine once it has a home");
@@ -346,7 +373,19 @@ mod tests {
     #[tokio::test]
     async fn a_warm_note_without_initiative_is_accepted() {
         let store = Store::open_in_memory().expect("open");
-        let res = episode(&store, None, "note", "body", None, None, None, None, None).await;
+        let res = episode(
+            &store,
+            None,
+            "note",
+            "body",
+            None,
+            None,
+            None,
+            None,
+            None,
+            CaptureLink::default(),
+        )
+        .await;
         assert!(res.is_ok(), "warm/hot untagged capture stays allowed");
     }
 
@@ -438,6 +477,7 @@ mod tests {
             None,
             None,
             Some("kurs-agentov"),
+            CaptureLink::default(),
         )
         .await
         .expect("jot");
@@ -469,6 +509,7 @@ mod tests {
             None,
             None,
             Some("alpha_beta"),
+            CaptureLink::default(),
         )
         .await
         .expect("jot");
@@ -497,11 +538,134 @@ mod tests {
             None,
             None,
             Some("alpha"),
+            CaptureLink::default(),
         )
         .await
         .expect("jot");
         let rendered = format!("{:?}", out.content);
 
         assert!(!rendered.contains("is new"), "{rendered}");
+    }
+
+    /// The measurement behind #102: a vault reached 23 nodes and 0 edges
+    /// because linking was a second call and the nudge asked seven times in
+    /// a row. The edge is available inside the capture now.
+    #[tokio::test]
+    async fn a_capture_can_make_its_edge_in_the_same_call() {
+        let store = store_t();
+        let anchor = kaeru_core::write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Medium,
+            "provider-decision",
+            "we chose X",
+        )
+        .expect("write");
+        kaeru_core::attach_node(&store, &anchor, "t").expect("attach");
+
+        let out = text_of(
+            episode(
+                &store,
+                None,
+                "provider-switch",
+                "and here is why it changed",
+                None,
+                None,
+                None,
+                None,
+                Some("t"),
+                CaptureLink {
+                    to: Some("provider-decision"),
+                    edge_type: Some("derived_from"),
+                    weight: Some(0.9),
+                },
+            )
+            .await
+            .expect("episode"),
+        );
+        assert!(
+            out.contains("linked: -[derived_from]-> provider-decision (weight 0.90)"),
+            "the edge is reported in the capture's own result:\n{out}"
+        );
+        // And the nudge that asks for a link is gone, because there is one.
+        assert!(
+            !out.contains("Don't leave it an island"),
+            "no nudge for a node that is not an island:\n{out}"
+        );
+    }
+
+    /// A mistyped target must not cost the thought. The capture lands, and
+    /// the missing edge says so — silence is how a vault goes flat.
+    #[tokio::test]
+    async fn a_target_that_does_not_resolve_still_keeps_the_capture() {
+        let store = store_t();
+        let out = text_of(
+            episode(
+                &store,
+                None,
+                "a-note",
+                "body",
+                None,
+                None,
+                None,
+                None,
+                Some("t"),
+                CaptureLink {
+                    to: Some("no-such-node"),
+                    edge_type: None,
+                    weight: Some(0.5),
+                },
+            )
+            .await
+            .expect("episode"),
+        );
+        assert!(
+            out.contains("wrote episode: a-note"),
+            "the capture landed:\n{out}"
+        );
+        assert!(
+            out.contains("NOT linked") && out.contains("no-such-node"),
+            "and the edge says it was not made:\n{out}"
+        );
+    }
+
+    /// `weight` has no default here either — the reason it is required on
+    /// `link` does not stop applying because the edge is made in a capture.
+    #[tokio::test]
+    async fn a_link_without_a_weight_is_refused_and_named() {
+        let store = store_t();
+        let anchor = kaeru_core::write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Medium,
+            "anchor",
+            "body",
+        )
+        .expect("write");
+        kaeru_core::attach_node(&store, &anchor, "t").expect("attach");
+
+        let out = text_of(
+            jot(
+                &store,
+                None,
+                "a passing thought",
+                None,
+                None,
+                None,
+                None,
+                Some("t"),
+                CaptureLink {
+                    to: Some("anchor"),
+                    edge_type: None,
+                    weight: None,
+                },
+            )
+            .await
+            .expect("jot"),
+        );
+        assert!(
+            out.contains("NOT linked") && out.contains("`weight`"),
+            "the refusal names what is missing:\n{out}"
+        );
     }
 }

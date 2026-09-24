@@ -35,9 +35,82 @@ pub fn text(s: &str) -> CallToolResult {
 /// save the reasoning trail with `chain`. A hint in the result, not a gate:
 /// the substrate is a facilitator, not an enforcer.
 pub const CAPTURE_NUDGE: &str = "\n↳ now connect it: `search` related → `link` \
-     (`weight` 0..1 is required — 0.9+ for a load-bearing edge); when a line of work runs \
-     start→decision/outcome, `chain(from, to)` to save the reasoning trail. \
+     (`weight` 0..1 is required — 0.9+ for a load-bearing edge); next time `link_to` on the \
+     capture itself makes the edge in one call. When a line of work runs \
+     start→decision/outcome, `chain(from, to)` saves the reasoning trail. \
      Don't leave it an island.";
+
+/// The edge a capture can make in the same call (#102).
+///
+/// Linking used to be a second call, and the measurement says nobody makes
+/// it: one live vault held 23 nodes and 0 edges after the nudge asked seven
+/// times in a row. The nudge arrives *after* the write, in the result of a
+/// call the agent has already finished thinking about, and acting on it
+/// costs a fresh decision — what to link to, of what type, how strongly.
+/// Offering the edge inside the capture spends that decision while both
+/// nodes are still in mind, and makes an island an omission rather than an
+/// extra call.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct CaptureLink<'a> {
+    /// The other end, by name or id. Nothing happens without it.
+    pub to: Option<&'a str>,
+    /// Edge type; `refers_to` when omitted, as in `link`.
+    pub edge_type: Option<&'a str>,
+    /// How load-bearing, 0..1. Required when `to` is given — `link` has no
+    /// default for it, and a capture must not invent one behind the agent's
+    /// back.
+    pub weight: Option<f64>,
+}
+
+impl CaptureLink<'_> {
+    /// Whether the caller asked for an edge at all.
+    fn requested(&self) -> bool {
+        self.to.is_some() || self.weight.is_some() || self.edge_type.is_some()
+    }
+}
+
+/// Makes the edge a capture asked for, and returns the line that says what
+/// happened. Never fails the capture: the thought is already stored, and
+/// refusing to keep it because a name was mistyped is worse than an island.
+/// Every refusal names itself, because an edge silently not made is exactly
+/// how a vault ends up flat.
+pub fn link_at_capture(store: &Store, id: &NodeId, link: CaptureLink<'_>) -> String {
+    if !link.requested() {
+        return String::new();
+    }
+    let Some(target) = link.to.map(str::trim).filter(|t| !t.is_empty()) else {
+        return "\n↳ NOT linked: `edge_type` / `weight` without `link_to` — name the other end."
+            .to_string();
+    };
+    let Some(weight) = link.weight else {
+        return format!(
+            "\n↳ NOT linked to `{target}`: `weight` (0..1) is required — it is what knowledge \
+             chains route on, and there is no default on purpose. Re-run `link` with one."
+        );
+    };
+    let edge_type = link.edge_type.unwrap_or("refers_to");
+    let parsed = match EdgeType::from_str(edge_type) {
+        Ok(e) => e,
+        Err(e) => return format!("\n↳ NOT linked to `{target}`: {e}"),
+    };
+    let target_id = match resolve_name_or_id(store, target) {
+        Ok(id) => id,
+        Err(_) => {
+            return format!(
+                "\n↳ NOT linked: `{target}` did not resolve — the capture is saved. `search` for \
+                 the right name, then `link`."
+            );
+        }
+    };
+    match kaeru_core::link_with_weight(store, id, &target_id, parsed, weight) {
+        Ok(()) => format!(
+            "\n↳ linked: -[{}]-> {target} (weight {:.2})",
+            parsed.as_str(),
+            weight.clamp(0.0, 1.0)
+        ),
+        Err(e) => format!("\n↳ NOT linked to `{target}`: {e}"),
+    }
+}
 
 /// Capture result for the knowledge-forming verbs (`episode`, `cite`,
 /// `claim`). Appends [`CAPTURE_NUDGE`] only when the new node is actually an

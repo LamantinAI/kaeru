@@ -838,6 +838,7 @@ mod tests {
             Some(&yesterday),
             Some(7),
             Some("t"),
+            crate::utils::CaptureLink::default(),
         )
         .await
         .expect("capture");
@@ -851,6 +852,7 @@ mod tests {
             Some(&next_month),
             Some(7),
             Some("t"),
+            crate::utils::CaptureLink::default(),
         )
         .await
         .expect("capture");
@@ -916,6 +918,7 @@ mod tests {
             Some("2026-12-01"),
             None,
             Some("t"),
+            crate::utils::CaptureLink::default(),
         )
         .await
         .expect_err("a date with no window is not a reminder");

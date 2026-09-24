@@ -5,8 +5,8 @@ use rmcp::ErrorData as McpError;
 use rmcp::model::CallToolResult;
 
 use crate::utils::{
-    arc_closed_hint, arrival_note, parse_due_to_iso, parse_layer, resolve_name_or_id, text, to_mcp,
-    with_initiative,
+    CaptureLink, arc_closed_hint, arrival_note, link_at_capture, parse_due_to_iso, parse_layer,
+    resolve_name_or_id, text, to_mcp, with_initiative,
 };
 
 pub fn task(
@@ -15,6 +15,7 @@ pub fn task(
     due: Option<&str>,
     layer: Option<&str>,
     initiative: Option<&str>,
+    link: CaptureLink<'_>,
 ) -> Result<CallToolResult, McpError> {
     // Before the write: afterwards the initiative always has a node (#86).
     let arrival = arrival_note(store, initiative);
@@ -35,6 +36,10 @@ pub fn task(
             Some(d) => format!("task: {name} (due {d}) — {id}"),
             None => format!("task: {name} — {id}"),
         };
+        // A task is usually about something already in memory — the bug it
+        // fixes, the decision it follows from. Naming it here costs one
+        // argument; naming it later costs a call nobody makes (#102).
+        label.push_str(&link_at_capture(store, &id, link));
         if let Some(note) = &arrival {
             label.push_str(note);
         }

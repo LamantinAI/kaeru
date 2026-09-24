@@ -291,6 +291,24 @@ pub struct EpisodeParams {
     /// actually seen, so it cannot expire while nobody is looking.
     #[serde(default)]
     pub for_days: Option<i64>,
+    /// Optional: the node this one connects to, by name or id — the edge is
+    /// made in THIS call, while both ends are still in mind. Linking as a
+    /// second step is the step nobody takes: one real vault reached 23 nodes
+    /// and 0 edges with the nudge asking every time. Needs `weight`.
+    #[serde(default)]
+    pub link_to: Option<String>,
+    /// Edge type for `link_to` — same closed vocabulary as `link`
+    /// (`refers_to` by default, `causal`, `derived_from`, `contradicts`,
+    /// `part_of`, `blocks`, `targets`, `supersedes`, `verifies`,
+    /// `falsifies`, `temporal`, `consolidated_to`).
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// How load-bearing the `link_to` edge is, 0..1. REQUIRED with
+    /// `link_to`: it is the only signal knowledge chains route on, and there
+    /// is no default because an unweighted graph makes every chain rank on
+    /// noise. The capture still lands without it; the edge does not.
+    #[serde(default)]
+    pub weight: Option<f64>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -326,6 +344,24 @@ pub struct JotParams {
     /// actually seen, so it cannot expire while nobody is looking.
     #[serde(default)]
     pub for_days: Option<i64>,
+    /// Optional: the node this one connects to, by name or id — the edge is
+    /// made in THIS call, while both ends are still in mind. Linking as a
+    /// second step is the step nobody takes: one real vault reached 23 nodes
+    /// and 0 edges with the nudge asking every time. Needs `weight`.
+    #[serde(default)]
+    pub link_to: Option<String>,
+    /// Edge type for `link_to` — same closed vocabulary as `link`
+    /// (`refers_to` by default, `causal`, `derived_from`, `contradicts`,
+    /// `part_of`, `blocks`, `targets`, `supersedes`, `verifies`,
+    /// `falsifies`, `temporal`, `consolidated_to`).
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// How load-bearing the `link_to` edge is, 0..1. REQUIRED with
+    /// `link_to`: it is the only signal knowledge chains route on, and there
+    /// is no default because an unweighted graph makes every chain rank on
+    /// noise. The capture still lands without it; the edge does not.
+    #[serde(default)]
+    pub weight: Option<f64>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -748,6 +784,24 @@ pub struct CiteParams {
     /// actually seen, so it cannot expire while nobody is looking.
     #[serde(default)]
     pub for_days: Option<i64>,
+    /// Optional: the node this one connects to, by name or id — the edge is
+    /// made in THIS call, while both ends are still in mind. Linking as a
+    /// second step is the step nobody takes: one real vault reached 23 nodes
+    /// and 0 edges with the nudge asking every time. Needs `weight`.
+    #[serde(default)]
+    pub link_to: Option<String>,
+    /// Edge type for `link_to` — same closed vocabulary as `link`
+    /// (`refers_to` by default, `causal`, `derived_from`, `contradicts`,
+    /// `part_of`, `blocks`, `targets`, `supersedes`, `verifies`,
+    /// `falsifies`, `temporal`, `consolidated_to`).
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// How load-bearing the `link_to` edge is, 0..1. REQUIRED with
+    /// `link_to`: it is the only signal knowledge chains route on, and there
+    /// is no default because an unweighted graph makes every chain rank on
+    /// noise. The capture still lands without it; the edge does not.
+    #[serde(default)]
+    pub weight: Option<f64>,
     #[serde(default)]
     pub initiative: Option<String>,
 }
@@ -791,6 +845,24 @@ pub struct TaskParams {
     /// `cold`, or `frozen`. Defaults to `warm`.
     #[serde(default)]
     pub layer: Option<String>,
+    /// Optional: the node this one connects to, by name or id — the edge is
+    /// made in THIS call, while both ends are still in mind. Linking as a
+    /// second step is the step nobody takes: one real vault reached 23 nodes
+    /// and 0 edges with the nudge asking every time. Needs `weight`.
+    #[serde(default)]
+    pub link_to: Option<String>,
+    /// Edge type for `link_to` — same closed vocabulary as `link`
+    /// (`refers_to` by default, `causal`, `derived_from`, `contradicts`,
+    /// `part_of`, `blocks`, `targets`, `supersedes`, `verifies`,
+    /// `falsifies`, `temporal`, `consolidated_to`).
+    #[serde(default)]
+    pub edge_type: Option<String>,
+    /// How load-bearing the `link_to` edge is, 0..1. REQUIRED with
+    /// `link_to`: it is the only signal knowledge chains route on, and there
+    /// is no default because an unweighted graph makes every chain rank on
+    /// noise. The capture still lands without it; the edge does not.
+    #[serde(default)]
+    pub weight: Option<f64>,
     #[serde(default)]
     pub initiative: Option<String>,
 }

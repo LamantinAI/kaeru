@@ -24,6 +24,7 @@ use crate::cloud_client::{CloudClient, CloudRegistry};
 use crate::hygiene::HygieneScheduler;
 use crate::params::*;
 use crate::tools;
+use crate::utils::CaptureLink;
 
 #[derive(Clone)]
 pub struct KaeruServer {
@@ -262,7 +263,7 @@ impl KaeruServer {
 
     // ----- Capture -------------------------------------------------------
     #[tool(
-        description = "Write a deliberately-named operational episode. Use when you know you'll want to recall by exact name. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call."
+        description = "Write a deliberately-named operational episode. Use when you know you'll want to recall by exact name. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call. Pass `link_to` (with `weight`) to connect it to an existing node in this same call — an island is found only by exact name."
     )]
     async fn episode(
         &self,
@@ -278,13 +279,18 @@ impl KaeruServer {
             p.after.as_deref(),
             p.for_days,
             p.initiative.as_deref(),
+            CaptureLink {
+                to: p.link_to.as_deref(),
+                edge_type: p.edge_type.as_deref(),
+                weight: p.weight,
+            },
         )
         .await;
         self.after_tool(p.initiative.as_deref(), result)
     }
 
     #[tool(
-        description = "Low-friction episode write — auto-named from body's first words plus a unique id suffix. Defaults to observation/low. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call."
+        description = "Low-friction episode write — auto-named from body's first words plus a unique id suffix. Defaults to observation/low. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call. Pass `link_to` (with `weight`) to connect it to an existing node in this same call — an island is found only by exact name."
     )]
     async fn jot(&self, Parameters(p): Parameters<JotParams>) -> Result<CallToolResult, McpError> {
         let result = tools::capture::jot(
@@ -296,6 +302,11 @@ impl KaeruServer {
             p.after.as_deref(),
             p.for_days,
             p.initiative.as_deref(),
+            CaptureLink {
+                to: p.link_to.as_deref(),
+                edge_type: p.edge_type.as_deref(),
+                weight: p.weight,
+            },
         )
         .await;
         self.after_tool(p.initiative.as_deref(), result)
@@ -405,7 +416,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "Record an archival reference. Two flavours: external source (pass `url` for papers / gists / dashboards) OR persona / entity (skip `url` for people, places, books without links). Both land in archival tier — long-term recall. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call."
+        description = "Record an archival reference. Two flavours: external source (pass `url` for papers / gists / dashboards) OR persona / entity (skip `url` for people, places, books without links). Both land in archival tier — long-term recall. Pass visibility=shared (in a team initiative) to capture and push to the cloud in one call. Pass `link_to` (with `weight`) to connect it to an existing node in this same call — an island is found only by exact name."
     )]
     async fn cite(
         &self,
@@ -422,6 +433,11 @@ impl KaeruServer {
             p.after.as_deref(),
             p.for_days,
             p.initiative.as_deref(),
+            CaptureLink {
+                to: p.link_to.as_deref(),
+                edge_type: p.edge_type.as_deref(),
+                weight: p.weight,
+            },
         )
         .await;
         self.after_tool(p.initiative.as_deref(), result)
@@ -869,7 +885,7 @@ impl KaeruServer {
 
     // ----- Tasks (todos) -------------------------------------------------
     #[tool(
-        description = "Capture a todo as a Task node. Auto-named from body. Tags: kind:task, status:open, optional due:YYYY-MM-DD. `due` accepts ISO date, RFC-3339, or future duration like `3d`/`2w`."
+        description = "Capture a todo as a Task node. Auto-named from body. Tags: kind:task, status:open, optional due:YYYY-MM-DD. `due` accepts ISO date, RFC-3339, or future duration like `3d`/`2w`. Pass `link_to` (with `weight`) to connect it to an existing node in this same call — an island is found only by exact name."
     )]
     fn task(&self, Parameters(p): Parameters<TaskParams>) -> Result<CallToolResult, McpError> {
         tools::task::task(
@@ -878,6 +894,11 @@ impl KaeruServer {
             p.due.as_deref(),
             p.layer.as_deref(),
             p.initiative.as_deref(),
+            CaptureLink {
+                to: p.link_to.as_deref(),
+                edge_type: p.edge_type.as_deref(),
+                weight: p.weight,
+            },
         )
     }
 
