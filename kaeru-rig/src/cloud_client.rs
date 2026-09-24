@@ -58,6 +58,13 @@ impl CloudClient {
         &self.name
     }
 
+    /// The endpoint this client talks to — printed by `kaeru_config` and
+    /// `kaeru_clouds`, which exist to answer "which cloud am I about to
+    /// touch?" before a verb touches one.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     pub fn new(name: String, base_url: String, token: String) -> Self {
         // `Client::builder()` only fails when TLS/system config is broken;
         // fall back to the default client rather than panicking — a cloud
@@ -151,6 +158,64 @@ impl CloudClient {
     }
 
     /// `GET /api/v1/initiatives/{name}/edges` — list shared edges.
+    /// `DELETE /api/v1/edges` — retract one edge, by src/dst/edge_type in the
+    /// body. Bi-temporal and idempotent, like the node retraction.
+    pub async fn delete_edge(&self, body: &Value) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/edges", self.base_url);
+        let resp = self
+            .client
+            .delete(&url)
+            .bearer_auth(&self.token)
+            .json(body)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok((code, text))
+    }
+
+    /// `GET /api/v1/initiatives` — every initiative the cloud knows, with its
+    /// node counts. Used to tell "this initiative is empty here" apart from
+    /// "this cloud has never heard of it".
+    pub async fn list_initiatives(&self) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/initiatives", self.base_url);
+        self.get(&url).await
+    }
+
+    /// `POST /api/v1/initiatives/{old}/rename` — rename an initiative
+    /// team-wide in the shared cloud.
+    pub async fn rename_initiative(&self, old: &str, new: &str) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/initiatives/{old}/rename", self.base_url);
+        let resp = self
+            .client
+            .post(&url)
+            .bearer_auth(&self.token)
+            .json(&serde_json::json!({ "new": new }))
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok((code, text))
+    }
+
+    /// `DELETE /api/v1/initiatives/{name}` — delete an initiative team-wide
+    /// from the shared cloud.
+    pub async fn delete_initiative(&self, name: &str) -> Result<(u16, String), String> {
+        let url = format!("{}/api/v1/initiatives/{name}", self.base_url);
+        let resp = self
+            .client
+            .delete(&url)
+            .bearer_auth(&self.token)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let code = resp.status().as_u16();
+        let text = resp.text().await.map_err(|e| e.to_string())?;
+        Ok((code, text))
+    }
+
     pub async fn list_edges(&self, initiative: &str) -> Result<(u16, String), String> {
         let url = format!("{}/api/v1/initiatives/{initiative}/edges", self.base_url);
         self.get(&url).await

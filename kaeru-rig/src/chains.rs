@@ -7,7 +7,7 @@ use kaeru_core::{
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::{briefs, briefs_by_ids, mem_tool, resolve};
+use crate::{briefs, briefs_by_ids, mem_tool_in, resolve};
 
 #[derive(Debug, Deserialize)]
 pub struct ChainArgs {
@@ -17,9 +17,11 @@ pub struct ChainArgs {
     pub name: Option<String>,
     #[serde(default)]
     pub summary: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_chain` — save the strongest path between two nodes as a chain.
     Chain,
     "kaeru_chain",
@@ -32,7 +34,8 @@ mem_tool!(
         "from": { "type": "string", "description": "start node name or id" },
         "to": { "type": "string", "description": "end node name or id" },
         "name": { "type": "string", "description": "optional name for the chain" },
-        "summary": { "type": "string", "description": "optional one-line note on why this trail matters" }
+        "summary": { "type": "string", "description": "optional one-line note on why this trail matters" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
     }, "required": ["from", "to"] },
     |store, args| {
         let from = resolve(store, &args.from);
@@ -47,10 +50,12 @@ mem_tool!(
 
 #[derive(Debug, Deserialize)]
 pub struct WhyArgs {
-    pub name_or_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_why` — the saved reasoning that leads to a node.
     ///
     /// Replaces the former `kaeru_chains` + `kaeru_read_chain` pair, which had
@@ -65,17 +70,18 @@ mem_tool!(
      there are several).",
     WhyArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "a chain, or any node in one" }
-    }, "required": ["name_or_id"] },
+        "name": { "type": "string", "description": "a chain, or any node in one" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
+    }, "required": ["name"] },
     |store, args| {
-        let id = resolve(store, &args.name_or_id);
+        let id = resolve(store, &args.name);
         let is_chain = kaeru_core::node_brief_by_id(store, &id)
             .ok()
             .flatten()
             .is_some_and(|b| b.node_type == "chain");
         if is_chain {
             return match read_chain(store, &id) {
-                Ok(v) => json!({ "chain": args.name_or_id, "trail": briefs(&v) }),
+                Ok(v) => json!({ "chain": args.name, "trail": briefs(&v) }),
                 Err(e) => json!({ "error": e.to_string() }),
             };
         }
@@ -101,9 +107,11 @@ pub struct RechainArgs {
     pub chain: String,
     #[serde(default)]
     pub to: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_rechain` — regenerate or extend a chain after graph changes.
     Rechain,
     "kaeru_rechain",
@@ -113,7 +121,8 @@ mem_tool!(
     RechainArgs,
     { "type": "object", "properties": {
         "chain": { "type": "string", "description": "chain name or id" },
-        "to": { "type": "string", "description": "omit to regenerate; node name/id to extend to" }
+        "to": { "type": "string", "description": "omit to regenerate; node name/id to extend to" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
     }, "required": ["chain"] },
     |store, args| {
         let cid = resolve(store, &args.chain);
@@ -136,9 +145,11 @@ mem_tool!(
 pub struct PathArgs {
     pub from: String,
     pub to: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_path` — preview the strongest path without saving it.
     Path,
     "kaeru_path",
@@ -147,7 +158,8 @@ mem_tool!(
     PathArgs,
     { "type": "object", "properties": {
         "from": { "type": "string", "description": "start node name or id" },
-        "to": { "type": "string", "description": "end node name or id" }
+        "to": { "type": "string", "description": "end node name or id" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
     }, "required": ["from", "to"] },
     |store, args| {
         let from = resolve(store, &args.from);

@@ -260,23 +260,17 @@ fn run_and_record(
 /// Arguments for `kaeru_hygiene`.
 #[derive(Debug, serde::Deserialize)]
 pub struct HygieneArgs {
-    #[serde(default)]
-    pub initiative: Option<String>,
+    pub initiative: String,
     /// Run a pass now instead of reporting what one would do.
     #[serde(default)]
-    pub force: Option<bool>,
+    pub force: bool,
 }
 
 async fn do_hygiene(mem: &crate::KaeruMemory, a: HygieneArgs) -> serde_json::Value {
-    let Some(init) = a
-        .initiative
-        .clone()
-        .or_else(|| mem.initiative().map(String::from))
-    else {
-        return serde_json::json!({ "error": "no initiative — scope the memory or pass `initiative`" });
-    };
+    // The verb names the initiative it reports on, as the daemon requires.
+    let init = a.initiative.clone();
 
-    if a.force.unwrap_or(false) {
+    if a.force {
         let scheduler = mem.hygiene_scheduler().clone();
         let for_run = init.clone();
         // `run_now` is blocking and takes the store guard per batch, so it must
@@ -333,7 +327,7 @@ async fn do_hygiene(mem: &crate::KaeruMemory, a: HygieneArgs) -> serde_json::Val
     .await
 }
 
-crate::mem_tool_cloud!(
+crate::mem_tool_cloud_named!(
     /// `kaeru_hygiene` — what the next hygiene pass would move, or run one now.
     Hygiene,
     "kaeru_hygiene",
@@ -342,9 +336,9 @@ crate::mem_tool_cloud!(
      only ever change a node's layer, reversibly. `force=true` runs one now.",
     HygieneArgs,
     { "type": "object", "properties": {
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
+        "initiative": { "type": "string", "description": "initiative (project) to report on" },
         "force": { "type": "boolean", "description": "run a pass now instead of only reporting" }
-    } },
+    }, "required": ["initiative"] },
     |mem, a| do_hygiene(mem, a).await
 );
 
@@ -405,9 +399,9 @@ mod tests {
 
         // Several writes through the tool surface — enough to trip the trigger.
         for i in 0..3 {
-            mem.remember()
+            mem.episode()
                 .call(args(
-                    serde_json::json!({ "name": format!("n{i}"), "body": "x" }),
+                    serde_json::json!({ "name": format!("n{i}"), "body": "x", "initiative": "proj" }),
                 ))
                 .await
                 .unwrap();
@@ -416,7 +410,7 @@ mod tests {
 
         let status = mem
             .hygiene()
-            .call(args(serde_json::json!({})))
+            .call(args(serde_json::json!({ "initiative": "proj" })))
             .await
             .unwrap();
         assert_eq!(status["enabled"], false, "off by default; got {status}");
@@ -446,9 +440,9 @@ mod tests {
         let mut cue = None;
         for i in 0..40 {
             let out = mem
-                .remember()
+                .episode()
                 .call(args(
-                    serde_json::json!({ "name": format!("n{i}"), "body": "x" }),
+                    serde_json::json!({ "name": format!("n{i}"), "body": "x", "initiative": "proj" }),
                 ))
                 .await
                 .unwrap();
@@ -465,7 +459,11 @@ mod tests {
         assert!(mem.hygiene_scheduler().passes_started() >= 1);
 
         // Delivered once: the very next call does not repeat that same cue.
-        let again = mem.awake().call(args(serde_json::json!({}))).await.unwrap();
+        let again = mem
+            .awake()
+            .call(args(serde_json::json!({ "initiative": "proj" })))
+            .await
+            .unwrap();
         assert_ne!(
             again.get("memory_shifted").and_then(|v| v.as_str()),
             Some(cue.as_str()),
@@ -485,9 +483,9 @@ mod tests {
 
         promotable(&store, "proj");
         for i in 0..3 {
-            mem.remember()
+            mem.episode()
                 .call(args(
-                    serde_json::json!({ "name": format!("n{i}"), "body": "x" }),
+                    serde_json::json!({ "name": format!("n{i}"), "body": "x", "initiative": "proj" }),
                 ))
                 .await
                 .unwrap();

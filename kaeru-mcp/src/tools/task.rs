@@ -20,7 +20,7 @@ pub fn task(
     let arrival = arrival_note(store, initiative);
     with_initiative(store, initiative, || {
         let due_iso = match due {
-            Some(d) => Some(parse_due_to_iso(d)?),
+            Some(d) => Some(parse_due_to_iso(d).map_err(to_mcp)?),
             None => None,
         };
         let layer = parse_layer(layer)?;

@@ -8,7 +8,7 @@ use kaeru_core::{
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::{mem_tool, resolve};
+use crate::{mem_tool_in, resolve};
 
 /// What a promote-in-place inherits from the node it replaces: the type it
 /// should become, its current name, and its full body.
@@ -40,16 +40,18 @@ fn inherited(
 
 #[derive(Debug, Deserialize)]
 pub struct SettleArgs {
-    pub name_or_id: String,
+    pub source: String,
     #[serde(default)]
-    pub as_type: Option<String>,
+    pub new_type: Option<String>,
     #[serde(default)]
-    pub name: Option<String>,
+    pub new_name: Option<String>,
     #[serde(default)]
-    pub body: Option<String>,
+    pub new_body: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_settle` — promote an operational draft to archival (keeps provenance).
     Settle,
     "kaeru_settle",
@@ -61,17 +63,18 @@ mem_tool!(
      flight.",
     SettleArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "node name or id" },
-        "as_type": { "type": "string", "description": "optional archival type; derived from the node when omitted" },
-        "name": { "type": "string", "description": "optional new name; the node's own is kept when omitted" },
-        "body": { "type": "string", "description": "optional new body; the node's own is kept when omitted" }
-    }, "required": ["name_or_id"] },
+        "source": { "type": "string", "description": "node name or id" },
+        "new_type": { "type": "string", "description": "optional archival type; derived from the node when omitted" },
+        "new_name": { "type": "string", "description": "optional new name; the node's own is kept when omitted" },
+        "new_body": { "type": "string", "description": "optional new body; the node's own is kept when omitted" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
+    }, "required": ["source"] },
     |store, args| {
-        let id = resolve(store, &args.name_or_id);
-        match inherited(store, &id, args.as_type.as_deref(), |t| t.settled_form()) {
+        let id = resolve(store, &args.source);
+        match inherited(store, &id, args.new_type.as_deref(), |t| t.settled_form()) {
             Ok((ty, name, body)) => {
-                let name = args.name.as_deref().unwrap_or(&name);
-                let body = args.body.as_deref().unwrap_or(&body);
+                let name = args.new_name.as_deref().unwrap_or(&name);
+                let body = args.new_body.as_deref().unwrap_or(&body);
                 match consolidate_out(store, &id, ty, name, body) {
                     Ok(new_id) => json!({
                         "settled": true, "id": new_id, "name": name, "type": ty.as_str()
@@ -86,16 +89,18 @@ mem_tool!(
 
 #[derive(Debug, Deserialize)]
 pub struct UnsettleArgs {
-    pub name_or_id: String,
+    pub source: String,
     #[serde(default)]
-    pub as_type: Option<String>,
+    pub new_type: Option<String>,
     #[serde(default)]
-    pub name: Option<String>,
+    pub new_name: Option<String>,
     #[serde(default)]
-    pub body: Option<String>,
+    pub new_body: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_unsettle` — bring archival knowledge back to operational for revision.
     Unsettle,
     "kaeru_unsettle",
@@ -104,17 +109,18 @@ mem_tool!(
      enough: name, body and type all carry over unless you say otherwise.",
     UnsettleArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "archival node name or id" },
-        "as_type": { "type": "string", "description": "optional operational type; the node's own is kept when omitted" },
-        "name": { "type": "string", "description": "optional new name; the node's own is kept when omitted" },
-        "body": { "type": "string", "description": "optional new body; the node's own is kept when omitted" }
-    }, "required": ["name_or_id"] },
+        "source": { "type": "string", "description": "archival node name or id" },
+        "new_type": { "type": "string", "description": "optional operational type; the node's own is kept when omitted" },
+        "new_name": { "type": "string", "description": "optional new name; the node's own is kept when omitted" },
+        "new_body": { "type": "string", "description": "optional new body; the node's own is kept when omitted" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
+    }, "required": ["source"] },
     |store, args| {
-        let id = resolve(store, &args.name_or_id);
-        match inherited(store, &id, args.as_type.as_deref(), |t| t) {
+        let id = resolve(store, &args.source);
+        match inherited(store, &id, args.new_type.as_deref(), |t| t) {
             Ok((ty, name, body)) => {
-                let name = args.name.as_deref().unwrap_or(&name);
-                let body = args.body.as_deref().unwrap_or(&body);
+                let name = args.new_name.as_deref().unwrap_or(&name);
+                let body = args.new_body.as_deref().unwrap_or(&body);
                 match consolidate_in(store, &id, ty, name, body) {
                     Ok(new_id) => json!({
                         "unsettled": true, "id": new_id, "name": name, "type": ty.as_str()
@@ -130,15 +136,21 @@ mem_tool!(
 #[derive(Debug, Deserialize)]
 pub struct SynthesiseArgs {
     pub from: Vec<String>,
-    #[serde(default)]
-    pub as_type: Option<String>,
+    #[serde(default = "default_summary_type")]
+    pub new_type: String,
     #[serde(default)]
     pub tier: Option<String>,
-    pub name: String,
-    pub body: String,
+    pub new_name: String,
+    pub new_body: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+fn default_summary_type() -> String {
+    "summary".to_string()
+}
+
+mem_tool_in!(
     /// `kaeru_synthesise` — combine several nodes into one (many-to-one).
     Synthesise,
     "kaeru_synthesise",
@@ -147,14 +159,15 @@ mem_tool!(
     SynthesiseArgs,
     { "type": "object", "properties": {
         "from": { "type": "array", "items": { "type": "string" }, "description": "source node names or ids" },
-        "as_type": { "type": "string", "description": "result type (default summary)" },
+        "new_type": { "type": "string", "description": "result type (default summary)" },
         "tier": { "type": "string", "description": "operational | archival (default archival)" },
-        "name": { "type": "string", "description": "name for the synthesised node" },
-        "body": { "type": "string", "description": "the combined content" }
-    }, "required": ["from", "name", "body"] },
+        "new_name": { "type": "string", "description": "name for the synthesised node" },
+        "new_body": { "type": "string", "description": "the combined content" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
+    }, "required": ["from", "new_name", "new_body"] },
     |store, args| {
         let seeds: Vec<String> = args.from.iter().map(|s| resolve(store, s)).collect();
-        let ty = match args.as_type.as_deref().unwrap_or("summary").parse::<NodeType>() {
+        let ty = match args.new_type.parse::<NodeType>() {
             Ok(t) => t,
             Err(e) => return json!({ "synthesised": false, "error": e.to_string() }),
         };
@@ -162,7 +175,7 @@ mem_tool!(
             Ok(t) => t,
             Err(e) => return json!({ "synthesised": false, "error": e.to_string() }),
         };
-        match synthesise(store, &seeds, ty, tier, &args.name, &args.body) {
+        match synthesise(store, &seeds, ty, tier, &args.new_name, &args.new_body) {
             Ok(id) => json!({ "synthesised": true, "id": id }),
             Err(e) => json!({ "synthesised": false, "error": e.to_string() }),
         }
@@ -173,14 +186,16 @@ mem_tool!(
 pub struct SupersedeArgs {
     pub old: String,
     #[serde(default)]
-    pub as_type: Option<String>,
+    pub new_type: Option<String>,
     #[serde(default)]
     pub tier: Option<String>,
-    pub name: String,
-    pub body: String,
+    pub new_name: String,
+    pub new_body: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_supersede` — replace a node with a new version (old retracted).
     Supersede,
     "kaeru_supersede",
@@ -190,14 +205,15 @@ mem_tool!(
     SupersedeArgs,
     { "type": "object", "properties": {
         "old": { "type": "string", "description": "node name or id to supersede" },
-        "as_type": { "type": "string", "description": "optional new node type; the old node's own is kept when omitted" },
+        "new_type": { "type": "string", "description": "optional new node type; the old node's own is kept when omitted" },
         "tier": { "type": "string", "description": "operational | archival (defaults from the type)" },
-        "name": { "type": "string", "description": "name for the new version" },
-        "body": { "type": "string", "description": "the new content" }
-    }, "required": ["old", "name", "body"] },
+        "new_name": { "type": "string", "description": "name for the new version" },
+        "new_body": { "type": "string", "description": "the new content" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
+    }, "required": ["old", "new_name", "new_body"] },
     |store, args| {
         let old = resolve(store, &args.old);
-        let ty = match inherited(store, &old, args.as_type.as_deref(), |t| t) {
+        let ty = match inherited(store, &old, args.new_type.as_deref(), |t| t) {
             Ok((t, _, _)) => t,
             Err(e) => return json!({ "superseded": false, "error": e }),
         };
@@ -208,7 +224,7 @@ mem_tool!(
             },
             None => ty.default_tier(),
         };
-        match supersedes(store, &old, ty, tier, &args.name, &args.body) {
+        match supersedes(store, &old, ty, tier, &args.new_name, &args.new_body) {
             Ok(id) => json!({ "superseded": true, "id": id }),
             Err(e) => json!({ "superseded": false, "error": e.to_string() }),
         }
@@ -217,10 +233,12 @@ mem_tool!(
 
 #[derive(Debug, Deserialize)]
 pub struct ForgetArgs {
-    pub name_or_id: String,
+    pub name: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_forget` — bi-temporal forget (retracts node + edges, history kept).
     Forget,
     "kaeru_forget",
@@ -228,10 +246,11 @@ mem_tool!(
      is preserved, so `kaeru_at` at a past time still sees it.",
     ForgetArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "node name or id" }
-    }, "required": ["name_or_id"] },
+        "name": { "type": "string", "description": "node name or id" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
+    }, "required": ["name"] },
     |store, args| {
-        let id = resolve(store, &args.name_or_id);
+        let id = resolve(store, &args.name);
         match forget(store, &id) {
             Ok(()) => json!({ "forgotten": true, "id": id }),
             Err(e) => json!({ "forgotten": false, "error": e.to_string() }),
@@ -241,35 +260,45 @@ mem_tool!(
 
 #[derive(Debug, Deserialize)]
 pub struct ReviseArgs {
-    pub name_or_id: String,
+    pub name: String,
     #[serde(default)]
-    pub name: Option<String>,
-    pub body: String,
+    pub body: Option<String>,
+    #[serde(default)]
+    pub rename: Option<String>,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_revise` — rewrite a node's body (and optionally rename) in place.
     Revise,
     "kaeru_revise",
-    "Rewrite a memory's body, keeping its id. Pass `name` to also rename it; omit to keep the \
-     current name.",
+    "Rewrite a memory's body in place, keeping its id. Pass `rename` to also rename it; omit \
+     `body` to keep the current text (a rename alone is a legitimate revision).",
     ReviseArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "node name or id" },
-        "name": { "type": "string", "description": "optional new name (keeps current if omitted)" },
-        "body": { "type": "string", "description": "the new body" }
-    }, "required": ["name_or_id", "body"] },
+        "name": { "type": "string", "description": "node name or id" },
+        "body": { "type": "string", "description": "the new body; omit to keep the current one" },
+        "rename": { "type": "string", "description": "optional new name (keeps the current one if omitted)" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
+    }, "required": ["name"] },
     |store, args| {
-        let id = resolve(store, &args.name_or_id);
-        let new_name = match args.name {
-            Some(n) => n,
-            None => match node_brief_by_id(store, &id) {
-                Ok(Some(b)) => b.name,
+        let id = resolve(store, &args.name);
+        let current = match node_brief_by_id(store, &id) {
+            Ok(Some(b)) => b,
+            Ok(None) => return json!({ "revised": false, "error": "node not found" }),
+            Err(e) => return json!({ "revised": false, "error": e.to_string() }),
+        };
+        let new_name = args.rename.clone().unwrap_or(current.name);
+        let body = match args.body.clone() {
+            Some(b) => b,
+            None => match kaeru_core::read_node_full(store, &id) {
+                Ok(Some(full)) => full.body.unwrap_or_default(),
                 Ok(None) => return json!({ "revised": false, "error": "node not found" }),
                 Err(e) => return json!({ "revised": false, "error": e.to_string() }),
             },
         };
-        match improve(store, &id, &new_name, &args.body) {
+        match improve(store, &id, &new_name, &body) {
             Ok(()) => json!({ "revised": true, "id": id, "name": new_name }),
             Err(e) => json!({ "revised": false, "error": e.to_string() }),
         }
@@ -278,11 +307,13 @@ mem_tool!(
 
 #[derive(Debug, Deserialize)]
 pub struct LayerArgs {
-    pub name_or_id: String,
+    pub name: String,
     pub layer: String,
+    #[serde(default)]
+    pub initiative: Option<String>,
 }
 
-mem_tool!(
+mem_tool_in!(
     /// `kaeru_layer` — re-file a node into a memory layer.
     SetLayer,
     "kaeru_layer",
@@ -290,11 +321,12 @@ mem_tool!(
      loads on re-entry. core/hot/warm load via `kaeru_awake`; cold/frozen are archived.",
     LayerArgs,
     { "type": "object", "properties": {
-        "name_or_id": { "type": "string", "description": "node name or id" },
-        "layer": { "type": "string", "description": "core | hot | warm | cold | frozen" }
-    }, "required": ["name_or_id", "layer"] },
+        "name": { "type": "string", "description": "node name or id" },
+        "layer": { "type": "string", "description": "core | hot | warm | cold | frozen" },
+        "initiative": { "type": "string", "description": "optional initiative (project); omit for your default" }
+    }, "required": ["name", "layer"] },
     |store, args| {
-        let id = resolve(store, &args.name_or_id);
+        let id = resolve(store, &args.name);
         match args.layer.parse::<Layer>() {
             Ok(l) => match set_layer(store, &id, l) {
                 Ok(()) => {

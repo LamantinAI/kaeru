@@ -9,6 +9,7 @@
 //! the tool surface:
 //!
 //! - [`policy`] — `policy` + `sync_review`: the two purely-local tools.
+//! - [`edges`] — mirroring a local `link` / `unlink` / `reweight` (#85).
 //! - [`share`] — `share`: both gates, then push the node and its shareable edges.
 //! - [`pull`] — `cloud_recall` + `pull`: discovery, then materialise locally.
 //! - [`links`] — `link_cloud` + `cloud_links`: soft references, resolved lazily.
@@ -19,14 +20,19 @@ use serde_json::{Value, json};
 use crate::KaeruMemory;
 use crate::cloud_client::CloudClient;
 
+mod edges;
 mod links;
 mod policy;
 mod pull;
 mod share;
 
+pub(crate) use edges::{EdgeChange, propagate_edge};
 pub use links::{CloudLinks, CloudLinksArgs, LinkCloud, LinkCloudArgs};
 pub use policy::{Policy, PolicyArgs, SyncReview, SyncReviewArgs};
-pub use pull::{CloudRecall, CloudRecallArgs, Pull, PullArgs};
+pub use pull::{
+    CloudInitiatives, CloudInitiativesArgs, CloudRecall, CloudRecallArgs, Pull, PullArgs,
+};
+pub(crate) use share::share_node;
 pub use share::{Share, ShareArgs, Unshare, UnshareArgs};
 
 /// Resolves the target [`CloudClient`], or an error `Value` naming what is
@@ -145,7 +151,9 @@ mod tests {
 
         let out = mem
             .share()
-            .call(args::<ShareArgs>(json!({ "name": "whatever" })))
+            .call(args::<ShareArgs>(
+                json!({ "name": "whatever", "initiative": "t" }),
+            ))
             .await
             .unwrap();
         assert!(
@@ -185,7 +193,9 @@ mod tests {
 
         let out = mem
             .share()
-            .call(args::<ShareArgs>(json!({ "name": "whatever" })))
+            .call(args::<ShareArgs>(
+                json!({ "name": "whatever", "initiative": "t" }),
+            ))
             .await
             .unwrap();
         let err = out["error"].as_str().unwrap_or("");

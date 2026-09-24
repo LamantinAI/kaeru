@@ -44,6 +44,13 @@ pub struct KaeruServer {
 }
 
 impl KaeruServer {
+    /// The generated tool router, for the parity check against `kaeru-rig`
+    /// (#98) — the same table a client lists over MCP.
+    #[cfg(test)]
+    pub(crate) fn router(&self) -> &ToolRouter<Self> {
+        &self.tool_router
+    }
+
     pub fn new(
         store: Store,
         clouds: CloudRegistry,

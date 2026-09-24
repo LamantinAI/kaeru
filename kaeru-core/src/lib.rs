@@ -17,10 +17,12 @@ pub mod guard;
 pub mod hygiene;
 mod migrate;
 pub mod mutate;
+pub mod naming;
 pub mod recall;
 pub mod sanitize;
 pub mod session;
 pub mod store;
+pub mod timeparse;
 
 pub use config::KaeruConfig;
 pub use errors::{Error, Result};
@@ -48,6 +50,7 @@ pub use mutate::{
     stamp_reminder_seen, supersedes, synthesise, unlink, update_hypothesis_status, upsert_edge,
     upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
+pub use naming::derive_auto_name;
 pub use recall::verdicts::Verdict;
 pub use recall::{
     BoardColumn, BoardStatus, BoardTask, BoardView, ChainMembership, DEFAULT_STATUSES, DueReminder,
@@ -66,6 +69,7 @@ pub use recall::{
 pub use sanitize::strip_tool_call_markup;
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};
 pub use store::Store;
+pub use timeparse::{parse_due_to_iso, parse_duration_secs, parse_when};
 
 /// Returns the package version as declared in Cargo.toml.
 pub fn version() -> &'static str {

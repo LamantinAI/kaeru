@@ -13,7 +13,7 @@
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use kaeru_core::{
     EdgeType, Error, Layer, Neighbour, NodeBrief, NodeId, Store, SummaryView, Tier,
     count_nodes_in_initiative, edges_of, history,
@@ -727,103 +727,11 @@ pub fn resolve_name_or_id_at(
 // Parsing
 // =========================================================================
 
-pub fn parse_duration_secs(s: &str) -> Result<u64, Error> {
-    let trimmed = s.trim();
-    if trimmed.chars().all(|c| c.is_ascii_digit()) {
-        return trimmed
-            .parse::<u64>()
-            .map_err(|e| Error::Invalid(format!("bad seconds: {e}")));
-    }
-    if trimmed.is_empty() {
-        return Err(Error::Invalid("empty duration".to_string()));
-    }
-    let (num, unit) = trimmed.split_at(trimmed.len() - 1);
-    let n: u64 = num
-        .parse()
-        .map_err(|e| Error::Invalid(format!("bad duration: {e}")))?;
-    let mult: u64 = match unit {
-        "s" => 1,
-        "m" => 60,
-        "h" => 3600,
-        "d" => 86_400,
-        "w" => 7 * 86_400,
-        other => {
-            return Err(Error::Invalid(format!(
-                "unknown unit {other:?} (use s/m/h/d/w)"
-            )));
-        }
-    };
-    Ok(n.saturating_mul(mult))
-}
-
-/// Parses a `--when` argument to a Unix-seconds float, accepting:
-///   - pure digits (with optional decimal): treated as Unix seconds.
-///   - duration suffix (`5m`, `2h`, `3d`): "that long ago" relative to NOW.
-///   - bare ISO date (`YYYY-MM-DD`): treated as UTC midnight.
-///   - RFC-3339 datetime (`2026-05-06T12:00:00Z`).
-pub fn parse_when(s: &str) -> Result<f64, Error> {
-    let trimmed = s.trim();
-    if trimmed.chars().all(|c| c.is_ascii_digit() || c == '.') {
-        return trimmed
-            .parse::<f64>()
-            .map_err(|e| Error::Invalid(format!("bad seconds: {e}")));
-    }
-    if let Some(last) = trimmed.chars().last() {
-        if matches!(last, 's' | 'm' | 'h' | 'd' | 'w')
-            && trimmed[..trimmed.len() - 1]
-                .chars()
-                .all(|c| c.is_ascii_digit())
-        {
-            let secs = parse_duration_secs(trimmed)?;
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            return Ok(now.saturating_sub(secs) as f64);
-        }
-    }
-    if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d") {
-        let dt = date
-            .and_hms_opt(0, 0, 0)
-            .ok_or_else(|| Error::Invalid(format!("bad date {trimmed:?}")))?
-            .and_utc();
-        return Ok(dt.timestamp() as f64);
-    }
-    DateTime::parse_from_rfc3339(trimmed)
-        .map(|dt| dt.timestamp() as f64)
-        .map_err(|e| Error::Invalid(format!("bad timestamp {trimmed:?}: {e}")))
-}
-
-/// Converts a user-friendly `--due` string into ISO `YYYY-MM-DD`.
-/// Duration suffixes (`3d`/`2w`) are interpreted as **future** from
-/// now (opposite of `--when` for `at`). Bare dates and RFC-3339
-/// datetimes pass through `parse_when`.
-pub fn parse_due_to_iso(s: &str) -> Result<String, McpError> {
-    let trimmed = s.trim();
-    if let Some(last) = trimmed.chars().last() {
-        if matches!(last, 's' | 'm' | 'h' | 'd' | 'w')
-            && trimmed[..trimmed.len() - 1]
-                .chars()
-                .all(|c| c.is_ascii_digit())
-        {
-            let secs = parse_duration_secs(trimmed).map_err(to_mcp)?;
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
-            let future = (now.saturating_add(secs)) as i64;
-            return Ok(format_iso_date(future));
-        }
-    }
-    let secs = parse_when(trimmed).map_err(to_mcp)?;
-    Ok(format_iso_date(secs as i64))
-}
-
-fn format_iso_date(unix_secs: i64) -> String {
-    DateTime::<Utc>::from_timestamp(unix_secs, 0)
-        .map(|d| d.format("%Y-%m-%d").to_string())
-        .unwrap_or_else(|| format!("t-{unix_secs}"))
-}
+// `parse_duration_secs`, `parse_when` and `parse_due_to_iso` live in
+// `kaeru-core::timeparse`: the rig adapter takes the same `when` / `since` /
+// `due` strings, and two copies of "what does `2h` mean" is how the two
+// surfaces drift (#98). Re-exported here so call sites read unchanged.
+pub use kaeru_core::{parse_due_to_iso, parse_duration_secs, parse_when};
 
 /// Parses an optional layer string into a [`Layer`], defaulting to
 /// `Layer::default()` (warm) when absent or blank. Lets capture verbs
@@ -860,37 +768,11 @@ pub fn parse_tier(s: &str) -> Result<Tier, Error> {
     }
 }
 
-pub fn derive_auto_name(text: &str, fallback: &str) -> String {
-    const MAX_WORDS: usize = 5;
-    let mut words: Vec<String> = Vec::new();
-    for raw in text.split_whitespace() {
-        let cleaned: String = raw
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
-            .collect::<String>()
-            .to_lowercase();
-        if !cleaned.is_empty() {
-            words.push(cleaned);
-            if words.len() >= MAX_WORDS {
-                break;
-            }
-        }
-    }
-    let id = kaeru_core::new_node_id();
-    let suffix: String = id
-        .chars()
-        .rev()
-        .take(6)
-        .collect::<String>()
-        .chars()
-        .rev()
-        .collect();
-    if words.is_empty() {
-        format!("{fallback}-{suffix}")
-    } else {
-        format!("{}-{suffix}", words.join("-"))
-    }
-}
+// `derive_auto_name` lives in `kaeru-core::naming`: `claim` takes text and
+// not a name on both surfaces, so the name it invents has to be the same one
+// (#98).
+pub use kaeru_core::derive_auto_name;
+
 #[cfg(test)]
 mod id_shape_tests {
     use super::looks_like_id;

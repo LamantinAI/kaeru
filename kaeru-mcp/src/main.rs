@@ -21,6 +21,8 @@ mod auth;
 mod cloud_client;
 mod hygiene;
 mod params;
+#[cfg(test)]
+mod parity;
 mod server;
 mod settings;
 mod sse;

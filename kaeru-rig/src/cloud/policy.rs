@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::format_hit;
-use crate::{KaeruMemory, mem_tool_cloud, target_initiative};
+use crate::{KaeruMemory, mem_tool_cloud_named};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // policy (local) — read / set an initiative's share_policy (Gate 1).
@@ -20,8 +20,7 @@ use crate::{KaeruMemory, mem_tool_cloud, target_initiative};
 
 #[derive(Debug, Deserialize)]
 pub struct PolicyArgs {
-    #[serde(default)]
-    pub initiative: Option<String>,
+    pub initiative: String,
     /// Omit to leave as is; `private` / `team` / `ask` to set.
     #[serde(default)]
     pub policy: Option<String>,
@@ -33,9 +32,8 @@ pub struct PolicyArgs {
 }
 
 async fn do_policy(mem: &KaeruMemory, a: PolicyArgs) -> Value {
-    let Some(init) = target_initiative(mem, &a.initiative) else {
-        return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
-    };
+    // The verb names its initiative, so there is nothing to fall back to.
+    let init = a.initiative.clone();
     if let Some(list) = a.clouds {
         let names: Vec<String> = list
             .split([',', ' '])
@@ -93,14 +91,12 @@ async fn do_policy(mem: &KaeruMemory, a: PolicyArgs) -> Value {
 
 #[derive(Debug, Deserialize)]
 pub struct SyncReviewArgs {
-    #[serde(default)]
-    pub initiative: Option<String>,
+    pub initiative: String,
 }
 
 async fn do_sync_review(mem: &KaeruMemory, a: SyncReviewArgs) -> Value {
-    let Some(init) = target_initiative(mem, &a.initiative) else {
-        return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
-    };
+    // The verb names its initiative, so there is nothing to fall back to.
+    let init = a.initiative.clone();
     let init2 = init.clone();
     mem.blocking(move |s| {
         let pol = match kaeru_core::get_share_policy(s, &init2) {
@@ -138,7 +134,7 @@ async fn do_sync_review(mem: &KaeruMemory, a: SyncReviewArgs) -> Value {
     .await
 }
 
-mem_tool_cloud!(
+mem_tool_cloud_named!(
     /// `kaeru_policy` — read or set an initiative's cloud sharing policy.
     Policy,
     "kaeru_policy",
@@ -149,14 +145,14 @@ mem_tool_cloud!(
      cloud.",
     PolicyArgs,
     { "type": "object", "properties": {
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
+        "initiative": { "type": "string", "description": "initiative (project) whose policy this is" },
         "policy": { "type": "string", "description": "private | team | ask (omit to leave as is)" },
         "clouds": { "type": "string", "description": "comma-separated cloud names to restrict to; empty clears" }
-    } },
+    }, "required": ["initiative"] },
     |mem, a| do_policy(mem, a).await
 );
 
-mem_tool_cloud!(
+mem_tool_cloud_named!(
     /// `kaeru_sync_review` — split still-local nodes into propose / keep.
     SyncReview,
     "kaeru_sync_review",
@@ -165,7 +161,7 @@ mem_tool_cloud!(
      approved ones — low-friction periodic sharing instead of deciding per capture.",
     SyncReviewArgs,
     { "type": "object", "properties": {
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" }
-    } },
+        "initiative": { "type": "string", "description": "initiative (project) to reconcile" }
+    }, "required": ["initiative"] },
     |mem, a| do_sync_review(mem, a).await
 );

@@ -27,3 +27,8 @@ config.workspace = true
 fs2.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+# The parity check reads the rig adapter's tool surface (#98). Dev-only: the
+# daemon does not depend on the adapter, and nothing here is built into it.
+kaeru-rig = { path = "../kaeru-rig" }

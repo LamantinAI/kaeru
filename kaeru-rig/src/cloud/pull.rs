@@ -10,7 +10,7 @@ use serde_json::{Value, json};
 
 use super::cloud_or_err;
 use crate::cloud_client::CloudClient;
-use crate::{KaeruMemory, mem_tool_cloud, target_initiative};
+use crate::{KaeruMemory, mem_tool_cloud_named};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // cloud_recall (network) — list the cloud's shared nodes for an initiative.
@@ -18,8 +18,7 @@ use crate::{KaeruMemory, mem_tool_cloud, target_initiative};
 
 #[derive(Debug, Deserialize)]
 pub struct CloudRecallArgs {
-    #[serde(default)]
-    pub initiative: Option<String>,
+    pub initiative: String,
     #[serde(default)]
     pub cloud: Option<String>,
     /// Page size. Bounded server-side; an unpaged listing on a real corpus
@@ -35,9 +34,8 @@ pub struct CloudRecallArgs {
 }
 
 async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
-    let Some(init) = target_initiative(mem, &a.initiative) else {
-        return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
-    };
+    // The verb names its initiative, so there is nothing to fall back to.
+    let init = a.initiative.clone();
     let client = match cloud_or_err(mem, a.cloud.as_deref()) {
         Ok(c) => c,
         Err(v) => return v,
@@ -73,16 +71,14 @@ async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
 #[derive(Debug, Deserialize)]
 pub struct PullArgs {
     pub id: String,
-    #[serde(default)]
-    pub initiative: Option<String>,
+    pub initiative: String,
     #[serde(default)]
     pub cloud: Option<String>,
 }
 
 async fn do_pull(mem: &KaeruMemory, a: PullArgs) -> Value {
-    let Some(init) = target_initiative(mem, &a.initiative) else {
-        return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
-    };
+    // The verb names its initiative, so there is nothing to fall back to.
+    let init = a.initiative.clone();
     let client = match cloud_or_err(mem, a.cloud.as_deref()) {
         Ok(c) => c,
         Err(v) => return v,
@@ -235,7 +231,7 @@ async fn recreate_local_edges(
     .await
 }
 
-mem_tool_cloud!(
+mem_tool_cloud_named!(
     /// `kaeru_cloud_recall` — list what the cloud holds for an initiative.
     CloudRecall,
     "kaeru_cloud_recall",
@@ -243,13 +239,16 @@ mem_tool_cloud!(
      cross-user recall. Then kaeru_pull one to bring it local. `cloud` targets a named cloud.",
     CloudRecallArgs,
     { "type": "object", "properties": {
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
-        "cloud": { "type": "string", "description": "named cloud (default: the configured default)" }
-    } },
+        "initiative": { "type": "string", "description": "initiative (project) to read in the cloud" },
+        "cloud": { "type": "string", "description": "named cloud (default: the configured default)" },
+        "query": { "type": "string", "description": "optional filter; matches name and body cloud-side" },
+        "limit": { "type": "integer", "description": "page size (default 50)" },
+        "offset": { "type": "integer", "description": "how many to skip, for the next page" }
+    }, "required": ["initiative"] },
     |mem, a| do_cloud_recall(mem, a).await
 );
 
-mem_tool_cloud!(
+mem_tool_cloud_named!(
     /// `kaeru_pull` — materialise a cloud node into the local vault.
     Pull,
     "kaeru_pull",
@@ -261,6 +260,52 @@ mem_tool_cloud!(
         "id": { "type": "string", "description": "the cloud node's id (from kaeru_cloud_recall)" },
         "initiative": { "type": "string", "description": "initiative to attach it to (default: the memory's own)" },
         "cloud": { "type": "string", "description": "named cloud (default: the configured default)" }
-    }, "required": ["id"] },
+    }, "required": ["id", "initiative"] },
     |mem, a| do_pull(mem, a).await
+);
+
+#[derive(Debug, Deserialize)]
+pub struct CloudInitiativesArgs {
+    /// Which cloud to ask, when several are configured.
+    #[serde(default)]
+    pub cloud: Option<String>,
+}
+
+crate::mem_tool_unscoped!(
+    /// `kaeru_cloud_initiatives` — what a cloud holds, by initiative.
+    CloudInitiatives,
+    "kaeru_cloud_initiatives",
+    "List the initiatives a cloud holds, with how many shared nodes each has. Ask this before \
+     `kaeru_cloud_recall` in an unfamiliar cloud: it tells an initiative that is empty here \
+     apart from one this cloud has never heard of, which a recall alone cannot.",
+    CloudInitiativesArgs,
+    { "type": "object", "properties": {
+        "cloud": { "type": "string", "description": "named cloud (default: the configured default)" }
+    } },
+    |mem, a| {
+        let client = match mem.clouds().resolve(a.cloud.as_deref()) {
+            Ok(c) => c,
+            Err(why) => return json!({ "error": why }),
+        };
+        match client.list_initiatives().await {
+            Ok((code, body)) if (200..300).contains(&code) => {
+                let items = serde_json::from_str::<Value>(&body)
+                    .ok()
+                    .and_then(|v| v.as_array().cloned())
+                    .unwrap_or_default();
+                json!({
+                    "cloud": client.name(),
+                    "initiatives": items
+                        .iter()
+                        .map(|it| json!({
+                            "name": it.get("name").and_then(|x| x.as_str()).unwrap_or(""),
+                            "nodes": it.get("nodes").and_then(|x| x.as_u64()).unwrap_or(0),
+                        }))
+                        .collect::<Vec<_>>(),
+                })
+            }
+            Ok((code, body)) => json!({ "cloud": client.name(), "status": code, "error": body }),
+            Err(e) => json!({ "cloud": client.name(), "error": e }),
+        }
+    }
 );

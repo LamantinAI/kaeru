@@ -19,9 +19,9 @@
 //!     .preamble("You have a persistent memory. `kaeru_awake` first; recall before \
 //!                answering; remember what's settled.")
 //!     .tool(mem.awake())
-//!     .tool(mem.remember())
-//!     .tool(mem.recall())
-//!     .tool(mem.read())
+//!     .tool(mem.episode())
+//!     .tool(mem.search())
+//!     .tool(mem.at())
 //!     .tool(mem.link())
 //!     // …add whichever others fit the agent
 //!     .build();
@@ -77,6 +77,7 @@ mod hygiene;
 mod lookup;
 mod manage;
 mod reason;
+mod slots;
 
 pub use board::*;
 pub use capture::*;
@@ -89,6 +90,7 @@ pub use hygiene::{Hygiene, HygieneArgs};
 pub use lookup::*;
 pub use manage::*;
 pub use reason::*;
+pub use slots::*;
 
 /// Shared handle to the kaeru substrate plus the initiative an agent works in.
 /// Clone it freely — every clone shares the same `Arc<Store>`. The `mem.*()`
@@ -310,21 +312,142 @@ impl KaeruMemory {
     }
 }
 
-/// Chain `.tool(mem.<name>())` for each listed accessor onto an agent builder.
-/// Each kaeru tool is a distinct type and rig's builder is type-state, so this
-/// can't be a runtime loop — the macro keeps the surface to a single name list.
-macro_rules! chain_tools {
-    ($b:expr, $mem:expr, [ $($tool:ident),* $(,)? ]) => {
-        $b $(.tool($mem.$tool()))*
+/// Declares one tool family from a single name list: the builder chain that
+/// installs it, and the definitions that report it.
+///
+/// Each kaeru tool is a distinct type and rig's builder is type-state, so
+/// installing can't be a runtime loop. The list is the one place a tool is
+/// registered, so what an agent gets and what `tool_definitions` reports
+/// cannot disagree — and the parity check against the MCP surface reads the
+/// latter.
+macro_rules! tool_family {
+    ($chain:ident, $defs:ident, $from:ty, [ $($tool:ident),* $(,)? ]) => {
+        impl KaeruMemory {
+            fn $chain<M>(
+                &self,
+                b: AgentBuilder<M, (), $from>,
+            ) -> AgentBuilder<M, (), WithBuilderTools>
+            where
+                M: CompletionModel,
+            {
+                b $(.tool(self.$tool()))*
+            }
+
+            /// Every tool of this family, as rig hands it to a model.
+            pub async fn $defs(&self) -> Vec<::rig::completion::ToolDefinition> {
+                let mut out = Vec::new();
+                $(
+                    out.push(
+                        ::rig::tool::Tool::definition(&self.$tool(), String::new()).await,
+                    );
+                )*
+                out
+            }
+        }
     };
 }
+
+tool_family!(
+    chain_local,
+    local_tool_definitions,
+    NoToolConfig,
+    [
+        // orient / recall
+        awake,
+        overview,
+        recall,
+        search,
+        recent,
+        neighbours,
+        drill,
+        trace,
+        tagged,
+        between,
+        surface,
+        at,
+        history,
+        ideas,
+        outcomes,
+        initiatives,
+        // capture
+        jot,
+        episode,
+        cite,
+        task,
+        done,
+        // task board
+        board,
+        set_status,
+        board_status,
+        // relate / curate
+        link,
+        reweight,
+        unlink,
+        chain,
+        why,
+        rechain,
+        path,
+        synthesise,
+        layer,
+        pin,
+        unpin,
+        flag,
+        close_review,
+        // claims lifecycle
+        claim,
+        evidence,
+        inconclusive,
+        confirm,
+        refute,
+        settle,
+        revise,
+        supersede,
+        resolve,
+        unsettle,
+        // maintain
+        hygiene,
+        reflect,
+        lint,
+        forget,
+        export,
+        attach,
+        rename_initiative,
+        delete_initiative,
+        merge_initiative,
+        slot,
+        slots,
+        unslot,
+        config,
+        clouds_tool,
+    ]
+);
+
+tool_family!(
+    chain_cloud,
+    cloud_tool_definitions,
+    WithBuilderTools,
+    [
+        policy,
+        share,
+        unshare,
+        cloud_recall,
+        cloud_initiatives,
+        pull,
+        link_cloud,
+        cloud_links,
+        sync_review,
+    ]
+);
 
 /// Tool constructors. Each returns one rig `Tool` bound to this memory; add the
 /// ones an agent should have to its toolset.
 impl KaeruMemory {
     // capture
-    pub fn remember(&self) -> Remember {
-        Remember(self.clone())
+    pub fn jot(&self) -> Jot {
+        Jot(self.clone())
+    }
+    pub fn episode(&self) -> Episode {
+        Episode(self.clone())
     }
     pub fn cite(&self) -> Cite {
         Cite(self.clone())
@@ -363,8 +486,11 @@ impl KaeruMemory {
     pub fn recall(&self) -> Recall {
         Recall(self.clone())
     }
-    pub fn read(&self) -> Read {
-        Read(self.clone())
+    pub fn search(&self) -> Search {
+        Search(self.clone())
+    }
+    pub fn neighbours(&self) -> Neighbours {
+        Neighbours(self.clone())
     }
     pub fn drill(&self) -> Drill {
         Drill(self.clone())
@@ -478,6 +604,24 @@ impl KaeruMemory {
     pub fn delete_initiative(&self) -> DeleteInitiative {
         DeleteInitiative(self.clone())
     }
+    pub fn slot(&self) -> Slot {
+        Slot(self.clone())
+    }
+    pub fn slots(&self) -> Slots {
+        Slots(self.clone())
+    }
+    pub fn unslot(&self) -> Unslot {
+        Unslot(self.clone())
+    }
+    pub fn config(&self) -> Config {
+        Config(self.clone())
+    }
+    pub fn clouds_tool(&self) -> Clouds {
+        Clouds(self.clone())
+    }
+    pub fn merge_initiative(&self) -> MergeInitiative {
+        MergeInitiative(self.clone())
+    }
     pub fn attach(&self) -> Attach {
         Attach(self.clone())
     }
@@ -499,6 +643,9 @@ impl KaeruMemory {
     }
     pub fn unshare(&self) -> Unshare {
         Unshare(self.clone())
+    }
+    pub fn cloud_initiatives(&self) -> CloudInitiatives {
+        CloudInitiatives(self.clone())
     }
     pub fn cloud_recall(&self) -> CloudRecall {
         CloudRecall(self.clone())
@@ -528,71 +675,7 @@ impl KaeruMemory {
     where
         M: CompletionModel,
     {
-        chain_tools!(
-            b,
-            self,
-            [
-                // orient / recall
-                awake,
-                overview,
-                recall,
-                recent,
-                read,
-                drill,
-                trace,
-                tagged,
-                between,
-                surface,
-                at,
-                history,
-                ideas,
-                outcomes,
-                initiatives,
-                // capture
-                remember,
-                cite,
-                task,
-                done,
-                // task board
-                board,
-                set_status,
-                board_status,
-                // relate / curate
-                link,
-                reweight,
-                unlink,
-                chain,
-                why,
-                rechain,
-                path,
-                synthesise,
-                layer,
-                pin,
-                unpin,
-                flag,
-                close_review,
-                // claims lifecycle
-                claim,
-                evidence,
-                inconclusive,
-                confirm,
-                refute,
-                settle,
-                revise,
-                supersede,
-                resolve,
-                unsettle,
-                // maintain
-                hygiene,
-                reflect,
-                lint,
-                forget,
-                export,
-                attach,
-                rename_initiative,
-                delete_initiative,
-            ]
-        )
+        self.chain_local(b)
     }
 
     /// Like [`install`](Self::install), plus the **cloud** tools (`share` /
@@ -609,21 +692,7 @@ impl KaeruMemory {
     where
         M: CompletionModel,
     {
-        let b = self.install(b);
-        chain_tools!(
-            b,
-            self,
-            [
-                policy,
-                share,
-                unshare,
-                cloud_recall,
-                pull,
-                link_cloud,
-                cloud_links,
-                sync_review,
-            ]
-        )
+        self.chain_cloud(self.chain_local(b))
     }
 }
 
@@ -788,6 +857,54 @@ macro_rules! mem_tool_in {
 }
 pub(crate) use mem_tool_in;
 
+/// Like [`mem_tool_in!`], for a verb whose `initiative` is **required**
+/// (`String`, not `Option<String>`): slots and hygiene name the project they
+/// act on, because acting on the wrong one silently is the mistake that
+/// cannot be seen in the result. Mirrors the daemon, where these are required
+/// too (#98).
+macro_rules! mem_tool_named {
+    (
+        $(#[$meta:meta])*
+        $tool:ident, $name:literal, $desc:expr, $args_ty:ty, $params:tt,
+        |$store:ident, $a:ident| $body:expr
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone)]
+        pub struct $tool(pub(crate) $crate::KaeruMemory);
+
+        impl ::rig::tool::Tool for $tool {
+            const NAME: &'static str = $name;
+            type Error = ::std::convert::Infallible;
+            type Args = $args_ty;
+            type Output = ::serde_json::Value;
+
+            async fn definition(
+                &self,
+                _prompt: ::std::string::String,
+            ) -> ::rig::completion::ToolDefinition {
+                ::rig::completion::ToolDefinition {
+                    name: $name.to_string(),
+                    description: ($desc).to_string(),
+                    parameters: ::serde_json::json!($params),
+                }
+            }
+
+            async fn call(
+                &self,
+                $a: $args_ty,
+            ) -> ::core::result::Result<::serde_json::Value, ::std::convert::Infallible> {
+                let __initiative = $a.initiative.clone();
+                let __out = self
+                    .0
+                    .run_in(Some(__initiative.clone()), move |$store| $body)
+                    .await;
+                ::core::result::Result::Ok(self.0.after_tool(Some(__initiative), __out).await)
+            }
+        }
+    };
+}
+pub(crate) use mem_tool_named;
+
 /// Like [`mem_tool!`], but for the **cloud** tools: the body is `async` and
 /// receives `mem: &KaeruMemory` (store + initiative + cloud registry) instead
 /// of a bare `&Store`. Store spans go through `mem.blocking(...)` (blocking
@@ -834,6 +951,95 @@ macro_rules! mem_tool_cloud {
 }
 pub(crate) use mem_tool_cloud;
 
+/// [`mem_tool_cloud!`] for a cloud verb whose `initiative` is **required** —
+/// which is every one of them on the daemon: a share that picks its project
+/// by ambient default is a share into the wrong project (#98).
+macro_rules! mem_tool_cloud_named {
+    (
+        $(#[$meta:meta])*
+        $tool:ident, $name:literal, $desc:expr, $args_ty:ty, $params:tt,
+        |$mem:ident, $a:ident| $body:expr
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone)]
+        pub struct $tool(pub(crate) $crate::KaeruMemory);
+
+        impl ::rig::tool::Tool for $tool {
+            const NAME: &'static str = $name;
+            type Error = ::std::convert::Infallible;
+            type Args = $args_ty;
+            type Output = ::serde_json::Value;
+
+            async fn definition(
+                &self,
+                _prompt: ::std::string::String,
+            ) -> ::rig::completion::ToolDefinition {
+                ::rig::completion::ToolDefinition {
+                    name: $name.to_string(),
+                    description: ($desc).to_string(),
+                    parameters: ::serde_json::json!($params),
+                }
+            }
+
+            async fn call(
+                &self,
+                $a: $args_ty,
+            ) -> ::core::result::Result<::serde_json::Value, ::std::convert::Infallible> {
+                let __initiative = $a.initiative.clone();
+                let $mem = &self.0;
+                let __out = async move { $body }.await;
+                ::core::result::Result::Ok(self.0.after_tool(Some(__initiative), __out).await)
+            }
+        }
+    };
+}
+pub(crate) use mem_tool_cloud_named;
+
+/// Like [`mem_tool_cloud!`], but for a tool that answers about the **memory
+/// itself** — its configuration, the clouds it can reach — rather than about
+/// an initiative. Same async body and `mem` handle; no per-call scope,
+/// because there is nothing to scope: these take no arguments at all, exactly
+/// as the daemon's `config` and `clouds` do.
+macro_rules! mem_tool_unscoped {
+    (
+        $(#[$meta:meta])*
+        $tool:ident, $name:literal, $desc:expr, $args_ty:ty, $params:tt,
+        |$mem:ident, $a:ident| $body:expr
+    ) => {
+        $(#[$meta])*
+        #[derive(Clone)]
+        pub struct $tool(pub(crate) $crate::KaeruMemory);
+
+        impl ::rig::tool::Tool for $tool {
+            const NAME: &'static str = $name;
+            type Error = ::std::convert::Infallible;
+            type Args = $args_ty;
+            type Output = ::serde_json::Value;
+
+            async fn definition(
+                &self,
+                _prompt: ::std::string::String,
+            ) -> ::rig::completion::ToolDefinition {
+                ::rig::completion::ToolDefinition {
+                    name: $name.to_string(),
+                    description: ($desc).to_string(),
+                    parameters: ::serde_json::json!($params),
+                }
+            }
+
+            async fn call(
+                &self,
+                $a: $args_ty,
+            ) -> ::core::result::Result<::serde_json::Value, ::std::convert::Infallible> {
+                let $mem = &self.0;
+                let __out = async move { $body }.await;
+                ::core::result::Result::Ok(self.0.after_tool(None, __out).await)
+            }
+        }
+    };
+}
+pub(crate) use mem_tool_unscoped;
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -855,21 +1061,21 @@ mod tests {
         let store = Arc::new(Store::open_in_memory().expect("open"));
         let mem = KaeruMemory::with_initiative(store, "test-proj");
 
-        // remember two named notes.
+        // capture two named notes.
         let a = mem
-            .remember()
+            .episode()
             .call(args(serde_json::json!({ "name": "auth-decision", "body": "platform-aware token expiry" })))
             .await
             .unwrap();
-        assert_eq!(a["saved"], true, "remember saved; got {a}");
-        mem.remember()
+        assert_eq!(a["saved"], true, "episode saved; got {a}");
+        mem.episode()
             .call(args(serde_json::json!({ "name": "expiry-bug", "body": "tokens expired early on android" })))
             .await
             .unwrap();
 
-        // recall by a body word.
+        // search by a body word.
         let found = mem
-            .recall()
+            .search()
             .call(args(serde_json::json!({ "query": "platform" })))
             .await
             .unwrap();
@@ -879,13 +1085,13 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|r| r["name"] == "auth-decision"),
-            "recall finds it; got {found}"
+            "search finds it; got {found}"
         );
 
-        // read in full by name.
+        // read in full by name — `at` with no `when` is the current version.
         let read = mem
-            .read()
-            .call(args(serde_json::json!({ "name_or_id": "auth-decision" })))
+            .at()
+            .call(args(serde_json::json!({ "name": "auth-decision" })))
             .await
             .unwrap();
         assert_eq!(read["body"], "platform-aware token expiry");
@@ -953,7 +1159,7 @@ mod tests {
         let done = mem
             .done()
             .call(args(
-                serde_json::json!({ "name_or_id": task["id"].as_str().unwrap() }),
+                serde_json::json!({ "name": task["id"].as_str().unwrap() }),
             ))
             .await
             .unwrap();
@@ -963,8 +1169,7 @@ mod tests {
         let claim = mem
             .claim()
             .call(args(serde_json::json!({
-                "name": "weekend-deploys-flaky",
-                "claim": "weekend deploys cause flaky tests"
+                "text": "weekend deploys cause flaky tests"
             })))
             .await
             .unwrap();
@@ -973,8 +1178,7 @@ mod tests {
         let evidence = mem
             .evidence()
             .call(args(serde_json::json!({
-                "hypothesis": "weekend-deploys-flaky",
-                "name": "compare-runs",
+                "hypothesis": claim["name"].as_str().unwrap(),
                 "method": "100 runs each"
             })))
             .await
@@ -989,8 +1193,7 @@ mod tests {
         let settled_claim = mem
             .claim()
             .call(args(serde_json::json!({
-                "name": "cache-pays-for-itself",
-                "claim": "the cache pays for itself",
+                "text": "the cache pays for itself",
                 "verdict": "refuted"
             })))
             .await
@@ -1005,10 +1208,10 @@ mod tests {
         let settled = mem
             .settle()
             .call(args(serde_json::json!({
-                "name_or_id": "auth-decision",
-                "as_type": "idea",
-                "name": "expiry-policy",
-                "body": "platform-aware expiry is the policy"
+                "source": "auth-decision",
+                "new_type": "idea",
+                "new_name": "expiry-policy",
+                "new_body": "platform-aware expiry is the policy"
             })))
             .await
             .unwrap();
@@ -1101,7 +1304,7 @@ mod tests {
         let mem = KaeruMemory::with_initiative(store.clone(), "home");
 
         // default scope → "home"
-        mem.remember()
+        mem.episode()
             .call(args(
                 serde_json::json!({ "name": "grocery", "body": "buy milk today" }),
             ))
@@ -1109,7 +1312,7 @@ mod tests {
             .unwrap();
         // per-call override → a brand-new "finances" initiative
         let saved = mem
-            .remember()
+            .episode()
             .call(args(serde_json::json!({
                 "name": "mortgage",
                 "body": "closed the mortgage account",
@@ -1117,7 +1320,7 @@ mod tests {
             })))
             .await
             .unwrap();
-        assert_eq!(saved["saved"], true, "routed remember saved; got {saved}");
+        assert_eq!(saved["saved"], true, "routed capture saved; got {saved}");
 
         // the override created the "finances" initiative alongside "home"
         let inits = kaeru_core::list_initiatives(&store).expect("list");
@@ -1129,7 +1332,7 @@ mod tests {
         // read-side per-call initiative: the home-scoped memory can recall from
         // "finances" by passing the initiative, and by default cannot.
         let via_arg = mem
-            .recall()
+            .search()
             .call(args(
                 serde_json::json!({ "query": "mortgage", "initiative": "finances" }),
             ))
@@ -1141,10 +1344,10 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|r| r["name"] == "mortgage"),
-            "recall with initiative arg reaches finances; got {via_arg}"
+            "search with initiative arg reaches finances; got {via_arg}"
         );
         let via_default = mem
-            .recall()
+            .search()
             .call(args(serde_json::json!({ "query": "mortgage" })))
             .await
             .unwrap();
@@ -1154,13 +1357,13 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|r| r["name"] == "mortgage"),
-            "default (home) recall does not see finances; got {via_default}"
+            "default (home) search does not see finances; got {via_default}"
         );
 
         // reads scoped to "finances" see the routed note, not the default one
         let fin = KaeruMemory::with_initiative(store, "finances");
         let hit = fin
-            .recall()
+            .search()
             .call(args(serde_json::json!({ "query": "mortgage" })))
             .await
             .unwrap();
@@ -1170,10 +1373,10 @@ mod tests {
                 .unwrap()
                 .iter()
                 .any(|r| r["name"] == "mortgage"),
-            "finances recall finds the routed note; got {hit}"
+            "finances search finds the routed note; got {hit}"
         );
         let miss = fin
-            .recall()
+            .search()
             .call(args(serde_json::json!({ "query": "milk" })))
             .await
             .unwrap();

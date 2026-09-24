@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::{cloud_or_err, format_hit};
 use crate::cloud_client::CloudClient;
-use crate::{KaeruMemory, mem_tool_cloud, resolve, target_initiative};
+use crate::{KaeruMemory, mem_tool_cloud_named, resolve};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // share (network) — both gates, then push node + shareable edges.
@@ -20,8 +20,7 @@ use crate::{KaeruMemory, mem_tool_cloud, resolve, target_initiative};
 #[derive(Debug, Deserialize)]
 pub struct ShareArgs {
     pub name: String,
-    #[serde(default)]
-    pub initiative: Option<String>,
+    pub initiative: String,
     #[serde(default)]
     pub cloud: Option<String>,
     #[serde(default)]
@@ -29,9 +28,8 @@ pub struct ShareArgs {
 }
 
 async fn do_share(mem: &KaeruMemory, a: ShareArgs) -> Value {
-    let Some(init) = target_initiative(mem, &a.initiative) else {
-        return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
-    };
+    // The verb names its initiative, so there is nothing to fall back to.
+    let init = a.initiative.clone();
     let client = match cloud_or_err(mem, a.cloud.as_deref()) {
         Ok(c) => c,
         Err(v) => return v,
@@ -54,7 +52,7 @@ async fn do_share(mem: &KaeruMemory, a: ShareArgs) -> Value {
 /// `shared` only **after** the cloud accepts, so `shared` always means "is in
 /// the cloud". `Ok(message)` is the user-facing outcome (shared, or refused);
 /// `Err(e)` is an infrastructure failure (store/network).
-async fn share_node(
+pub(crate) async fn share_node(
     mem: &KaeruMemory,
     client: &CloudClient,
     id: String,
@@ -196,7 +194,7 @@ async fn share_node(
     ))
 }
 
-mem_tool_cloud!(
+mem_tool_cloud_named!(
     /// `kaeru_share` — push a node to the team cloud (both gates).
     Share,
     "kaeru_share",
@@ -209,15 +207,14 @@ mem_tool_cloud!(
         "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
         "cloud": { "type": "string", "description": "named cloud (default: the configured default)" },
         "force": { "type": "boolean", "description": "override the secret guard" }
-    }, "required": ["name"] },
+    }, "required": ["name", "initiative"] },
     |mem, a| do_share(mem, a).await
 );
 
 #[derive(Debug, Deserialize)]
 pub struct UnshareArgs {
     pub name: String,
-    #[serde(default)]
-    pub initiative: Option<String>,
+    pub initiative: String,
     #[serde(default)]
     pub cloud: Option<String>,
 }
@@ -228,9 +225,8 @@ pub struct UnshareArgs {
 /// `shared` while the cloud no longer holds it makes every later "re-share to
 /// update" promise false.
 async fn do_unshare(mem: &KaeruMemory, a: UnshareArgs) -> Value {
-    let Some(init) = target_initiative(mem, &a.initiative) else {
-        return json!({ "error": "no initiative — scope the memory or pass `initiative`" });
-    };
+    // The verb names its initiative, so there is nothing to fall back to.
+    let init = a.initiative.clone();
     let client = match cloud_or_err(mem, a.cloud.as_deref()) {
         Ok(c) => c,
         Err(e) => return e,
@@ -268,7 +264,7 @@ async fn do_unshare(mem: &KaeruMemory, a: UnshareArgs) -> Value {
     }
 }
 
-mem_tool_cloud!(
+mem_tool_cloud_named!(
     /// `kaeru_unshare` — withdraw a node from the cloud.
     Unshare,
     "kaeru_unshare",
@@ -282,6 +278,6 @@ mem_tool_cloud!(
         "name": { "type": "string", "description": "node name or id to withdraw" },
         "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
         "cloud": { "type": "string", "description": "named cloud to withdraw from" }
-    }, "required": ["name"] },
+    }, "required": ["name", "initiative"] },
     |mem, a| do_unshare(mem, a).await
 );
