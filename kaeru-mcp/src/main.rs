@@ -28,6 +28,7 @@ mod settings;
 mod sse;
 mod stdio_bridge;
 mod tools;
+mod update;
 mod utils;
 
 use std::collections::HashMap;
@@ -268,6 +269,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         0 => None,
         secs => Some(Duration::from_secs(secs)),
     };
+
+    // Asks once a day whether this binary is behind, and leaves the answer
+    // where `awake` will hand it to an agent. Spawned: a slow or unreachable
+    // GitHub must never delay startup, and a failure is silence (#99).
+    update::spawn(server.update_notice(), cancel.child_token());
 
     let sse_router = sse::router(
         server.clone(),

@@ -24,6 +24,7 @@ use crate::cloud_client::{CloudClient, CloudRegistry};
 use crate::hygiene::HygieneScheduler;
 use crate::params::*;
 use crate::tools;
+use crate::update::UpdateNotice;
 use crate::utils::CaptureLink;
 
 #[derive(Clone)]
@@ -42,6 +43,10 @@ pub struct KaeruServer {
     /// dead-code analyser doesn't see that path.
     #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
+    /// The "you are behind" line waiting for the next `awake` (#99). Held
+    /// here rather than in the store: it is about the binary, not the vault,
+    /// and it should not survive a restart into a version that fixed it.
+    update_notice: UpdateNotice,
 }
 
 impl KaeruServer {
@@ -65,7 +70,14 @@ impl KaeruServer {
             clouds,
             hygiene,
             tool_router: Self::tool_router(),
+            update_notice: UpdateNotice::default(),
         }
+    }
+
+    /// The slot the background update check writes into; `main` hands it to
+    /// the checker, `awake` empties it.
+    pub fn update_notice(&self) -> UpdateNotice {
+        self.update_notice.clone()
     }
 
     /// Shared substrate handle — used by the read-only `/graph.json` viz
@@ -165,7 +177,17 @@ impl KaeruServer {
     )]
     fn awake(&self, Parameters(p): Parameters<ScopeOnly>) -> Result<CallToolResult, McpError> {
         let result = tools::session::awake(&self.store, p.initiative.as_deref());
-        self.after_tool(p.initiative.as_deref(), result)
+        let result = self.after_tool(p.initiative.as_deref(), result);
+        // Re-entry is where an agent reads before it acts, so it is where a
+        // debt about the binary itself belongs — the daemon log never was
+        // (#99). Delivered once, like the hygiene headline beside it.
+        match (result, crate::update::take(&self.update_notice)) {
+            (Ok(mut out), Some(line)) => {
+                out.content.insert(0, Content::text(format!("{line}\n")));
+                Ok(out)
+            }
+            (result, _) => result,
+        }
     }
 
     #[tool(

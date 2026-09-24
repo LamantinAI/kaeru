@@ -318,6 +318,17 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   exactly how a vault goes flat. `weight` stays required — the reason it has
   no default on `link` does not stop applying because the edge is made
   earlier. `claim` keeps its own `about` instead; one way per verb.
+- **A signal is only as good as where it lands (#99).** The daemon had
+  checked its cloud's version since forever and written the mismatch to
+  `tracing::warn!` — a daemon log, which nobody reads, so the check had never
+  once caused an upgrade. The update check therefore delivers into `awake`,
+  through the same deliver-once slot the hygiene headline uses, and the line
+  names a **debt** rather than an opportunity: what the running version is,
+  how far back, that release's own reason, and the command for the channel
+  this binary came from. #79's measurement is the rule here — `open reviews
+  (2)` produced 8 calls, "trails exist, read one" produced 0 from 7
+  deliveries. When adding any background signal, ask where it will be read
+  before asking what it will say.
 - **The task board is the one deliberate exception.** `set_status` validates strictly against the initiative's status registry and refuses an unknown key. That is not enforcement of a *workflow* — any task may move to any column, in any order — it protects the registry's role as the single source of truth for a shared vocabulary: a typo must not silently spawn a phantom column. Widening the vocabulary stays an explicit act (`add_status`). The board describes columns; it never gates transitions.
 
 ## Backend Rules
