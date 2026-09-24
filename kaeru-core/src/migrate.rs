@@ -1114,4 +1114,63 @@ mod tests {
             "and the old key is gone: {keys:?}"
         );
     }
+
+    /// A vault opened by an older build gets every relation the current one
+    /// expects, and the journal records the two new migrations.
+    #[test]
+    fn an_existing_vault_upgrades_to_the_current_schema() {
+        use std::{env, fs};
+
+        use crate::new_node_id;
+
+        let path = env::temp_dir().join(format!("kaeru-upgrade-{}", new_node_id()));
+        {
+            let store = Store::open(&path).expect("create");
+            let id = crate::jot(&store, "written by the old build").expect("jot");
+            // Pretend this vault predates the last two migrations.
+            store
+                .db_ref()
+                .run_script(
+                    "?[name] <- [['0008_supersedes_orientation'], ['0009_hygiene_demotion']] \
+                     :rm migration_journal {name}",
+                    Default::default(),
+                    cozo::ScriptMutability::Mutable,
+                )
+                .expect("unstamp");
+            store
+                .db_ref()
+                .run_script(
+                    "::remove hygiene_demotion",
+                    Default::default(),
+                    cozo::ScriptMutability::Mutable,
+                )
+                .expect("drop the relation the old build lacked");
+            assert!(
+                crate::node_brief_by_id(&store, &id)
+                    .expect("read")
+                    .is_some()
+            );
+        }
+        let store = Store::open(&path).expect("reopen");
+        let names: Vec<String> = store
+            .run_read("?[name] := *migration_journal{name}")
+            .expect("journal")
+            .rows
+            .iter()
+            .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
+            .collect();
+        for expected in ["0008_supersedes_orientation", "0009_hygiene_demotion"] {
+            assert!(
+                names.iter().any(|n| n == expected),
+                "{expected} ran; got {names:?}"
+            );
+        }
+        // And the relation the newer code writes to is there to write to.
+        store
+            .run_read("?[node_id] := *hygiene_demotion{node_id}")
+            .expect("hygiene_demotion exists");
+
+        drop(store);
+        fs::remove_dir_all(&path).ok();
+    }
 }
