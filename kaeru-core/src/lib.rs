@@ -61,12 +61,12 @@ pub use recall::{
     count_nodes_in_initiative, due_reminders, edges_in_initiative, edges_of, effective_statuses,
     effective_statuses_at, fuzzy_recall, lint, list_initiatives, local_nodes_for_review,
     near_duplicate_initiatives, neighbours, node_brief_by_id, nodes_in_initiative, open_claims,
-    open_tasks, operational_neighbours, overview, read_chain, read_node_full, recall_by_layer,
-    recall_by_layer_in_tier, recall_id_by_name, recall_id_by_name_at, recall_id_by_name_ever,
-    recall_id_by_name_global, recent_writes, recollect_idea, recollect_outcome,
-    recollect_provenance, reflect, shortest_path, suggest_initiative, suggest_node_name,
-    summary_view, tagged, tags_like, under_review_pinned, unversioned_changes, verdicts_against,
-    walk,
+    open_tasks, operational_neighbours, overview, prefix_widening, read_chain, read_node_full,
+    recall_by_layer, recall_by_layer_in_tier, recall_id_by_name, recall_id_by_name_at,
+    recall_id_by_name_ever, recall_id_by_name_global, recent_writes, recollect_idea,
+    recollect_outcome, recollect_provenance, reflect, shortest_path, suggest_initiative,
+    suggest_node_name, summary_view, tagged, tags_like, under_review_pinned, unversioned_changes,
+    verdicts_against, walk,
 };
 pub use sanitize::strip_tool_call_markup;
 pub use session::{AwakenedContext, active_window, awake, pin, unpin};

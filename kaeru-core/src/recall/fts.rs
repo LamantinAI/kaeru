@@ -7,6 +7,7 @@
 //! deduplicated by node id. The score that wins for a duplicate id is
 //! the larger of the per-index scores.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, HashMap};
 
 use cozo::{DataValue, ScriptMutability};
@@ -25,7 +26,8 @@ pub const FUZZY_RECALL_LIMIT_CAP: usize = 50;
 /// score. `limit` is clamped to [`FUZZY_RECALL_LIMIT_CAP`].
 ///
 /// `query` is the Cozo FTS expression — single tokens, `AND` / `OR` /
-/// `NOT`, or quoted phrases. See Cozo docs for the full grammar.
+/// `NOT`, or quoted phrases. See Cozo docs for the full grammar. A trailing
+/// `*` is a prefix match on the word it is written on, in any letter case.
 pub fn fuzzy_recall(store: &Store, query: &str, limit: usize) -> Result<Vec<NodeBrief>> {
     // A bare `*` is a common guess for "show me everything" — the grammar has
     // no such wildcard, and its parse error explains nothing. Name the two
@@ -52,6 +54,8 @@ pub fn fuzzy_recall(store: &Store, query: &str, limit: usize) -> Result<Vec<Node
             query.trim()
         )));
     }
+    let query = split_prefix_terms(query);
+    let query = query.as_ref();
     match run_fts(store, query, limit) {
         Ok(hits) => Ok(hits),
         // The FTS grammar rejects ordinary punctuation inside a token, and
@@ -127,6 +131,125 @@ fn quote_unparseable_tokens(query: &str) -> String {
         return query.to_string();
     }
     out.join(" ")
+}
+
+/// A query token, for the rewrites that only touch plain queries.
+enum Term<'a> {
+    Operator(&'a str),
+    /// A quoted phrase, quotes included.
+    Phrase(&'a str),
+    Word {
+        stem: &'a str,
+        prefix: bool,
+    },
+}
+
+/// Splits `query` into terms, or `None` if it uses anything beyond bare words,
+/// quoted phrases and `AND` / `OR` / `NOT` — grouping, `NEAR`, boosters,
+/// `,` / `;`, punctuation inside a word. Such queries are passed through as is.
+fn terms(query: &str) -> Option<Vec<Term<'_>>> {
+    let mut out = Vec::new();
+    let mut rest = query.trim_start();
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix('"') {
+            let end = after.find('"')?;
+            let (phrase, tail) = rest.split_at(end + 2);
+            out.push(Term::Phrase(phrase));
+            rest = tail.trim_start();
+            continue;
+        }
+        let end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let (tok, tail) = rest.split_at(end);
+        rest = tail.trim_start();
+        if matches!(tok, "AND" | "OR" | "NOT") {
+            out.push(Term::Operator(tok));
+            continue;
+        }
+        let (stem, prefix) = match tok.strip_suffix('*') {
+            Some(stem) => (stem, true),
+            None => (tok, false),
+        };
+        if stem.is_empty()
+            || stem == "NEAR"
+            || !stem.chars().all(|c| c.is_alphanumeric() || c == '_')
+        {
+            return None;
+        }
+        out.push(Term::Word { stem, prefix });
+    }
+    Some(out)
+}
+
+/// Keeps a trailing `*` on the one word it is written on.
+///
+/// The grammar folds consecutive bare words into a single phrase, and a
+/// trailing `*` applies to the whole of it. A prefix literal also bypasses the
+/// analyzer — it is neither split into tokens nor lowercased — so
+/// `workshop analyst*` looks for an index key starting with `workshop analyst`,
+/// and `Workshop*` for a capitalised token the `Lowercase` filter never stored.
+/// Both return nothing, without an error.
+///
+/// A prefix word is separated from a bare word before it by `AND`, which is
+/// what the bare words mean already (a phrase group without `*` is tokenized
+/// into an AND of its words), and its stem is lowercased.
+fn split_prefix_terms(query: &str) -> Cow<'_, str> {
+    let Some(terms) = terms(query) else {
+        return Cow::Borrowed(query);
+    };
+    let mut out = Vec::with_capacity(terms.len());
+    let mut changed = false;
+    let mut after_bare_word = false;
+    for term in &terms {
+        match *term {
+            Term::Word { stem, prefix: true } => {
+                if after_bare_word {
+                    out.push("AND".to_string());
+                    changed = true;
+                }
+                let lower = stem.to_lowercase();
+                changed |= lower != stem;
+                out.push(format!("{lower}*"));
+                after_bare_word = false;
+            }
+            Term::Word {
+                stem,
+                prefix: false,
+            } => {
+                out.push(stem.to_string());
+                after_bare_word = true;
+            }
+            Term::Operator(s) | Term::Phrase(s) => {
+                out.push(s.to_string());
+                after_bare_word = false;
+            }
+        }
+    }
+    if changed {
+        Cow::Owned(out.join(" "))
+    } else {
+        Cow::Borrowed(query)
+    }
+}
+
+/// The prefix-match widening of a query that found nothing: every bare word
+/// gets a trailing `*`. `None` if there is nothing to widen — each word already
+/// ends in `*`, or the query uses syntax [`terms`] does not rewrite.
+pub fn prefix_widening(query: &str) -> Option<String> {
+    let terms = terms(query)?;
+    if !terms
+        .iter()
+        .any(|t| matches!(t, Term::Word { prefix: false, .. }))
+    {
+        return None;
+    }
+    let widened: Vec<String> = terms
+        .iter()
+        .map(|t| match *t {
+            Term::Word { stem, .. } => format!("{stem}*"),
+            Term::Operator(s) | Term::Phrase(s) => s.to_string(),
+        })
+        .collect();
+    Some(widened.join(" "))
 }
 
 /// One FTS attempt with `query` exactly as given.
@@ -211,9 +334,85 @@ fn run_fts(store: &Store, query: &str, limit: usize) -> Result<Vec<NodeBrief>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{fuzzy_recall, quote_unparseable_tokens};
+    use super::{fuzzy_recall, prefix_widening, quote_unparseable_tokens, split_prefix_terms};
     use crate::store::Store;
     use crate::{EpisodeKind, Significance, write_episode};
+
+    fn two_workshop_notes() -> Store {
+        let store = Store::open_in_memory().expect("open");
+        store.use_initiative("t");
+        for (name, body) in [
+            ("workshop-plan", "Провести воркшоп с аналитиками 30.09"),
+            (
+                "workshop-agreed",
+                "Договорились с аналитиками провести воркшоп 30.09",
+            ),
+        ] {
+            write_episode(
+                &store,
+                EpisodeKind::Observation,
+                Significance::Low,
+                name,
+                body,
+            )
+            .expect("write");
+        }
+        store
+    }
+
+    /// A prefix word after a bare word matched nothing: the grammar read
+    /// `воркшоп аналитик*` as one prefix literal, `воркшоп аналитик`.
+    #[test]
+    fn a_prefix_word_after_a_bare_word_matches() {
+        let store = two_workshop_notes();
+        for q in [
+            "воркшоп аналитик*",
+            "провести воркшоп*",
+            "воркшоп аналитиками",
+        ] {
+            let hits = fuzzy_recall(&store, q, 5).unwrap_or_else(|e| panic!("`{q}`: {e}"));
+            assert_eq!(hits.len(), 2, "`{q}` finds both notes");
+        }
+    }
+
+    /// A prefix literal skips the `Lowercase` filter, so a capital letter in
+    /// it could never match the index.
+    #[test]
+    fn a_capitalised_prefix_matches() {
+        let store = two_workshop_notes();
+        let hits = fuzzy_recall(&store, "Воркшоп*", 5).expect("parses");
+        assert_eq!(hits.len(), 2);
+    }
+
+    #[test]
+    fn only_a_prefix_after_a_bare_word_is_split() {
+        assert_eq!(split_prefix_terms("a b*"), "a AND b*");
+        assert_eq!(split_prefix_terms("a b c*"), "a b AND c*");
+        assert_eq!(split_prefix_terms("Ab*"), "ab*");
+        for q in [
+            "a b",
+            "a* b",
+            "a* b*",
+            "a OR b*",
+            "\"a b\" c*",
+            "(a b*)",
+            "a b*^2",
+        ] {
+            assert_eq!(split_prefix_terms(q), q, "`{q}` is left as is");
+        }
+    }
+
+    #[test]
+    fn widening_stars_each_bare_word() {
+        assert_eq!(
+            prefix_widening("воркшоп аналитик*").as_deref(),
+            Some("воркшоп* аналитик*")
+        );
+        assert_eq!(prefix_widening("a OR b").as_deref(), Some("a* OR b*"));
+        assert_eq!(prefix_widening("\"a b\" c").as_deref(), Some("\"a b\" c*"));
+        assert_eq!(prefix_widening("a* b*"), None);
+        assert_eq!(prefix_widening("pilot-finalize"), None);
+    }
 
     fn seeded() -> Store {
         let store = Store::open_in_memory().expect("open");
