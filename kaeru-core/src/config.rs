@@ -42,9 +42,10 @@ pub struct KaeruConfig {
     pub vault_path: PathBuf,
     /// Soft cap on the number of nodes [`crate::active_window`] returns.
     pub active_window_size: usize,
-    /// Soft cap on [`crate::recent_episodes`] results.
+    /// Soft cap on [`crate::recent_writes`] results. The env var keeps its
+    /// `recent_episodes_cap` name so an existing configuration does not break.
     pub recent_episodes_cap: usize,
-    /// Default `recent_episodes` window used by [`crate::awake`], in seconds.
+    /// Default `recent_writes` window used by [`crate::awake`], in seconds.
     pub awake_default_window_secs: u64,
     /// Soft cap on children returned by [`crate::summary_view`].
     pub summary_view_children_cap: usize,

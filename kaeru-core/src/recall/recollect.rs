@@ -12,7 +12,7 @@ use crate::graph::NodeId;
 use crate::store::Store;
 
 /// Returns archival-tier idea nodes valid at NOW as briefs, ordered
-/// newest-first by validity. Mirror of `recent_episodes` on the
+/// newest-first by validity. Mirror of `recent_writes` on the
 /// recollection (cortex) side — the agent's stable long-term ideas.
 pub fn recollect_idea(store: &Store) -> Result<Vec<NodeBrief>> {
     recollect_briefs_by_archival_type(store, "idea")

@@ -53,7 +53,7 @@ pub use overview::overview;
 pub use path::{
     ChainMembership, chain_membership, chains_in_scope, chains_of, read_chain, shortest_path,
 };
-pub use recent::recent_episodes;
+pub use recent::recent_writes;
 pub use recollect::{recollect_idea, recollect_outcome, recollect_provenance};
 pub use reflect::{ReflectionReport, reflect};
 pub use summary_view::{SummaryChild, SummaryView, summary_view};

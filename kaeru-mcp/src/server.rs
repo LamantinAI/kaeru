@@ -182,7 +182,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "List episodes whose latest assertion is within the time window (defaults 24h). Use `since` like `30m`, `3h`, `2d`, or raw seconds."
+        description = "List what was CAPTURED within the time window (defaults 24h) — every kind of write, not only episodes: references, claims, tasks and jots all count. This is the verb that answers \"did what I just write land?\", so a zero here really means nothing was captured. Use `since` like `30m`, `3h`, `2d`, or raw seconds."
     )]
     fn recent(&self, Parameters(p): Parameters<RecentParams>) -> Result<CallToolResult, McpError> {
         tools::session::recent(&self.store, &p.since, p.initiative.as_deref())

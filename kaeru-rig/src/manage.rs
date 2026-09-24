@@ -2,7 +2,7 @@
 
 use kaeru_core::{
     OpenTask, attach_node, awake, export_vault, lint, list_initiatives, merge_initiative, overview,
-    parse_duration_secs, pin, recent_episodes, reflect, suggest_initiative, unpin,
+    parse_duration_secs, pin, recent_writes, reflect, suggest_initiative, unpin,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -110,9 +110,11 @@ mem_tool_in!(
     /// `kaeru_recent` — episodes from the recent past.
     Recent,
     "kaeru_recent",
-    "List recent episodes — what happened lately in this project. `since` sets the look-back: \
-     `30m`, `3h`, `2d`, or raw seconds (default 24h). Pass `initiative` for a specific project; \
-     omit for your default.",
+    "List what was CAPTURED lately in this project — every kind of write, not only episodes: \
+     references, claims, tasks and jots all count. This is what answers \"did what I just write \
+     land?\", so a zero really means nothing was captured. `since` sets the look-back: `30m`, \
+     `3h`, `2d`, or raw seconds (default 24h). Pass `initiative` for a specific project; omit \
+     for your default.",
     RecentArgs,
     { "type": "object", "properties": {
         "since": { "type": "string", "description": "look-back window: `30m`, `3h`, `2d`, or raw seconds (default 24h)" },
@@ -123,7 +125,7 @@ mem_tool_in!(
             Ok(secs) => secs,
             Err(e) => return json!({ "error": e.to_string() }),
         };
-        match recent_episodes(store, window) {
+        match recent_writes(store, window) {
             Ok(ids) => json!({ "recent": briefs_by_ids(store, &ids) }),
             Err(e) => json!({ "error": e.to_string() }),
         }

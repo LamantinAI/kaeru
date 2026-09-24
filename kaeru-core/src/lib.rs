@@ -63,7 +63,7 @@ pub use recall::{
     near_duplicate_initiatives, neighbours, node_brief_by_id, nodes_in_initiative, open_claims,
     open_tasks, operational_neighbours, overview, read_chain, read_node_full, recall_by_layer,
     recall_by_layer_in_tier, recall_id_by_name, recall_id_by_name_at, recall_id_by_name_ever,
-    recall_id_by_name_global, recent_episodes, recollect_idea, recollect_outcome,
+    recall_id_by_name_global, recent_writes, recollect_idea, recollect_outcome,
     recollect_provenance, reflect, shortest_path, suggest_initiative, suggest_node_name,
     summary_view, tagged, tags_like, under_review_pinned, unversioned_changes, verdicts_against,
     walk,
@@ -85,7 +85,7 @@ mod tests {
         Visibility, active_window, at, awake, cloud_links, consolidate_in, consolidate_out,
         count_by_type, export_vault, forget, formulate_hypothesis, fuzzy_recall, history, improve,
         jot, link, link_remote, lint, list_initiatives, local_nodes_for_review, mark_resolved,
-        mark_under_review, overview, pin, recall_id_by_name, recent_episodes, recollect_idea,
+        mark_under_review, overview, pin, recall_id_by_name, recent_writes, recollect_idea,
         recollect_outcome, recollect_provenance, resolve_review, run_experiment, set_visibility,
         summary_view, supersedes, synthesise, under_review_pinned, unlink, unpin,
         update_hypothesis_status, version, walk, write_episode,
@@ -98,7 +98,7 @@ mod tests {
 
     /// Initiative auto-attachment isolates writes per `use_initiative`
     /// scope: an episode written under `alpha` does not surface in
-    /// `recall_id_by_name` / `recent_episodes` / `awake` while `beta` is
+    /// `recall_id_by_name` / `recent_writes` / `awake` while `beta` is
     /// the active initiative. `list_initiatives` returns both names.
     #[test]
     fn initiative_auto_attach_filters_reads() {
@@ -127,16 +127,16 @@ mod tests {
         .unwrap();
 
         // While beta is current, recall_id_by_name should NOT find the
-        // alpha-thought; recent_episodes should not contain alpha_id.
+        // alpha-thought; recent_writes should not contain alpha_id.
         let recalled = recall_id_by_name(&store, "alpha-thought").unwrap();
         assert!(recalled.is_none(), "alpha-thought hidden under beta scope");
-        let recent = recent_episodes(&store, 3600).unwrap();
+        let recent = recent_writes(&store, 3600).unwrap();
         assert!(recent.contains(&beta_id));
         assert!(!recent.contains(&alpha_id), "alpha hidden under beta scope");
 
         // Cross-initiative read (no current initiative): both visible.
         store.clear_initiative();
-        let cross = recent_episodes(&store, 3600).unwrap();
+        let cross = recent_writes(&store, 3600).unwrap();
         assert!(cross.contains(&alpha_id));
         assert!(cross.contains(&beta_id));
 
@@ -878,7 +878,7 @@ mod tests {
         );
     }
 
-    /// `recent_episodes` returns episodes within the window, capped and ordered
+    /// `recent_writes` returns episodes within the window, capped and ordered
     /// newest-first; `under_review_pinned` surfaces nodes with inbound
     /// `contradicts` edges (the open-review queue).
     #[test]
@@ -917,13 +917,13 @@ mod tests {
         .unwrap();
 
         // Wide window catches all three.
-        let all = recent_episodes(&store, 3600).expect("recent wide");
+        let all = recent_writes(&store, 3600).expect("recent wide");
         assert!(all.contains(&old));
         assert!(all.contains(&new_a));
         assert!(all.contains(&new_b));
 
         // Tight 1-second window excludes the old episode.
-        let tight = recent_episodes(&store, 1).expect("recent tight");
+        let tight = recent_writes(&store, 1).expect("recent tight");
         assert!(!tight.contains(&old), "old episode is older than 1s window");
         assert!(tight.contains(&new_a));
         assert!(tight.contains(&new_b));
@@ -975,7 +975,7 @@ mod tests {
             "3",
         )
         .unwrap();
-        let recent = super::recent_episodes(&store, 3600).expect("recent");
+        let recent = super::recent_writes(&store, 3600).expect("recent");
         assert!(recent.len() <= 2, "cap of 2 honoured, got {}", recent.len());
 
         // walk with max_hops=2 must now fail (cap is 1).

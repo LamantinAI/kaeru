@@ -18,7 +18,7 @@ use crate::mutate::initiatives_of_node;
 use crate::recall::verdicts::{Verdict, verdicts_against};
 use crate::recall::{
     DueReminder, LayerBucket, NodeBrief, OpenTask, chains_in_scope, due_reminders,
-    list_initiatives, open_claims, open_tasks, recall_by_layer_in_tier, recent_episodes,
+    list_initiatives, open_claims, open_tasks, recall_by_layer_in_tier, recent_writes,
     under_review_pinned,
 };
 use crate::store::Store;
@@ -104,8 +104,9 @@ pub struct AwakenedContext {
     pub cortex: Vec<NodeBrief>,
     /// Persisted session pins, newest-first. See [`active_window`].
     pub pinned: Vec<NodeId>,
-    /// Episodes whose latest assertion is within
-    /// `config().awake_default_window_secs`, newest-first.
+    /// What was captured within `config().awake_default_window_secs`,
+    /// newest-first — every type, not only episodes (#101). kaeru's own
+    /// bookkeeping (audit rows, the hygiene diary) is excluded.
     pub recent: Vec<NodeId>,
     /// Nodes with inbound `contradicts` edges valid at NOW —
     /// the open-review queue from `mark_under_review`.
@@ -185,7 +186,7 @@ pub fn awake(store: &Store) -> Result<AwakenedContext> {
         layered,
         cortex,
         pinned: active_window(store)?,
-        recent: recent_episodes(store, window)?,
+        recent: recent_writes(store, window)?,
         under_review: under_review_pinned(store)?,
         verdicts,
         open_tasks: open_tasks(store)?,

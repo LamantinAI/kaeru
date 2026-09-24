@@ -119,7 +119,11 @@ pub fn awake(store: &Store, initiative: Option<&str>) -> Result<CallToolResult, 
             out.push_str(&format!("  - {id}{}\n", brief_suffix(store, id)));
         }
         out.push('\n');
-        out.push_str(&format!("recent ({}):\n", ctx.recent.len()));
+        out.push_str(&format!(
+            "recent ({}){}:\n",
+            ctx.recent.len(),
+            by_type(store, &ctx.recent)
+        ));
         for id in &ctx.recent {
             out.push_str(&format!("  - {id}{}\n", brief_suffix(store, id)));
         }
@@ -287,6 +291,32 @@ pub fn initiatives(store: &Store) -> Result<CallToolResult, McpError> {
     Ok(text(&out))
 }
 
+/// `5 episode, 2 reference, 1 claim` — the shape of a `recent` answer.
+///
+/// A count alone is what made the old episode-only listing so misleading: a
+/// user who had just written seven citations read `recent (0)` as "nothing is
+/// being recorded" (#101). Saying what the number is made of costs one line
+/// and makes a surprising answer checkable.
+fn by_type(store: &Store, ids: &[String]) -> String {
+    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
+    for id in ids {
+        let node_type = kaeru_core::node_brief_by_id(store, id)
+            .ok()
+            .flatten()
+            .map(|b| b.node_type)
+            .unwrap_or_default();
+        if node_type.is_empty() {
+            continue;
+        }
+        *counts.entry(node_type).or_insert(0) += 1;
+    }
+    if counts.len() < 2 {
+        return String::new();
+    }
+    let parts: Vec<String> = counts.iter().map(|(t, n)| format!("{n} {t}")).collect();
+    format!(" — {}", parts.join(", "))
+}
+
 pub fn recent(
     store: &Store,
     since: &str,
@@ -294,10 +324,20 @@ pub fn recent(
 ) -> Result<CallToolResult, McpError> {
     with_initiative(store, initiative, || {
         let window = parse_duration_secs(since).map_err(to_mcp)?;
-        let ids = kaeru_core::recent_episodes(store, window).map_err(to_mcp)?;
-        let mut out = format!("recent ({}):\n", ids.len());
+        let ids = kaeru_core::recent_writes(store, window).map_err(to_mcp)?;
+        let mut out = format!("recent ({}){}:\n", ids.len(), by_type(store, &ids));
         for id in &ids {
             out.push_str(&format!("  - {id}{}\n", brief_suffix(store, id)));
+        }
+        if ids.is_empty() {
+            // The answer a new user is most likely to misread. It covers every
+            // captured type now, so "nothing" really does mean nothing — but
+            // only if the line says what it looked at.
+            out.push_str(&format!(
+                "↳ nothing captured in the last {since} — this counts every kind of write \
+                 (episode, reference, claim, task …), not just episodes. Widen it with \
+                 `recent since=7d`, or `overview` for what the project knows.\n"
+            ));
         }
         Ok(text(&out))
     })
@@ -525,7 +565,7 @@ mod tests {
     use kaeru_core::{EdgeType, EpisodeKind, Significance, Store};
     use rmcp::model::CallToolResult;
 
-    use super::awake;
+    use super::{awake, recent};
 
     fn text_of(r: CallToolResult) -> String {
         r.content
@@ -923,6 +963,46 @@ mod tests {
         assert!(
             after.contains("resume-point-a") && after.contains("⚠ superseded by `state-evening`"),
             "the stale core node carries its verdict:\n{after}"
+        );
+    }
+
+    /// The report that sent a user back to files: seven `cite` captures and
+    /// `recent` answering 0, because it listed episodes only (#101).
+    #[test]
+    fn recent_counts_every_kind_of_write_and_says_so() {
+        let store = store_t();
+        for i in 0..3 {
+            kaeru_core::cite(
+                &store,
+                &format!("source-{i}"),
+                Some("https://example.invalid"),
+                "why it matters",
+            )
+            .expect("cite");
+        }
+        kaeru_core::jot(&store, "a passing thought").expect("jot");
+
+        let out = text_of(recent(&store, "24h", Some("t")).expect("recent"));
+        assert!(
+            out.starts_with("recent (4)"),
+            "every capture counts, not just the episode:\n{out}"
+        );
+        assert!(
+            out.contains("3 reference") && out.contains("1 episode"),
+            "and the line says what the number is made of:\n{out}"
+        );
+    }
+
+    /// An empty answer is the one most likely to be misread, so it says what
+    /// it looked at rather than leaving "0" to speak for itself.
+    #[test]
+    fn an_empty_recent_explains_what_it_covered() {
+        let store = store_t();
+        let out = text_of(recent(&store, "1m", Some("t")).expect("recent"));
+        assert!(out.starts_with("recent (0)"), "{out}");
+        assert!(
+            out.contains("every kind of write"),
+            "the empty answer explains itself:\n{out}"
         );
     }
 }
