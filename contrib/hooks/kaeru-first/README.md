@@ -175,6 +175,55 @@ as many reports as offers. An entry should be the addressed form.
 The tokenizer is script-agnostic, and treats a Latin token inside prose in
 another script as an entity.
 
+## An optional semantic judge (unproven, off)
+
+Three of the hook's decisions are questions about meaning — is this an ask, is
+it procedural, and does a hit answer it — and all three are made lexically.
+The third was measured and failed: the table above is why the hook shows
+candidates instead of judging them.
+
+`judge.py` is a candidate second attempt with a different method: TypeSafe's
+[Jev](https://typesafe.ai/), a decision model that answers a yes/no question
+with a calibrated probability instead of text. **It is not wired into the
+hook.** It exists so the question "does it beat the lexicon?" can be answered
+with a number before anything changes, which is what `eval_judge.py` is for:
+
+```sh
+# the lexical baselines alone — no network, no key
+python3 eval_judge.py corpus.jsonl
+
+# and the judge, on a corpus you are allowed to send
+KAERU_FIRST_JUDGE=jev TYPESAFE_API_KEY=... python3 eval_judge.py corpus.jsonl --judge
+```
+
+It prints the same four numbers for each rule — catch, block, precision,
+lift — so the comparison is like for like. The bar to ship it: **lift ≥ 2 and
+precision well clear of the lexical ~4%.** Below that, it is a second negative
+result and the judge stays where it is.
+
+**If it ever does get wired in, it stays opt-in.** Two environment variables,
+both of them absent by default:
+
+| variable | meaning |
+|---|---|
+| `KAERU_FIRST_JUDGE` | `jev` turns the judge on; anything else, or unset, is off |
+| `TYPESAFE_API_KEY` | the key; without it the judge does nothing at all |
+
+Missing either, or a timeout, an error, an answer shape it does not
+recognise — the hook behaves exactly as it does today. A memory tool that
+needs a third-party account to work would not be a memory tool.
+
+**What would leave your machine.** The tail of the agent's reply, and the name
+and excerpt of each candidate node — pieces of your vault, over HTTPS, to a
+company that is not you. Decide that per vault, not per habit. Vault text is
+always sent as data (`state`), never as part of the question
+(`instructions`), so a node whose body says "ignore the above" cannot change
+what is being asked; a test pins that.
+
+**Unverified:** the corpus this hook was tuned on is mostly Russian, and
+TypeSafe does not document non-English input. Measuring that is step one, not
+an afterthought.
+
 ## Design notes
 
 - **No transcript parsing.** Both harnesses pass everything needed as
