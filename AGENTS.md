@@ -61,6 +61,16 @@ a closed issue should explain itself to whoever opens it next.
 Release notes, issues, PR reviews and code comments are in **English**.
 Telegram posts are in plain Russian — analogies over anglicisms.
 
+## Release notes
+
+`docs/release-notes.md` holds the template and the rules — a different shape
+per semver digit, plus what holds for all three: lead with the symptom and
+not the subsystem, carry the evidence as numbers, name what is still wrong,
+say what a fix costs, and end with the test count. It also records the two
+mechanical traps in writing the annotated tag (`-F` a file, and
+`--cleanup=verbatim`, or lines starting with `#` vanish). The notes
+themselves live outside this repo, in `marketing/v<x.y.z>/`.
+
 ---
 
 # Part two — the codebase
