@@ -35,9 +35,9 @@ use crate::store::Store;
 /// order above matters. Retracting first — as this did until 0.7.4 — meant a
 /// failure in between left NEITHER version readable at NOW: the knowledge
 /// gone from every read surface, surviving only in `history`. Retracting last
-/// leaves both readable, a state `lint` reports and a human can settle. A
-/// transactional path (one Cozo script) would make it all-or-nothing and is
-/// still future work.
+/// preserves the predecessor and may leave a partial successor. `lint` does
+/// not detect every incomplete replacement. A transactional path (one Cozo
+/// script) would make it all-or-nothing and is still future work.
 pub fn supersedes(
     store: &Store,
     old_id: &NodeId,
@@ -112,10 +112,10 @@ pub fn supersedes(
     // The order is the whole point (#96): these writes are not one
     // transaction, and retracting first meant a failure in the middle left
     // NEITHER version readable at NOW — the knowledge gone from every read
-    // surface, recoverable only through `history`. Retracting last leaves
-    // both readable instead, which `lint` is built to notice. The timestamp
-    // is past the predecessor's newest row, so a supersession inside the
-    // second that wrote it still retracts it.
+    // surface, recoverable only through `history`. Retracting last preserves
+    // the predecessor instead, though `lint` may miss a partial successor.
+    // The timestamp is past the predecessor's newest row, so a supersession
+    // inside the second that wrote it still retracts it.
     let retract_secs = node_version_seconds(store, old_id)?;
     let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
     p1.insert("old_id".to_string(), DataValue::Str(old_id.clone().into()));

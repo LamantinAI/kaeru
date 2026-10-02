@@ -298,10 +298,11 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 - **A multi-write operation retracts last (#96).** `supersedes` and
   `consolidate` are several writes and not a transaction, so the order
   decides what a failure in the middle leaves behind: assert the successor,
-  wire its edges and memberships, retract the predecessor at the end. Both
-  versions readable is a state `lint` reports; neither readable — which
-  retracting first produced, on the path `settle` uses for every promotion
-  into cortex — is a state nothing could. Keep that order when adding a verb
+  wire its edges and memberships, retract the predecessor at the end. A
+  failure before retraction preserves the predecessor and may leave a partial
+  successor; `lint` does not detect every incomplete replacement. Retracting
+  first could leave neither readable, on the path `settle` uses for every
+  promotion into cortex. Keep that order when adding a verb
   that replaces a node; making it all-or-nothing needs one Cozo script and is
   still open.
 - **A capture can make its edge in the same call (#102).** `episode`, `jot`,

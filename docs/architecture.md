@@ -101,8 +101,9 @@ PK — membership is a set fact, not a versioned one.
 > `consolidate` (which `settle` runs for every promotion into cortex) are
 > several substrate writes, not one transaction. They now assert the
 > successor, wire its edges and memberships, and retract the predecessor
-> **last** — so a failure in the middle leaves both versions readable, which
-> `lint` reports, instead of neither, which nothing could (#96). Making it
+> **last** — so a failure before retraction preserves the predecessor and
+> may leave a partial successor (#96). `lint` can report related graph
+> anomalies, but does not detect every incomplete replacement. Making it
 > genuinely all-or-nothing needs the writes to run as one Cozo script.
 
 ### Schema migrations

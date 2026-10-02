@@ -36,9 +36,9 @@ use crate::store::Store;
 ///
 /// Like `supersedes`, the substrate-level writes are not atomic — so, as
 /// there, the new node is asserted and wired first and the old one retracted
-/// **last** (#96). A failure in between then leaves both versions readable,
-/// which `lint` reports, rather than neither, which nothing could see. That
-/// mattered most here: `settle` runs this path for every promotion into
+/// **last** (#96). A failure before retraction preserves the predecessor
+/// and may leave a partial successor; `lint` does not detect every such state.
+/// That mattered most here: `settle` runs this path for every promotion into
 /// cortex.
 pub fn consolidate_out(
     store: &Store,
@@ -200,9 +200,9 @@ fn consolidate(
     // transaction, and retracting first meant a failure in the middle left
     // NEITHER version readable at NOW (#96): `settle` runs this path for
     // every promotion into cortex, so that was the knowledge disappearing
-    // from every read surface. Retracting last leaves both readable, which
-    // is what `lint` is for. Past the node's newest row, so consolidating
-    // something written in this same second still retracts it.
+    // from every read surface. Retracting last preserves the predecessor,
+    // though `lint` may miss a partial successor. Past the node's newest row,
+    // so consolidating something written in this same second still retracts it.
     let retract_secs = node_version_seconds(store, old_id)?;
     let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
     p1.insert("old_id".to_string(), DataValue::Str(old_id.clone().into()));
