@@ -91,9 +91,11 @@ mem_tool_in!(
         Ok(hits) if hits.is_empty() => json!({
             "results": [],
             "hint": format!(
-                "no matches — widen it: query \"{}*\" (prefix match), kaeru_tagged with \
-                 topic:<theme>, or kaeru_recent for what's fresh.",
-                args.query
+                "no matches — widen it: {}kaeru_tagged with topic:<theme>, or kaeru_recent \
+                 for what's fresh.",
+                kaeru_core::prefix_widening(&args.query)
+                    .map(|widened| format!("query \"{widened}\" (prefix match), "))
+                    .unwrap_or_default()
             ),
         }),
         Ok(hits) => json!({ "results": briefs(&hits) }),
