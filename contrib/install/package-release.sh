@@ -354,6 +354,14 @@ done
 sed -e "s/__VERSION__/${TAG#v}/" "$ROOT/contrib/mcpb/server.json.template" \
     | python3 -c "import sys; sys.stdout.write(sys.stdin.read().replace('__PACKAGES__', '''$packages'''))" \
     > "$DIST/server.json"
+# The registry refuses a description over 100 characters with a 422, and it
+# says so only at publish time, after the release is already out. v0.7.4
+# shipped with a 167-character one and could not be published as built.
+python3 -c "
+import json, sys
+d = json.load(open('$DIST/server.json'))['description']
+sys.exit(f'server.json: description is {len(d)} chars, the registry allows 100') if len(d) > 100 else None
+"
 echo "    -> dist/server.json"
 
 echo
