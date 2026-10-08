@@ -1023,7 +1023,14 @@ impl ServerHandler for KaeruServer {
         ServerInfo::new(
             ServerCapabilities::builder().enable_tools().build(),
         )
-        .with_server_info(Implementation::from_build_env())
+        // Not `Implementation::from_build_env()`: its `env!` calls expand inside
+        // rmcp, so it reports rmcp's crate name and version — every client and
+        // catalog showed this server as "rmcp 1.6.0".
+        .with_server_info(
+            Implementation::new("kaeru", env!("CARGO_PKG_VERSION"))
+                .with_title("kaeru memory")
+                .with_website_url("https://lamantin-ai.com/products/kaeru/"),
+        )
         .with_protocol_version(ProtocolVersion::LATEST)
         .with_instructions(
             "kaeru — your memory of record across sessions. Prefer it to scratchpads and notes. If your runtime \
@@ -1132,6 +1139,24 @@ mod tests {
             instructions.len(),
             instructions.len() - BUDGET
         );
+    }
+
+    /// A client lists the server by `serverInfo`, and so do the catalogs that
+    /// introspect it. `from_build_env()` named it after the MCP library.
+    #[test]
+    fn server_names_itself_kaeru_not_its_library() {
+        let store = Store::open_in_memory().expect("open");
+        let server = KaeruServer::new(
+            store,
+            CloudRegistry::default(),
+            CancellationToken::new(),
+            false,
+        );
+        let info = server.get_info().server_info;
+
+        assert_eq!(info.name, "kaeru");
+        assert_eq!(info.title.as_deref(), Some("kaeru memory"));
+        assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
     }
 
     /// The tail is where the previously-truncated verbs live. If the text is
