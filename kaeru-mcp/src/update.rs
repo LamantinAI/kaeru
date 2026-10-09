@@ -20,9 +20,17 @@
 //! because the agent is the updater here, not the binary. A self-replacing
 //! binary would be right for exactly one of the four ways kaeru is installed.
 //!
-//! **What leaves the machine:** one HTTPS GET to a public GitHub endpoint,
-//! once a day, with no identifiers, no payload and no vault content. It never
-//! delays startup and never blocks a verb: failure is silence. Set
+//! **What leaves the machine:** one HTTPS GET a day to
+//! `updates.lamantin-ai.com` (`contrib/update-worker/`), which answers with
+//! the public GitHub release listing. The User-Agent names the kaeru version,
+//! the OS and architecture, the install channel and whether this looks like a
+//! CI run or a container — and nothing else: no identifier, no payload, no
+//! vault content. The endpoint counts distinct installs per day from a salted
+//! hash it discards the next day, so we can see how many daemons are running
+//! which version — the question #99 was opened to answer — without being
+//! able to follow any one of them. If that endpoint does not answer, the
+//! daemon asks GitHub directly, exactly as before. It never delays startup
+//! and never blocks a verb: failure is silence. Set
 //! `KAERU_MCP_UPDATE_CHECK=0` and none of it happens at all — a version check
 //! that cannot be turned off is a fair objection to a local-first tool, not a
 //! detail.
@@ -34,7 +42,12 @@ use std::time::Duration;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-/// The public listing the check reads. No auth, no identifiers.
+/// Where the check asks first: a proxy of the GitHub listing below that also
+/// counts distinct installs per day (`contrib/update-worker/`).
+const UPDATES_URL: &str = "https://updates.lamantin-ai.com/v1/releases";
+
+/// The public listing itself — asked directly when the endpoint above is
+/// down, so the check never depends on it. No auth, no identifiers.
 const RELEASES_URL: &str = "https://api.github.com/repos/LamantinAI/kaeru/releases?per_page=20";
 
 /// Long enough that the question is asked roughly once a day per daemon, and
@@ -73,6 +86,15 @@ pub enum Channel {
 }
 
 impl Channel {
+    /// The word the User-Agent carries for this channel.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Channel::Installer => "installer",
+            Channel::Bundle => "bundle",
+            Channel::Source => "source",
+        }
+    }
+
     /// The command an agent can offer to run, or the sentence that explains
     /// why there is no command to run.
     pub fn instruction(self) -> &'static str {
@@ -180,13 +202,38 @@ pub fn compose(current: &str, releases: &[Release], channel: Channel) -> Option<
     Some(line)
 }
 
-/// Asks GitHub once. `None` on any failure: no network, no answer, no line.
-async fn fetch(client: &reqwest::Client) -> Option<Vec<Release>> {
+/// Where this daemon runs, as far as counting is concerned: a CI job or a
+/// container is a run, not an install, and the endpoint keeps them apart so
+/// they cannot inflate the number.
+pub fn environment_from(ci: Option<String>, in_container: bool) -> &'static str {
+    if ci.is_some_and(|v| !v.trim().is_empty() && v.trim() != "0" && v.trim() != "false") {
+        "ci"
+    } else if in_container {
+        "container"
+    } else {
+        "host"
+    }
+}
+
+/// `kaeru/0.7.6 (linux-x86_64; installer; host)` — what the daemon says
+/// about itself, and all it says. The endpoint parses exactly this shape.
+pub fn user_agent(version: &str, os: &str, arch: &str, channel: Channel, env: &str) -> String {
+    format!("kaeru/{version} ({os}-{arch}; {}; {env})", channel.as_str())
+}
+
+/// Asks the update endpoint, then GitHub if it does not answer. `None` on
+/// any failure of both: no network, no answer, no line.
+async fn fetch(client: &reqwest::Client, user_agent: &str) -> Option<Vec<Release>> {
+    match fetch_from(client, UPDATES_URL, user_agent).await {
+        Some(releases) => Some(releases),
+        None => fetch_from(client, RELEASES_URL, user_agent).await,
+    }
+}
+
+async fn fetch_from(client: &reqwest::Client, url: &str, user_agent: &str) -> Option<Vec<Release>> {
     let resp = client
-        .get(RELEASES_URL)
-        // GitHub requires a User-Agent. It carries no version and no id —
-        // the point is to ask a public question, not to be counted.
-        .header("User-Agent", "kaeru")
+        .get(url)
+        .header("User-Agent", user_agent)
         .header("Accept", "application/vnd.github+json")
         .timeout(REQUEST_TIMEOUT)
         .send()
@@ -210,10 +257,19 @@ pub fn spawn(notice: UpdateNotice, cancel: CancellationToken) {
     let channel = std::env::current_exe()
         .map(|exe| channel_of(&exe))
         .unwrap_or(Channel::Source);
+    let in_container =
+        Path::new("/.dockerenv").exists() || Path::new("/run/.containerenv").exists();
+    let agent = user_agent(
+        kaeru_core::version(),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        channel,
+        environment_from(std::env::var("CI").ok(), in_container),
+    );
     tokio::spawn(async move {
         let client = reqwest::Client::new();
         loop {
-            if let Some(releases) = fetch(&client).await
+            if let Some(releases) = fetch(&client, &agent).await
                 && let Some(line) = compose(kaeru_core::version(), &releases, channel)
             {
                 // Overwrites rather than queues: the current gap is the only
@@ -240,7 +296,10 @@ pub fn take(notice: &UpdateNotice) -> Option<String> {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{Channel, Release, channel_of, compose, enabled_from, parse_releases, take};
+    use super::{
+        Channel, Release, channel_of, compose, enabled_from, environment_from, parse_releases,
+        take, user_agent,
+    };
 
     fn releases() -> Vec<Release> {
         vec![
@@ -364,5 +423,25 @@ mod tests {
         *notice.lock().unwrap() = Some("⚠ behind".into());
         assert_eq!(take(&notice).as_deref(), Some("⚠ behind"));
         assert_eq!(take(&notice), None, "delivered once, like the hygiene cue");
+    }
+
+    /// The endpoint counts by parsing this exact shape, and the shape is the
+    /// whole of what the daemon discloses — so both halves are pinned.
+    #[test]
+    fn the_user_agent_says_what_it_is_and_nothing_else() {
+        let ua = user_agent("0.7.6", "linux", "x86_64", Channel::Installer, "host");
+        assert_eq!(ua, "kaeru/0.7.6 (linux-x86_64; installer; host)");
+    }
+
+    /// A CI job or a container is a run, not an install: kept apart so the
+    /// count of installs is not a count of builds.
+    #[test]
+    fn ci_and_containers_are_told_apart_from_installs() {
+        assert_eq!(environment_from(Some("true".into()), false), "ci");
+        assert_eq!(environment_from(Some("1".into()), true), "ci");
+        assert_eq!(environment_from(None, true), "container");
+        assert_eq!(environment_from(Some("false".into()), false), "host");
+        assert_eq!(environment_from(Some("".into()), false), "host");
+        assert_eq!(environment_from(None, false), "host");
     }
 }
