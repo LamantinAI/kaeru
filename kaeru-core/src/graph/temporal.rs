@@ -133,6 +133,11 @@ pub fn history(store: &Store, id: &NodeId) -> Result<Vec<Revision>> {
             body,
         });
     }
+    revisions.sort_by(|a, b| {
+        a.seconds
+            .total_cmp(&b.seconds)
+            .then(a.asserted.cmp(&b.asserted))
+    });
     Ok(revisions)
 }
 

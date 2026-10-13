@@ -258,6 +258,34 @@ pub fn prefix_widening(query: &str) -> Option<String> {
 /// One FTS attempt with `query` exactly as given.
 fn run_fts(store: &Store, query: &str, limit: usize) -> Result<Vec<NodeBrief>> {
     let limit = limit.min(FUZZY_RECALL_LIMIT_CAP);
+    run_fts_with_capacity(store, query, limit)
+}
+
+/// Bounded candidate collection for the canonical API's filtering/pagination.
+/// The caller builds an escaped lexical expression, not a user-authored DSL.
+pub(crate) fn literal_ids(store: &Store, query: &str, capacity: usize) -> Result<Vec<String>> {
+    let capacity = capacity.min(5000);
+    let mut params = BTreeMap::from([("q".into(), DataValue::Str(query.into()))]);
+    let scope = if let Some(scope) = store.current_initiative() {
+        params.insert("scope".into(), DataValue::Str(scope.into()));
+        ", *node_initiative{initiative,node_id:id},initiative=$scope"
+    } else {
+        ""
+    };
+    let script = format!(
+        "hits[id,score] := ~node:fts_name{{id | query:$q,k:{capacity},bind_score:score}}\n hits[id,score] := ~node:fts_body{{id | query:$q,k:{capacity},bind_score:score}}\n ?[id,max(score)] := hits[id,score],*node{{id @ 'NOW'}}{scope} :order -max(score) :limit {capacity}"
+    );
+    let rows = store
+        .db_ref()
+        .run_script(&script, params, ScriptMutability::Immutable)?;
+    Ok(rows
+        .rows
+        .into_iter()
+        .filter_map(|r| r.first().and_then(DataValue::get_str).map(str::to_owned))
+        .collect())
+}
+
+fn run_fts_with_capacity(store: &Store, query: &str, limit: usize) -> Result<Vec<NodeBrief>> {
     if limit == 0 {
         return Ok(Vec::new());
     }
@@ -467,7 +495,7 @@ mod tests {
             EpisodeKind::Observation,
             Significance::Low,
             "pilot-finalize-6of6-2026-06-02",
-            "the pilot run at 185.130.225.215 for a master's degree",
+            "the pilot run at 192.0.2.10 for a master's degree",
         )
         .expect("write");
         store
@@ -487,7 +515,7 @@ mod tests {
     #[test]
     fn punctuation_no_longer_breaks_the_parser() {
         let store = seeded();
-        for q in ["185.130.225.215", "master's", "pilot-finalize-6of6"] {
+        for q in ["192.0.2.10", "master's", "pilot-finalize-6of6"] {
             let hits = fuzzy_recall(&store, q, 5)
                 .unwrap_or_else(|e| panic!("`{q}` should parse, got: {e}"));
             assert!(!hits.is_empty(), "`{q}` finds the node");

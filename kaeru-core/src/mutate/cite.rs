@@ -39,44 +39,46 @@ pub fn cite_with_layer(
     body: &str,
     layer: Layer,
 ) -> Result<NodeId> {
-    guard_core_needs_initiative(store, layer)?;
+    store.atomic(|store| {
+        guard_core_needs_initiative(store, layer)?;
 
-    // Scrub any leaked tool-call wire-format before it reaches the graph —
-    // a malformed caller can spill the invocation envelope into these strings.
-    let name_owned = strip_tool_call_markup(name).0;
-    let body_owned = strip_tool_call_markup(body).0;
-    let (name, body) = (name_owned.as_str(), body_owned.as_str());
+        // Scrub any leaked tool-call wire-format before it reaches the graph —
+        // a malformed caller can spill the invocation envelope into these strings.
+        let name_owned = strip_tool_call_markup(name).0;
+        let body_owned = strip_tool_call_markup(body).0;
+        let (name, body) = (name_owned.as_str(), body_owned.as_str());
 
-    let id = new_node_id();
-    let payload = match url {
-        Some(u) => json!({ "url": u }),
-        None => json!({}),
-    };
-    let now_secs = now_validity_seconds();
+        let id = new_node_id();
+        let payload = match url {
+            Some(u) => json!({ "url": u }),
+            None => json!({}),
+        };
+        let now_secs = now_validity_seconds();
 
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("id".to_string(), DataValue::Str(id.clone().into()));
-    params.insert("name".to_string(), DataValue::Str(name.into()));
-    params.insert("body".to_string(), DataValue::Str(body.into()));
-    params.insert("properties".to_string(), DataValue::Json(JsonData(payload)));
-    params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+        params.insert("name".to_string(), DataValue::Str(name.into()));
+        params.insert("body".to_string(), DataValue::Str(body.into()));
+        params.insert("properties".to_string(), DataValue::Json(JsonData(payload)));
+        params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
-    let all_tags = build_body_tags(&["kind:reference"], Some(name), body);
-    let tags = tags_literal(&all_tags);
-    let script = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [[$id, [{now_secs}.0, true], 'reference', 'archival', $name, $body, {tags}, null, $properties, $layer]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&script, params, ScriptMutability::Mutable)?;
+        let all_tags = build_body_tags(&["kind:reference"], Some(name), body);
+        let tags = tags_literal(&all_tags);
+        let script = format!(
+            r#"
+            ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+                [[$id, [{now_secs}.0, true], 'reference', 'archival', $name, $body, {tags}, null, $properties, $layer]]
+            :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&script, params, ScriptMutability::Mutable)?;
 
-    attach_node_to_initiative(store, &id)?;
-    write_audit(store.db_ref(), "cite", "system", &[id.clone()])?;
-    Ok(id)
+        attach_node_to_initiative(store, &id)?;
+        write_audit(store.db_ref(), "cite", "system", &[id.clone()])?;
+        Ok(id)
+    })
 }
 
 #[cfg(test)]

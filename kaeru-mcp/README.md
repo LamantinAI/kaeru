@@ -160,7 +160,7 @@ single-cloud case.
 `KAERU_BODY_EXCERPT_CHARS`, `KAERU_PROVENANCE_MAX_HOPS`,
 `KAERU_DEFAULT_MAX_HOPS`, `KAERU_MAX_HOPS_CAP`.
 
-Call the `config` MCP tool to see resolved values.
+Use `context(view="diagnostics")` for API diagnostics; configuration values are owned by the daemon environment and host.
 
 ## Connecting an MCP client
 
@@ -187,10 +187,9 @@ claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp
 }
 ```
 
-After restart, Claude sees the curator-API tools (`awake`, `drill`,
-`claim`, `at`, `history`, …). Each tool accepts an optional
-`initiative` parameter; pass it on every call once you've picked a
-project.
+After restart, Claude sees the curator-API tools (`context`, `search`,
+`read`, `note`, `claim`, `history`, …). Ordinary project calls require
+`initiative`; search takes an `initiatives` list.
 
 #### Make kaeru your memory of record
 
@@ -230,25 +229,16 @@ npx @modelcontextprotocol/inspector --transport http http://127.0.0.1:9876/mcp
 
 ## Tool catalogue
 
-```
-re-entry / session : awake, overview, initiatives, recent, pin, unpin, config
-capture            : episode, jot, link, unlink, cite, import
-tasks              : task, done
-lookup             : recall, drill, trace, search, ideas, outcomes, tagged, between, surface
-bi-temporal        : at, history
-knowledge chains   : chain, chains, read_chain, path
-hypothesis         : claim, test, confirm, refute
-review             : flag, resolve
-consolidation      : settle, reopen, synthesise, supersede
-metabolism         : forget, revise, layer
-initiatives        : rename_initiative, delete_initiative
-cloud (sharing)    : policy, share, cloud_recall, pull, link_cloud, cloud_links, sync_review
-diagnostics        : lint
-snapshot           : export
-```
+The daemon exposes 35 named memory operations: 16 frequent, ten occasional local,
+and nine cloud operations. `tools/list` contains their actual input definitions;
+local operations also advertise output schemas. See
+[the shared API reference](../docs/curator-api.md).
 
-`tools/list` returns descriptions and JsonSchema for each. Drill in
-with the inspector to see full param shapes.
+The same JSON arguments work over `POST /v1/<operation>` when HTTP is enabled.
+Local results use API version 1, committed IDs, revisions, explicit partial
+outcomes and bounded-read continuation. Old tool names and HTTP aliases are
+removed. Use MCP `tools/list` to inspect the registered definitions.
+`KAERU_MCP_ARTIFACT_ROOT` authorizes source artifacts and export destinations.
 
 ## Operational notes
 

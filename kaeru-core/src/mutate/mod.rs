@@ -23,6 +23,7 @@ pub mod consolidate;
 pub mod edge;
 pub mod episode;
 pub mod hypothesis;
+mod identity;
 pub mod ingest;
 pub mod initiative;
 pub mod layer;
@@ -177,7 +178,7 @@ const NAME_WEIGHT: usize = 3;
 /// would smuggle the position bias back in through the front door.
 ///
 /// A hyphenated or underscored compound yields its parts as well as itself:
-/// `figma-макет` scores `figma-макет`, `figma` and `макет`. Tags are matched
+/// `design-mockup` scores `design-mockup`, `design` and `mockup`. Tags are matched
 /// exactly by `tagged`, so without this the word inside a compound is
 /// unreachable — which is exactly how a Figma-centric initiative ended up
 /// with no `topic:figma` on anything.
@@ -799,26 +800,6 @@ pub(crate) fn attach_edge_to_initiative(
 
 /// Returns dst ids of `derived_from` edges where `src_id` is the source
 /// at NOW. Used by [`consolidate`] to replicate provenance edges across
-/// the tier boundary.
-pub(crate) fn read_derived_from_targets(store: &Store, src_id: &NodeId) -> Result<Vec<NodeId>> {
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("src".to_string(), DataValue::Str(src_id.clone().into()));
-    let script = r#"
-        ?[dst] := *edge{src, dst, edge_type @ 'NOW'},
-                  src = $src,
-                  edge_type = 'derived_from'
-    "#;
-    let rows = store
-        .db_ref()
-        .run_script(script, params, ScriptMutability::Immutable)?;
-    let targets: Vec<NodeId> = rows
-        .rows
-        .iter()
-        .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
-        .collect();
-    Ok(targets)
-}
-
 /// Refuses a `core` write with no active initiative.
 ///
 /// `core` is the one layer injected uncapped into every session, and that

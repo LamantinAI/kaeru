@@ -50,77 +50,79 @@ pub fn upsert_node(
     layer: Layer,
     properties: Option<&JsonValue>,
 ) -> Result<()> {
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("id".to_string(), DataValue::Str(id.clone().into()));
-    params.insert("name".to_string(), DataValue::Str(name.into()));
-    params.insert(
-        "body".to_string(),
-        match body {
-            Some(b) => DataValue::Str(b.into()),
-            None => DataValue::Null,
-        },
-    );
+    store.atomic(|store| {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+        params.insert("name".to_string(), DataValue::Str(name.into()));
+        params.insert(
+            "body".to_string(),
+            match body {
+                Some(b) => DataValue::Str(b.into()),
+                None => DataValue::Null,
+            },
+        );
 
-    // Tags and the Validity literal must be inlined — cozo's `<-` literal
-    // rule needs concrete values for List and Validity columns. Type / tier
-    // / visibility are enum `as_str()`, never attacker-controlled, so
-    // inlining their quoted form is safe.
-    let tags_lit = tags_literal(tags);
-    let now_secs = node_version_seconds(store, id)?;
-    // The row is assembled from NODE_VALUE_COLUMNS rather than a hand-written
-    // list: a column added to the schema fails loudly here (no value supplied)
-    // instead of quietly landing on its default in every cloud pull.
-    let mut values: BTreeMap<&str, String> = BTreeMap::new();
-    values.insert("type", format!("'{}'", node_type.as_str()));
-    values.insert("tier", format!("'{}'", tier.as_str()));
-    values.insert("name", "$name".to_string());
-    values.insert("body", "$body".to_string());
-    values.insert("tags", tags_lit);
-    values.insert("initiatives", "null".to_string());
-    // Supplied, or whatever the node already carries — never a blind null.
-    let carried = match properties {
-        Some(v) => Some(v.clone()),
-        None => read_properties_now(store, id)?,
-    };
-    match carried {
-        Some(v) => {
-            params.insert("properties".to_string(), DataValue::Json(JsonData(v)));
-            values.insert("properties", "$properties".to_string());
+        // Tags and the Validity literal must be inlined — cozo's `<-` literal
+        // rule needs concrete values for List and Validity columns. Type / tier
+        // / visibility are enum `as_str()`, never attacker-controlled, so
+        // inlining their quoted form is safe.
+        let tags_lit = tags_literal(tags);
+        let now_secs = node_version_seconds(store, id)?;
+        // The row is assembled from NODE_VALUE_COLUMNS rather than a hand-written
+        // list: a column added to the schema fails loudly here (no value supplied)
+        // instead of quietly landing on its default in every cloud pull.
+        let mut values: BTreeMap<&str, String> = BTreeMap::new();
+        values.insert("type", format!("'{}'", node_type.as_str()));
+        values.insert("tier", format!("'{}'", tier.as_str()));
+        values.insert("name", "$name".to_string());
+        values.insert("body", "$body".to_string());
+        values.insert("tags", tags_lit);
+        values.insert("initiatives", "null".to_string());
+        // Supplied, or whatever the node already carries — never a blind null.
+        let carried = match properties {
+            Some(v) => Some(v.clone()),
+            None => read_properties_now(store, id)?,
+        };
+        match carried {
+            Some(v) => {
+                params.insert("properties".to_string(), DataValue::Json(JsonData(v)));
+                values.insert("properties", "$properties".to_string());
+            }
+            None => {
+                values.insert("properties", "null".to_string());
+            }
         }
-        None => {
-            values.insert("properties", "null".to_string());
-        }
-    }
-    values.insert("visibility", format!("'{}'", visibility.as_str()));
-    values.insert("layer", format!("'{}'", layer.as_str()));
-    let row_values = node_row_values(&values)?;
-    let cols = NODE_VALUE_COLUMNS.join(", ");
-    let script = format!(
-        r#"
-        ?[id, validity, {cols}] <-
-            [[$id, [{now_secs}.0, true], {row_values}]]
-        :put node {{id, validity => {cols}}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&script, params, ScriptMutability::Mutable)?;
-
-    if let Some(init) = initiative {
-        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
-        p.insert("init".to_string(), DataValue::Str(init.into()));
-        p.insert("nid".to_string(), DataValue::Str(id.clone().into()));
-        let junction = r#"
-            ?[initiative, node_id] <- [[$init, $nid]]
-            :put node_initiative {initiative, node_id}
-        "#;
+        values.insert("visibility", format!("'{}'", visibility.as_str()));
+        values.insert("layer", format!("'{}'", layer.as_str()));
+        let row_values = node_row_values(&values)?;
+        let cols = NODE_VALUE_COLUMNS.join(", ");
+        let script = format!(
+            r#"
+            ?[id, validity, {cols}] <-
+                [[$id, [{now_secs}.0, true], {row_values}]]
+            :put node {{id, validity => {cols}}}
+            "#
+        );
         store
             .db_ref()
-            .run_script(junction, p, ScriptMutability::Mutable)?;
-    }
+            .run_script(&script, params, ScriptMutability::Mutable)?;
 
-    write_audit(store.db_ref(), "upsert_node", "system", &[id.clone()])?;
-    Ok(())
+        if let Some(init) = initiative {
+            let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+            p.insert("init".to_string(), DataValue::Str(init.into()));
+            p.insert("nid".to_string(), DataValue::Str(id.clone().into()));
+            let junction = r#"
+                ?[initiative, node_id] <- [[$init, $nid]]
+                :put node_initiative {initiative, node_id}
+            "#;
+            store
+                .db_ref()
+                .run_script(junction, p, ScriptMutability::Mutable)?;
+        }
+
+        write_audit(store.db_ref(), "upsert_node", "system", &[id.clone()])?;
+        Ok(())
+    })
 }
 
 /// The node's `properties` as they stand at NOW, so an upsert that was given
@@ -156,34 +158,36 @@ pub fn upsert_edge(
     edge_type: EdgeType,
     weight: f64,
 ) -> Result<()> {
-    let w = weight.clamp(0.0, 1.0);
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("src".to_string(), DataValue::Str(src.clone().into()));
-    params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
-    params.insert(
-        "edge_type".to_string(),
-        DataValue::Str(edge_type.as_str().into()),
-    );
+    store.atomic(|store| {
+        let w = weight.clamp(0.0, 1.0);
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("src".to_string(), DataValue::Str(src.clone().into()));
+        params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+        params.insert(
+            "edge_type".to_string(),
+            DataValue::Str(edge_type.as_str().into()),
+        );
 
-    let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
-    let script = format!(
-        r#"
-        ?[src, dst, edge_type, validity, weight, properties] <-
-            [[$src, $dst, $edge_type, [{now_secs}.0, true], {w:.6}, null]]
-        :put edge {{src, dst, edge_type, validity => weight, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&script, params, ScriptMutability::Mutable)?;
+        let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
+        let script = format!(
+            r#"
+            ?[src, dst, edge_type, validity, weight, properties] <-
+                [[$src, $dst, $edge_type, [{now_secs}.0, true], {w:.6}, null]]
+            :put edge {{src, dst, edge_type, validity => weight, properties}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&script, params, ScriptMutability::Mutable)?;
 
-    write_audit(
-        store.db_ref(),
-        "upsert_edge",
-        "system",
-        &[src.clone(), dst.clone()],
-    )?;
-    Ok(())
+        write_audit(
+            store.db_ref(),
+            "upsert_edge",
+            "system",
+            &[src.clone(), dst.clone()],
+        )?;
+        Ok(())
+    })
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@
 //! Design philosophy: facilitator, not enforcer. Cognitive primitives are
 //! available tools; agent and user choose when to invoke.
 
+pub mod api;
 pub mod config;
 pub mod errors;
 pub mod export;

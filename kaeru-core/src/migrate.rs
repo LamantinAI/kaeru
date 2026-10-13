@@ -88,7 +88,73 @@ const MIGRATIONS: &[Migration] = &[
         name: "0009_hygiene_demotion",
         up: m0009_hygiene_demotion,
     },
+    Migration {
+        name: "0010_canonical_api_metadata",
+        up: m0010_canonical_api_metadata,
+    },
+    Migration {
+        name: "0011_scope_legacy_unscoped",
+        up: m0011_scope_legacy_unscoped,
+    },
 ];
+
+/// Recover records created by older unscoped capture calls. Membership is
+/// current administrative metadata; content, identity and validity are intact.
+fn m0011_scope_legacy_unscoped(db: &DbInstance) -> Result<()> {
+    let missing_memberships = !relation_exists(db, "node_initiative")?;
+    if missing_memberships {
+        run_mut(
+            db,
+            ":create node_initiative {initiative:String,node_id:String=>added_at:Float default now()}",
+        )?;
+        run_mut(db, "::index create node_initiative:by_node {node_id}")?;
+        run_mut(
+            db,
+            "?[initiative,node_id] := *node{id:node_id,initiatives @ 'NOW'},!is_null(initiatives),initiative in initiatives :put node_initiative {initiative,node_id}",
+        )?;
+    }
+    run_mut(
+        db,
+        "?[initiative,node_id] := *node{id:node_id,type},type!='audit_event',type!='placeholder',not *node_initiative{node_id},initiative='legacy-unscoped' :put node_initiative {initiative,node_id}",
+    )?;
+    if !relation_exists(db, "edge_initiative")? {
+        run_mut(
+            db,
+            ":create edge_initiative {initiative:String,edge_pk:String=>added_at:Float default now()}",
+        )?;
+        run_mut(
+            db,
+            "?[initiative,edge_pk] := *edge{src,dst,edge_type},*node_initiative{initiative,node_id:src},*node_initiative{initiative,node_id:dst},edge_pk=concat(src,'|',dst,'|',edge_type) :put edge_initiative {initiative,edge_pk}",
+        )?;
+    }
+    Ok(())
+}
+
+fn m0010_canonical_api_metadata(db: &DbInstance) -> Result<()> {
+    for (name, schema) in [
+        (
+            "api_operation",
+            ":create api_operation { caller: String, request_id: String => tool: String, arguments_hash: String, result: Json, created_at: Float default now() }",
+        ),
+        (
+            "api_slot_revision",
+            ":create api_slot_revision { initiative: String, slot: String => revision: String }",
+        ),
+        (
+            "api_trail_summary",
+            ":create api_trail_summary { chain_id: String => fingerprints: Json, stale: Bool default false }",
+        ),
+        (
+            "api_hypothesis_decision",
+            ":create api_hypothesis_decision { hypothesis: String, version: Int => status: String, evidence: [String] default [] }",
+        ),
+    ] {
+        if !relation_exists(db, name)? {
+            run_mut(db, schema)?;
+        }
+    }
+    Ok(())
+}
 
 /// Applies pending migrations. `fresh` is `true` when the vault was just
 /// created at the latest schema this build; in that case every migration is
@@ -728,9 +794,9 @@ mod tests {
             );
         }
         // The create-time schema already carries everything the migrations add.
-        assert!(relation_exists(store.db_ref(), "chain_member").unwrap());
-        assert!(relation_exists(store.db_ref(), "initiative").unwrap());
-        assert!(column_exists(store.db_ref(), "node", "layer").unwrap());
+        assert!(relation_exists(store.db_ref().raw(), "chain_member").unwrap());
+        assert!(relation_exists(store.db_ref().raw(), "initiative").unwrap());
+        assert!(column_exists(store.db_ref().raw(), "node", "layer").unwrap());
     }
 
     /// Simulate a v0.1.0 vault: `node` + `edge` in their pre-v0.2.0 shape, no
@@ -920,11 +986,11 @@ mod tests {
         {
             let store = Store::open(&path).expect("reopen disk vault");
             assert!(
-                relation_exists(store.db_ref(), "chain_member").unwrap(),
+                relation_exists(store.db_ref().raw(), "chain_member").unwrap(),
                 "0001 created chain_member on reopen"
             );
             assert!(
-                column_exists(store.db_ref(), "node", "layer").unwrap(),
+                column_exists(store.db_ref().raw(), "node", "layer").unwrap(),
                 "0002 backfilled node.layer on reopen"
             );
             let preserved = store
@@ -984,7 +1050,7 @@ mod tests {
         let question = jot(&store, "the question").expect("jot");
         link(&store, &answer, &question, EdgeType::Supersedes).expect("agent edge");
 
-        super::m0008_supersedes_orientation(store.db_ref()).expect("migrate");
+        super::m0008_supersedes_orientation(store.db_ref().raw()).expect("migrate");
 
         let edges = supersedes_edges(&store);
         assert!(
@@ -1012,7 +1078,7 @@ mod tests {
         link(&store, &prev, &next, EdgeType::Supersedes).expect("legacy edge");
         write_audit(store.db_ref(), "occupy_slot", "system", &[next.clone()]).expect("audit");
 
-        super::m0008_supersedes_orientation(store.db_ref()).expect("migrate");
+        super::m0008_supersedes_orientation(store.db_ref().raw()).expect("migrate");
 
         assert_eq!(
             supersedes_edges(&store),
@@ -1039,7 +1105,7 @@ mod tests {
         )
         .expect("audit");
 
-        super::m0008_supersedes_orientation(store.db_ref()).expect("migrate");
+        super::m0008_supersedes_orientation(store.db_ref().raw()).expect("migrate");
 
         let mut edges = supersedes_edges(&store);
         edges.sort();
@@ -1072,8 +1138,8 @@ mod tests {
             "written new → old"
         );
 
-        super::m0008_supersedes_orientation(store.db_ref()).expect("first run");
-        super::m0008_supersedes_orientation(store.db_ref()).expect("second run");
+        super::m0008_supersedes_orientation(store.db_ref().raw()).expect("first run");
+        super::m0008_supersedes_orientation(store.db_ref().raw()).expect("second run");
 
         assert_eq!(supersedes_edges(&store), before, "nothing moved");
     }
@@ -1095,7 +1161,7 @@ mod tests {
         )
         .expect("audit");
 
-        super::m0008_supersedes_orientation(store.db_ref()).expect("migrate");
+        super::m0008_supersedes_orientation(store.db_ref().raw()).expect("migrate");
 
         let rows = store
             .run_read("?[edge_pk] := *edge_initiative{initiative, edge_pk}, initiative = 'proj'")

@@ -11,9 +11,13 @@ thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 cozo.workspace = true
+crossbeam-channel.workspace = true
+jsonschema.workspace = true
+sha2.workspace = true
+schemars.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 config.workspace = true
 
 [dev-dependencies]
-proptest = "1"
+proptest.workspace = true

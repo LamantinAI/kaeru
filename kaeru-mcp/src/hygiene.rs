@@ -170,17 +170,13 @@ impl HygieneScheduler {
         );
     }
 
-    /// Runs a pass now, ignoring the due-check — the `hygiene` tool's
-    /// `force` path. Blocking; the caller is already on the blocking pool.
-    pub fn run_now(&self, initiative: &str) -> kaeru_core::Result<Option<HygieneReport>> {
-        run_and_record(&self.store, initiative, &self.cancel, true)
-    }
-
+    #[cfg(test)]
     pub fn is_disabled(&self) -> bool {
         !self.enabled
     }
 
     /// Passes started since this daemon came up.
+    #[cfg(test)]
     pub fn passes_started(&self) -> usize {
         self.passes_started.load(Ordering::Relaxed)
     }

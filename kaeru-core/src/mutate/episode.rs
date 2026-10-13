@@ -36,47 +36,49 @@ pub fn write_episode_with_layer(
     body: &str,
     layer: Layer,
 ) -> Result<NodeId> {
-    guard_core_needs_initiative(store, layer)?;
+    store.atomic(|store| {
+        guard_core_needs_initiative(store, layer)?;
 
-    // Scrub any leaked tool-call wire-format before it reaches the graph.
-    let name_owned = strip_tool_call_markup(name).0;
-    let body_owned = strip_tool_call_markup(body).0;
-    let (name, body) = (name_owned.as_str(), body_owned.as_str());
+        // Scrub any leaked tool-call wire-format before it reaches the graph.
+        let name_owned = strip_tool_call_markup(name).0;
+        let body_owned = strip_tool_call_markup(body).0;
+        let (name, body) = (name_owned.as_str(), body_owned.as_str());
 
-    let id = new_node_id();
+        let id = new_node_id();
 
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("id".to_string(), DataValue::Str(id.clone().into()));
-    params.insert("name".to_string(), DataValue::Str(name.into()));
-    params.insert("body".to_string(), DataValue::Str(body.into()));
-    params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+        params.insert("name".to_string(), DataValue::Str(name.into()));
+        params.insert("body".to_string(), DataValue::Str(body.into()));
+        params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
-    // Encode kind + significance into `tags`, plus auto-derive
-    // `lang:*` (script heuristic) and `topic:<word>` tokens from the
-    // body so the node can be sliced via `tagged "topic:..."` and the
-    // agent has a language hint at read time. Tags and validity are
-    // inlined into the script — cozo's `<-` literal rule needs concrete
-    // values for List and Validity columns; passing them as parameters
-    // trips `eval::not_constant`.
-    let kind_tag = format!("kind:{}", kind.as_str());
-    let sig_tag = format!("sig:{}", significance.as_str());
-    let all_tags = build_body_tags(&[kind_tag.as_str(), sig_tag.as_str()], Some(name), body);
-    let tags = tags_literal(&all_tags);
-    let now_secs = now_validity_seconds();
-    let script = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&script, params, ScriptMutability::Mutable)?;
+        // Encode kind + significance into `tags`, plus auto-derive
+        // `lang:*` (script heuristic) and `topic:<word>` tokens from the
+        // body so the node can be sliced via `tagged "topic:..."` and the
+        // agent has a language hint at read time. Tags and validity are
+        // inlined into the script — cozo's `<-` literal rule needs concrete
+        // values for List and Validity columns; passing them as parameters
+        // trips `eval::not_constant`.
+        let kind_tag = format!("kind:{}", kind.as_str());
+        let sig_tag = format!("sig:{}", significance.as_str());
+        let all_tags = build_body_tags(&[kind_tag.as_str(), sig_tag.as_str()], Some(name), body);
+        let tags = tags_literal(&all_tags);
+        let now_secs = now_validity_seconds();
+        let script = format!(
+            r#"
+            ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+                [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
+            :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&script, params, ScriptMutability::Mutable)?;
 
-    attach_node_to_initiative(store, &id)?;
-    write_audit(store.db_ref(), "write_episode", "system", &[id.clone()])?;
-    Ok(id)
+        attach_node_to_initiative(store, &id)?;
+        write_audit(store.db_ref(), "write_episode", "system", &[id.clone()])?;
+        Ok(id)
+    })
 }
 
 /// Low-friction episode write — derives a name from the body's first
@@ -92,39 +94,41 @@ pub fn jot(store: &Store, body: &str) -> Result<NodeId> {
 
 /// Low-friction episode write with an explicit memory layer.
 pub fn jot_with_layer(store: &Store, body: &str, layer: Layer) -> Result<NodeId> {
-    guard_core_needs_initiative(store, layer)?;
+    store.atomic(|store| {
+        guard_core_needs_initiative(store, layer)?;
 
-    // Scrub leaked tool-call wire-format; the auto-name derives from the
-    // cleaned body so garbage can't seep in through the name either.
-    let body_owned = strip_tool_call_markup(body).0;
-    let body = body_owned.as_str();
+        // Scrub leaked tool-call wire-format; the auto-name derives from the
+        // cleaned body so garbage can't seep in through the name either.
+        let body_owned = strip_tool_call_markup(body).0;
+        let body = body_owned.as_str();
 
-    let id = new_node_id();
-    let name = derive_jot_name(body, &id);
+        let id = new_node_id();
+        let name = derive_jot_name(body, &id);
 
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("id".to_string(), DataValue::Str(id.clone().into()));
-    params.insert("name".to_string(), DataValue::Str(name.into()));
-    params.insert("body".to_string(), DataValue::Str(body.into()));
-    params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("id".to_string(), DataValue::Str(id.clone().into()));
+        params.insert("name".to_string(), DataValue::Str(name.into()));
+        params.insert("body".to_string(), DataValue::Str(body.into()));
+        params.insert("layer".to_string(), DataValue::Str(layer.as_str().into()));
 
-    let all_tags = build_body_tags(&["kind:observation", "sig:low", "role:jot"], None, body);
-    let tags = tags_literal(&all_tags);
-    let now_secs = now_validity_seconds();
-    let script = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&script, params, ScriptMutability::Mutable)?;
+        let all_tags = build_body_tags(&["kind:observation", "sig:low", "role:jot"], None, body);
+        let tags = tags_literal(&all_tags);
+        let now_secs = now_validity_seconds();
+        let script = format!(
+            r#"
+            ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+                [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
+            :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&script, params, ScriptMutability::Mutable)?;
 
-    attach_node_to_initiative(store, &id)?;
-    write_audit(store.db_ref(), "jot", "system", &[id.clone()])?;
-    Ok(id)
+        attach_node_to_initiative(store, &id)?;
+        write_audit(store.db_ref(), "jot", "system", &[id.clone()])?;
+        Ok(id)
+    })
 }
 
 /// Builds an auto-name from `body`'s first ~5 alphanumeric words plus

@@ -186,11 +186,10 @@ mod tests {
     use crate::graph::{EdgeType, NodeType};
     use crate::store::Store;
 
-    /// `consolidate_out` retracts the draft node but leaves its old edges
-    /// asserted — the canonical dangling-edge factory. `lint` must report
-    /// them; the live replacement edge set must stay clean.
+    /// Promotion transfers ordinary relations to the successor. Historical
+    /// identity lineage still points to the retired draft and remains visible.
     #[test]
-    fn lint_reports_edges_left_behind_by_consolidation() {
+    fn promotion_retires_old_relations_and_keeps_identity_lineage() {
         let store = Store::open_in_memory().expect("open");
         store.use_initiative("demo");
 
@@ -216,8 +215,8 @@ mod tests {
         let refers = (a.clone(), b.clone(), "refers_to".to_string());
         let consolidated = (a.clone(), new_id.clone(), "consolidated_to".to_string());
         assert!(
-            after.dangling_edges.contains(&refers),
-            "old refers_to edge from the retracted draft is dangling: {:?}",
+            !after.dangling_edges.contains(&refers),
+            "the old relation was retracted after transferring it: {:?}",
             after.dangling_edges
         );
         assert!(

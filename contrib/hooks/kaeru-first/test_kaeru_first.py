@@ -66,26 +66,26 @@ class FakeKaeru(BaseHTTPRequestHandler):
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        query = (body.get("params") or {}).get("arguments", {}).get("query", "")
+        if (body.get("params") or {}).get("name") == "initiatives":
+            value={"state":"ok","data":{"initiatives":["test"]}}
+            out={"jsonrpc":"2.0","id":body.get("id"),"result":{"structuredContent":value,"content":[{"type":"text","text":json.dumps(value)}]}}
+            data=json.dumps(out).encode();self.send_response(200);self.send_header("Content-Type","application/json");self.send_header("Content-Length",str(len(data)));self.end_headers();self.wfile.write(data);return
+        arguments=(body.get("params") or {}).get("arguments",{})
+        assert arguments.get("initiatives") == ["test"] and arguments.get("prefix") is True
+        query = arguments.get("text", "")
         FakeKaeru.calls.append(query)
         if FakeKaeru.fail_call:
             self.send_response(500)
             self.send_header("Content-Length", "0")
             self.end_headers()
             return
-        terms = [t.rstrip("*") for t in query.split(" OR ")]
+        terms = [t.rstrip("*") for t in query.split()]
         if any(t.startswith(k) or k.startswith(t) for t in terms for k in FakeKaeru.known):
             echo = (" · " + " ".join(terms)) if FakeKaeru.echo_terms else ""
-            text = (
-                "matches (2):\n"
-                "  - provider-switch-note (episode) — 01a0aaaa\n"
-                f"    we moved to acme-cloud, the setup guide lives here{echo}\n"
-                "  - second-note (reference) — 01a0bbbb\n"
-                "    one more excerpt\n\n"
-                "↳ excerpts only — read one in full with `at <name>`."
-            )
+            hits=[{"name":"provider-switch-note","body":f"we moved to acme-cloud, the setup guide lives here{echo}"},{"name":"second-note","body":"one more excerpt"}]
         else:
-            text = "(no matches)\n↳ widen it: `search \"x*\"` (prefix match)."
+            hits=[]
+        text=json.dumps({"state":"ok","data":{"hits":hits}},ensure_ascii=False)
         out = {"jsonrpc": "2.0", "id": body.get("id"), "result": {"content": [{"type": "text", "text": text}]}}
         data = json.dumps(out, ensure_ascii=False).encode()
         self.send_response(200)
@@ -202,8 +202,8 @@ class ReadTests(HookCase):
         return json.loads((Path(self.state) / "s1.json").read_text())
 
     def test_a_search_records_its_terms_and_hits(self):
-        self.run_hook(self.read("search", query="provider* OR plan*", _response={"content": [{"type": "text", "text":
-            "matches (1):\n  - provider-switch-note (episode) — 01a0\n    excerpt\n"}]}))
+        self.run_hook(self.read("search", text="provider plan",prefix=True,initiatives=["test"], _response={"content": [{"type": "text", "text":
+            json.dumps({'state': 'ok', 'data': {'hits': [{'name': 'provider-switch-note', 'body': 'excerpt'}]}})}]}))
         r = self.read_state()["reads"][-1]
         self.assertEqual(r["verb"], "search")
         self.assertIn("provider", r["terms"])
@@ -218,7 +218,7 @@ class ReadTests(HookCase):
         self.assertNotIn("reads", self.read_state())
 
     def test_at_records_the_node_name(self):
-        self.run_hook(self.read("at", name="provider-switch-note"))
+        self.run_hook(self.read("read", node="provider-switch-note"))
         self.assertEqual(self.read_state()["reads"][-1]["name"], "provider-switch-note")
 
 
@@ -284,7 +284,7 @@ class ShowHitsTests(HookCase):
         reason = denied_reason(out)
         self.assertIn("provider-switch-note", reason)
         self.assertIn("acme-cloud", reason)
-        self.assertIn("`at <name>`", reason)
+        self.assertIn("`read` the returned ID", reason)
         self.assertIn("cannot judge relevance", reason)
         self.assertEqual(self.decisions()[-1]["reason"], "hits_shown")
 
@@ -296,7 +296,7 @@ class ShowHitsTests(HookCase):
 
     def test_the_search_is_unscoped_and_prefixed(self):
         self.run_hook(self.ask("Which provider are we on, and which plan?"))
-        self.assertEqual(FakeKaeru.calls[-1], "provider* OR plan*")
+        self.assertEqual(FakeKaeru.calls[-1], "provider plan")
 
     def test_denied_once_per_turn(self):
         FakeKaeru.known = {"provider"}
@@ -306,21 +306,21 @@ class ShowHitsTests(HookCase):
 
     def test_a_relevant_read_opens_the_gate(self):
         FakeKaeru.known = {"provider"}
-        self.run_hook(self.read("search", query="provider*", _response="(no matches)"))
+        self.run_hook(self.read("search", text="provider",prefix=True,initiatives=["test"], _response=json.dumps({'state': 'ok', 'data': {'hits': []}})))
         out = self.run_hook(self.ask("Which provider are we on?"))
         self.assertIsNone(out)
         self.assertEqual(self.decisions()[-1]["reason"], "relevant_read")
 
     def test_an_irrelevant_read_does_not(self):
         FakeKaeru.known = {"provider"}
-        self.run_hook(self.read("search", query="linux* OR glibc*", _response="(no matches)"))
+        self.run_hook(self.read("search", text="linux glibc",prefix=True,initiatives=["test"], _response=json.dumps({'state': 'ok', 'data': {'hits': []}})))
         out = self.run_hook(self.ask("Which provider are we on?"))
         self.assertIsNotNone(out)
         self.assertEqual(self.decisions()[-1]["reason"], "hits_shown")
 
     def test_hits_the_agent_never_read_are_named(self):
-        self.run_hook(self.read("search", query="provider*", _response=
-            "matches (2):\n  - provider-switch-note (episode) — 01a0\n    excerpt\n  - second-note (reference) — 01a1\n    more\n"))
+        self.run_hook(self.read("search", text="provider",prefix=True,initiatives=["test"], _response=
+            json.dumps({'state': 'ok', 'data': {'hits': [{'name': 'provider-switch-note', 'body': 'excerpt'}, {'name': 'second-note', 'body': 'more'}]}})))
         # A different question, so the relevant-read shortcut does not apply.
         out = self.run_hook(self.ask("Which certificate belongs on the server?"))
         reason = denied_reason(out)
@@ -329,23 +329,30 @@ class ShowHitsTests(HookCase):
         self.assertEqual(self.decisions()[-1]["reason"], "hits_unread")
 
     def test_reading_a_hit_clears_it(self):
-        self.run_hook(self.read("search", query="provider*", _response=
-            "matches (1):\n  - provider-switch-note (episode) — 01a0\n    excerpt\n"))
-        self.run_hook(self.read("at", name="provider-switch-note"))
+        self.run_hook(self.read("search", text="provider",prefix=True,initiatives=["test"], _response=
+            json.dumps({'state': 'ok', 'data': {'hits': [{'name': 'provider-switch-note', 'body': 'excerpt'}]}})))
+        self.run_hook(self.read("read", node="provider-switch-note"))
         out = self.run_hook(self.ask("Which certificate belongs on the server?"))
         self.assertIsNone(out)
         self.assertEqual(self.decisions()[-1]["reason"], "no_hits")
 
+    def test_a_returned_uuid_read_clears_the_named_search_hit(self):
+        self.run_hook(self.read("search",text="provider",initiatives=["test"],prefix=True,
+            _response={"structuredContent":{"state":"ok","data":{"hits":[{"id":"returned-id","name":"provider-switch-note","body":"excerpt"}]}}}))
+        self.run_hook(self.read("read",node="returned-id",initiative="test",
+            _response={"structuredContent":{"state":"ok","data":{"node":{"id":"returned-id","name":"provider-switch-note"}}}}))
+        self.assertIsNone(self.run_hook(self.ask("Which certificate belongs on the server?")))
+
     def test_a_node_read_hours_ago_is_still_read(self):
         """The search must be recent; the reading need not be — it is still in context."""
-        self.run_hook(self.read("at", name="provider-switch-note"))
+        self.run_hook(self.read("read", node="provider-switch-note"))
         state_file = Path(self.state) / "s1.json"
         state = json.loads(state_file.read_text())
         for r in state["reads"]:
             r["t"] -= 7200                       # two hours ago: outside the window
         state_file.write_text(json.dumps(state))
-        self.run_hook(self.read("search", query="provider*", _response=
-            "matches (1):\n  - provider-switch-note (episode) — 01a0\n    excerpt\n"))
+        self.run_hook(self.read("search", text="provider",prefix=True,initiatives=["test"], _response=
+            json.dumps({'state': 'ok', 'data': {'hits': [{'name': 'provider-switch-note', 'body': 'excerpt'}]}})))
         out = self.run_hook(self.ask("Which certificate belongs on the server?"))
         self.assertIsNone(out)
         self.assertEqual(self.decisions()[-1]["reason"], "no_hits")
@@ -371,7 +378,7 @@ class ShowHitsTests(HookCase):
         # No server needed: with KAERU_FIRST_SEARCH=0 the first version's rule applies.
         out = self.run_hook(self.ask("Which provider are we on?"), url=DEAD_URL, KAERU_FIRST_SEARCH="0")
         self.assertIn("Before you ask the user", denied_reason(out))
-        self.run_hook(self.read("overview"), url=DEAD_URL, KAERU_FIRST_SEARCH="0")
+        self.run_hook(self.read("context"), url=DEAD_URL, KAERU_FIRST_SEARCH="0")
         self.assertIsNone(self.run_hook(self.ask("Which provider are we on?", prompt_id="t2"), url=DEAD_URL, KAERU_FIRST_SEARCH="0"))
 
 
@@ -660,9 +667,9 @@ class HelperTests(unittest.TestCase):
         self.assertGreaterEqual(len(t[0]), len(t[-1]))
 
     def test_parse_hits_reads_the_daemon_format(self):
-        text = "matches (2):\n  - a-b (episode) — 01\n    first\n  - c-d (reference) — 02\n    second\n\n↳ tail"
+        text=json.dumps({"state":"ok","data":{"hits":[{"name":"a-b","body":"first"},{"name":"c-d","body":"second"}]}})
         self.assertEqual(kf.parse_hits(text), [("a-b", "first"), ("c-d", "second")])
-        self.assertEqual(kf.parse_hits("(no matches)\n↳ widen"), [])
+        self.assertEqual(kf.parse_hits(json.dumps({"state":"ok","data":{"hits":[]}})), [])
 
     def test_rank_hits_puts_a_name_match_first_and_drops_nothing(self):
         hits = [("loading-screen", "mentions the provider and acme-cloud"), ("provider-switch-note", "empty")]

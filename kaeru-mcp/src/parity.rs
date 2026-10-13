@@ -9,12 +9,9 @@
 //! Albert configures memory both ways and names its tools in its prompt, so
 //! every one of those differences broke one of the two modes.
 //!
-//! The test compares the **names** and, per tool, the **property names and
-//! the required set**. Not the descriptions: the wording is written for two
-//! different readers and a shared phrasing would be a worse fit for both.
-//! Not the JSON types either — `schemars` and a hand-written schema disagree
-//! about how to spell the same thing often enough that asserting on it would
-//! teach people to edit the test.
+//! The test compares actual names and complete input schemas, including
+//! nested definitions and conditional action variants. Both adapters consume
+//! the same core catalogue; a transport may not silently weaken its contract.
 //!
 //! When a verb is genuinely daemon-only, add it to [`DAEMON_ONLY`] with the
 //! reason. That list is the whole allowance; anything else is a diff and this
@@ -25,7 +22,6 @@ use std::sync::Arc;
 
 use kaeru_core::Store;
 use kaeru_rig::KaeruMemory;
-use rmcp::handler::server::router::tool::ToolRouter;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -36,57 +32,23 @@ use crate::server::KaeruServer;
 ///
 /// Keep it short and keep the reason honest: every entry is a place where an
 /// agent's vocabulary depends on how it reached kaeru.
-const DAEMON_ONLY: &[(&str, &str)] = &[(
-    "import",
-    "the bulk-import playbook is written for a session that shells into a vault; \
-     an embedder imports through its own code path",
-)];
+const DAEMON_ONLY: &[(&str, &str)] = &[];
 
-/// The shape of one tool's parameters, compared across the two surfaces.
-#[derive(Debug, PartialEq, Eq)]
-struct Shape {
-    properties: BTreeSet<String>,
-    required: BTreeSet<String>,
-}
-
+type Shape = Value;
 fn shape_of(schema: &Value) -> Shape {
-    let names = |key: &str| -> BTreeSet<String> {
-        match key {
-            "properties" => schema
-                .get("properties")
-                .and_then(Value::as_object)
-                .map(|o| o.keys().cloned().collect())
-                .unwrap_or_default(),
-            _ => schema
-                .get("required")
-                .and_then(Value::as_array)
-                .map(|a| {
-                    a.iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect()
-                })
-                .unwrap_or_default(),
-        }
-    };
-    Shape {
-        properties: names("properties"),
-        required: names("required"),
-    }
+    schema.clone()
 }
 
 fn daemon_surface() -> BTreeMap<String, Shape> {
-    // The router is macro-generated and private, so read it off a server —
-    // which is also the shape a client meets.
+    // Read actual registrations, the same catalogue a client receives.
     let server = KaeruServer::new(
         Store::open_in_memory().expect("open"),
         CloudRegistry::default(),
         CancellationToken::new(),
         false,
     );
-    let router: &ToolRouter<KaeruServer> = server.router();
-    router
-        .list_all()
+    let _server = server;
+    KaeruServer::tool_definitions()
         .into_iter()
         .map(|t| {
             let schema = Value::Object((*t.input_schema).clone());
@@ -154,10 +116,7 @@ async fn the_same_verb_takes_the_same_parameters() {
             continue; // reported by the verb-set test
         };
         if want != got {
-            differ.push(format!(
-                "  {verb}:\n    daemon: properties {:?} required {:?}\n    rig:    properties {:?} required {:?}",
-                want.properties, want.required, got.properties, got.required
-            ));
+            differ.push(format!("  {verb}: complete input schemas differ"));
         }
     }
     assert!(

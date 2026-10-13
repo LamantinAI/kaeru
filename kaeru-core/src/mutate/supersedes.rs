@@ -5,11 +5,12 @@ use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
+use super::identity::carry_identity;
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, build_body_tags, carry_chain_membership,
     node_version_seconds, now_validity_seconds, read_node_now, tags_literal,
 };
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{NodeId, NodeType, Tier, new_node_id};
 use crate::store::Store;
@@ -46,97 +47,102 @@ pub fn supersedes(
     new_name: &str,
     new_body: &str,
 ) -> Result<NodeId> {
-    let new_id = new_node_id();
+    store.atomic(|store| {
+        let new_id = new_node_id();
 
-    // Step 0 — the successor inherits the predecessor's memory layer (a
-    // core node's replacement must not silently drop out of the awake
-    // injection band). Read before the retract below hides the row.
-    // Visibility is deliberately NOT inherited: `shared` means "is in the
-    // cloud", and the successor — a brand-new id — is not there yet; the
-    // MCP layer surfaces a re-share hint instead.
-    let inherited_layer = read_node_now(store, old_id)?
-        .map(|n| n.layer)
-        .unwrap_or_else(|| "warm".to_string());
+        // Step 0 — the successor inherits the predecessor's memory layer (a
+        // core node's replacement must not silently drop out of the awake
+        // injection band). Read before the retract below hides the row.
+        // Visibility is deliberately NOT inherited: `shared` means "is in the
+        // cloud", and the successor — a brand-new id — is not there yet; the
+        // MCP layer surfaces a re-share hint instead.
+        let current = read_node_now(store, old_id)?
+            .ok_or_else(|| Error::NotFound(format!("node {old_id} not found at NOW")))?;
+        let inherited_layer = current.layer.clone();
+        let unchanged_content = current.body.as_deref().unwrap_or("") == new_body && current.name == new_name;
 
-    // Step 1 — assert the successor.
-    let assert_secs = now_validity_seconds();
-    let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
-    p2.insert("id".to_string(), DataValue::Str(new_id.clone().into()));
-    p2.insert("name".to_string(), DataValue::Str(new_name.into()));
-    p2.insert("body".to_string(), DataValue::Str(new_body.into()));
-    let kind_tag = format!("kind:{}", new_type.as_str());
-    let all_tags = build_body_tags(&[kind_tag.as_str()], Some(new_name), new_body);
-    let tags = tags_literal(&all_tags);
-    let s2 = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [[$id, [{assert_secs}, true], '{}', '{}', $name, $body, {tags}, null, null, '{inherited_layer}']]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
-        "#,
-        new_type.as_str(),
-        new_tier.as_str(),
-    );
-    store
-        .db_ref()
-        .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
-    // Step 2 — supersedes edge. Inlined here to avoid the inner audit that
-    // `link` would write; this whole operation gets one audit at the end.
-    let edge_secs = now_validity_seconds();
-    let mut p3: BTreeMap<String, DataValue> = BTreeMap::new();
-    p3.insert("src".to_string(), DataValue::Str(new_id.clone().into()));
-    p3.insert("dst".to_string(), DataValue::Str(old_id.clone().into()));
-    let s3 = format!(
-        r#"
-        ?[src, dst, edge_type, validity, weight, properties] <-
-            [[$src, $dst, 'supersedes', [{edge_secs}, true], 1.0, null]]
-        :put edge {{src, dst, edge_type, validity => weight, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&s3, p3, ScriptMutability::Mutable)?;
+        // Step 1 — assert the successor.
+        let assert_secs = now_validity_seconds();
+        let mut p2: BTreeMap<String, DataValue> = BTreeMap::new();
+        p2.insert("id".to_string(), DataValue::Str(new_id.clone().into()));
+        p2.insert("name".to_string(), DataValue::Str(new_name.into()));
+        p2.insert("body".to_string(), DataValue::Str(new_body.into()));
+        let kind_tag = format!("kind:{}", new_type.as_str());
+        let all_tags = build_body_tags(&[kind_tag.as_str()], Some(new_name), new_body);
+        let tags = tags_literal(&all_tags);
+        let s2 = format!(
+            r#"
+            ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
+                [[$id, [{assert_secs}, true], '{}', '{}', $name, $body, {tags}, null, null, '{inherited_layer}']]
+            :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
+            "#,
+            new_type.as_str(),
+            new_tier.as_str(),
+        );
+        store
+            .db_ref()
+            .run_script(&s2, p2, ScriptMutability::Mutable)?;
 
-    // Step 3 — memberships and trails, so the successor is reachable
-    // before anything else disappears.
-    attach_node_to_initiative(store, &new_id)?;
-    attach_edge_to_initiative(store, &new_id, old_id, "supersedes")?;
-    // The successor stands where the predecessor stood in any saved trail —
-    // same reasoning as in `consolidate` (#71).
-    carry_chain_membership(store, old_id, &new_id)?;
+        // Step 2 — supersedes edge. Inlined here to avoid the inner audit that
+        // `link` would write; this whole operation gets one audit at the end.
+        let edge_secs = now_validity_seconds();
+        let mut p3: BTreeMap<String, DataValue> = BTreeMap::new();
+        p3.insert("src".to_string(), DataValue::Str(new_id.clone().into()));
+        p3.insert("dst".to_string(), DataValue::Str(old_id.clone().into()));
+        let s3 = format!(
+            r#"
+            ?[src, dst, edge_type, validity, weight, properties] <-
+                [[$src, $dst, 'supersedes', [{edge_secs}, true], 1.0, null]]
+            :put edge {{src, dst, edge_type, validity => weight, properties}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&s3, p3, ScriptMutability::Mutable)?;
 
-    // Step 4 — retract the predecessor, LAST. Required non-key fields get
-    // placeholder values; they are never observable because the row is a
-    // retraction.
-    //
-    // The order is the whole point (#96): these writes are not one
-    // transaction, and retracting first meant a failure in the middle left
-    // NEITHER version readable at NOW — the knowledge gone from every read
-    // surface, recoverable only through `history`. Retracting last preserves
-    // the predecessor instead, though `lint` may miss a partial successor.
-    // The timestamp is past the predecessor's newest row, so a supersession
-    // inside the second that wrote it still retracts it.
-    let retract_secs = node_version_seconds(store, old_id)?;
-    let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
-    p1.insert("old_id".to_string(), DataValue::Str(old_id.clone().into()));
-    let s1 = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$old_id, [{retract_secs}, false], 'placeholder', 'operational', '', null, null, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&s1, p1, ScriptMutability::Mutable)?;
+        // Step 3 — memberships and trails, so the successor is reachable
+        // before anything else disappears.
+        attach_node_to_initiative(store, &new_id)?;
+        attach_edge_to_initiative(store, &new_id, old_id, "supersedes")?;
+        // The successor stands where the predecessor stood in any saved trail —
+        // same reasoning as in `consolidate` (#71).
+        carry_chain_membership(store, old_id, &new_id)?;
+        carry_identity(store, old_id, &new_id, unchanged_content)?;
 
-    write_audit(
-        store.db_ref(),
-        "supersedes",
-        "system",
-        &[old_id.clone(), new_id.clone()],
-    )?;
-    Ok(new_id)
+        // Step 4 — retract the predecessor, LAST. Required non-key fields get
+        // placeholder values; they are never observable because the row is a
+        // retraction.
+        //
+        // The order is the whole point (#96): these writes are not one
+        // transaction, and retracting first meant a failure in the middle left
+        // NEITHER version readable at NOW — the knowledge gone from every read
+        // surface, recoverable only through `history`. Retracting last preserves
+        // the predecessor instead, though `lint` may miss a partial successor.
+        // The timestamp is past the predecessor's newest row, so a supersession
+        // inside the second that wrote it still retracts it.
+        let retract_secs = node_version_seconds(store, old_id)?;
+        let mut p1: BTreeMap<String, DataValue> = BTreeMap::new();
+        p1.insert("old_id".to_string(), DataValue::Str(old_id.clone().into()));
+        let s1 = format!(
+            r#"
+            ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
+                [[$old_id, [{retract_secs}, false], 'placeholder', 'operational', '', null, null, null, null]]
+            :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&s1, p1, ScriptMutability::Mutable)?;
+
+        write_audit(
+            store.db_ref(),
+            "supersedes",
+            "system",
+            &[old_id.clone(), new_id.clone()],
+        )?;
+        Ok(new_id)
+    })
 }
 
 #[cfg(test)]

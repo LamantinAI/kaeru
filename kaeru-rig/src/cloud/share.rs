@@ -5,13 +5,16 @@
 //! The local copy is marked `shared` only **after** the cloud accepts it, so
 //! `shared` always means "is in the cloud".
 
-use kaeru_core::{Visibility, guard};
+use kaeru_core::{
+    Error, Visibility, edges_of, get_share_policy, get_visibility, guard, initiative_clouds,
+    permits_cloud, read_node_full, set_visibility,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{cloud_or_err, format_hit};
 use crate::cloud_client::CloudClient;
-use crate::{KaeruMemory, mem_tool_cloud_named, resolve};
+use crate::{KaeruMemory, resolve};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // share (network) — both gates, then push node + shareable edges.
@@ -27,7 +30,7 @@ pub struct ShareArgs {
     pub force: Option<bool>,
 }
 
-async fn do_share(mem: &KaeruMemory, a: ShareArgs) -> Value {
+pub(super) async fn do_share(mem: &KaeruMemory, a: ShareArgs) -> Value {
     // The verb names its initiative, so there is nothing to fall back to.
     let init = a.initiative.clone();
     let client = match cloud_or_err(mem, a.cloud.as_deref()) {
@@ -42,6 +45,10 @@ async fn do_share(mem: &KaeruMemory, a: ShareArgs) -> Value {
         .blocking_in(Some(init.clone()), move |s| resolve(s, &name))
         .await;
 
+    let id = match id {
+        Ok(id) => id,
+        Err(error) => return json!({"error":error}),
+    };
     match share_node(mem, &client, id, init, force).await {
         Ok(msg) => json!({ "message": msg }),
         Err(e) => json!({ "error": e }),
@@ -62,7 +69,7 @@ pub(crate) async fn share_node(
     // Gate 1 — initiative policy.
     let init1 = initiative.clone();
     let pol = mem
-        .blocking(move |s| kaeru_core::get_share_policy(s, &init1))
+        .blocking(move |s| get_share_policy(s, &init1))
         .await
         .map_err(|e| e.to_string())?;
     if !pol.permits_share() {
@@ -77,13 +84,13 @@ pub(crate) async fn share_node(
     let init1b = initiative.clone();
     let cloud_name = client.name().to_string();
     let permitted = mem
-        .blocking(move |s| kaeru_core::permits_cloud(s, &init1b, &cloud_name))
+        .blocking(move |s| permits_cloud(s, &init1b, &cloud_name))
         .await
         .map_err(|e| e.to_string())?;
     if !permitted {
         let init1c = initiative.clone();
         let allowed = mem
-            .blocking(move |s| kaeru_core::initiative_clouds(s, &init1c))
+            .blocking(move |s| initiative_clouds(s, &init1c))
             .await
             .unwrap_or_default();
         return Ok(format!(
@@ -100,7 +107,7 @@ pub(crate) async fn share_node(
     // Read the node.
     let id2 = id.clone();
     let full = match mem
-        .blocking(move |s| kaeru_core::read_node_full(s, &id2))
+        .blocking(move |s| read_node_full(s, &id2))
         .await
         .map_err(|e| e.to_string())?
     {
@@ -153,24 +160,24 @@ pub(crate) async fn share_node(
 
     // Mark shared locally, then gather edges to already-shared neighbours.
     let fid = full.id.clone();
-    mem.blocking(move |s| kaeru_core::set_visibility(s, &fid, Visibility::Shared))
+    mem.blocking(move |s| set_visibility(s, &fid, Visibility::Shared))
         .await
         .map_err(|e| e.to_string())?;
 
     let fid2 = full.id.clone();
     let edge_bodies = mem
         .blocking(move |s| {
-            let edges = kaeru_core::edges_of(s, &fid2)?;
+            let edges = edges_of(s, &fid2)?;
             let mut out: Vec<Value> = Vec::new();
             for (src, dst, edge_type, weight) in &edges {
                 let other = if *src == fid2 { dst } else { src };
-                if kaeru_core::get_visibility(s, other)? == Visibility::Shared {
+                if get_visibility(s, other)? == Visibility::Shared {
                     out.push(json!({
                         "src": src, "dst": dst, "edge_type": edge_type, "weight": weight
                     }));
                 }
             }
-            Ok::<_, kaeru_core::Error>(out)
+            Ok::<_, Error>(out)
         })
         .await
         .map_err(|e| e.to_string())?;
@@ -194,23 +201,6 @@ pub(crate) async fn share_node(
     ))
 }
 
-mem_tool_cloud_named!(
-    /// `kaeru_share` — push a node to the team cloud (both gates).
-    Share,
-    "kaeru_share",
-    "Share a node to the team cloud. Gated: the initiative must be `team` (set via kaeru_policy) \
-     AND the node must pass the pre-share secret guard. On success it's marked shared locally and \
-     pushed under the same id. force=true overrides the guard. `cloud` targets a named cloud.",
-    ShareArgs,
-    { "type": "object", "properties": {
-        "name": { "type": "string", "description": "node name or id to share" },
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
-        "cloud": { "type": "string", "description": "named cloud (default: the configured default)" },
-        "force": { "type": "boolean", "description": "override the secret guard" }
-    }, "required": ["name", "initiative"] },
-    |mem, a| do_share(mem, a).await
-);
-
 #[derive(Debug, Deserialize)]
 pub struct UnshareArgs {
     pub name: String,
@@ -224,7 +214,7 @@ pub struct UnshareArgs {
 /// local half runs even when the remote one fails, because a node still marked
 /// `shared` while the cloud no longer holds it makes every later "re-share to
 /// update" promise false.
-async fn do_unshare(mem: &KaeruMemory, a: UnshareArgs) -> Value {
+pub(super) async fn do_unshare(mem: &KaeruMemory, a: UnshareArgs) -> Value {
     // The verb names its initiative, so there is nothing to fall back to.
     let init = a.initiative.clone();
     let client = match cloud_or_err(mem, a.cloud.as_deref()) {
@@ -236,11 +226,15 @@ async fn do_unshare(mem: &KaeruMemory, a: UnshareArgs) -> Value {
         .blocking_in(Some(init.clone()), move |s| resolve(s, &name))
         .await;
 
+    let id = match id {
+        Ok(id) => id,
+        Err(error) => return json!({"error":error}),
+    };
     let remote = client.delete_node(&id).await;
     let local_id = id.clone();
     let local = mem
         .blocking_in(Some(init), move |s| {
-            kaeru_core::set_visibility(s, &local_id, kaeru_core::Visibility::Local)
+            set_visibility(s, &local_id, Visibility::Local)
         })
         .await;
     if let Err(e) = local {
@@ -263,21 +257,3 @@ async fn do_unshare(mem: &KaeruMemory, a: UnshareArgs) -> Value {
         }),
     }
 }
-
-mem_tool_cloud_named!(
-    /// `kaeru_unshare` — withdraw a node from the cloud.
-    Unshare,
-    "kaeru_unshare",
-    "Withdraw a node from a cloud: retracts the cloud copy and marks the node local again. The \
-     inverse of kaeru_share. Use it for a node sent to the wrong cloud, one the pre-share guard \
-     should have caught, or anything that should not have left the machine. The cloud retraction \
-     is bi-temporal — the node leaves cloud_recall while its history stays. To CORRECT a shared \
-     node instead, revise it and share again: the push is an upsert under the same id.",
-    UnshareArgs,
-    { "type": "object", "properties": {
-        "name": { "type": "string", "description": "node name or id to withdraw" },
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" },
-        "cloud": { "type": "string", "description": "named cloud to withdraw from" }
-    }, "required": ["name", "initiative"] },
-    |mem, a| do_unshare(mem, a).await
-);

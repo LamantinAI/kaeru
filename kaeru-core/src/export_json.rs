@@ -13,10 +13,11 @@
 //! pass via [`crate::guard::scan_public`] that drops the body and replaces the
 //! name of any node whose content trips the secret/credential scanner.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use cozo::{DataValue, Validity};
+use cozo::{DataValue, ScriptMutability, Validity};
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::errors::Result;
 use crate::guard;
@@ -272,14 +273,23 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
     }
     let mut raws: Vec<Raw> = Vec::new();
     let mut included: HashSet<String> = HashSet::new();
-    for row in store
-        .run_read(
-            "?[id, type, tier, name, body, tags, visibility, layer] := \
-             *node{id, type, tier, name, body, tags, visibility, layer @ 'NOW'}, \
-             type != 'audit_event'",
-        )?
+    let candidates = store
+        .run_read("?[id,visibility] := *node{id,visibility,type @ 'NOW'},type!='audit_event'")?
         .rows
-    {
+        .into_iter()
+        .filter_map(|r| {
+            let id = str_at(&r, 0)?;
+            let visibility = str_at(&r, 1)?;
+            if opts.shared_only && visibility != "shared"
+                || allowed_inits(node_inits.get(&id), opts).is_empty()
+            {
+                return None;
+            }
+            Some(DataValue::List(vec![DataValue::Str(id.into())]))
+        })
+        .collect::<Vec<_>>();
+    let rows=store.db_ref().run_script("allowed[id] <- $ids\n ?[id,type,tier,name,body,tags,visibility,layer,properties] := allowed[id],*node{id,type,tier,name,body,tags,visibility,layer,properties @ 'NOW'}",BTreeMap::from([("ids".into(),DataValue::List(candidates))]),ScriptMutability::Immutable)?;
+    for row in rows.rows {
         let Some(id) = str_at(&row, 0) else { continue };
         let visibility = str_at(&row, 6).unwrap_or_else(|| "local".into());
         // Honour the local/shared contract: by default `local` nodes (which
@@ -296,7 +306,19 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
             node_type: str_at(&row, 1).unwrap_or_default(),
             tier: str_at(&row, 2).unwrap_or_default(),
             name: str_at(&row, 3).unwrap_or_default(),
-            body: str_at(&row, 4),
+            body: if opts.include_bodies {
+                match row.get(8) {
+                    Some(DataValue::Json(p)) => {
+                        p.0.pointer("/source/original")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .or_else(|| str_at(&row, 4))
+                    }
+                    _ => str_at(&row, 4),
+                }
+            } else {
+                str_at(&row, 4)
+            },
             tags: list_at(&row, 5),
             visibility,
             layer: str_at(&row, 7).unwrap_or_else(|| "warm".into()),
@@ -382,7 +404,17 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
                 tier: r.tier,
                 layer: r.layer,
                 visibility: r.visibility,
-                tags: r.tags,
+                tags: r
+                    .tags
+                    .into_iter()
+                    .map(|tag| {
+                        if opts.redact && !guard::scan_public(&tag).is_empty() {
+                            "[redacted]".into()
+                        } else {
+                            tag
+                        }
+                    })
+                    .collect(),
                 body,
                 initiatives: r.inits,
                 redacted: flagged,
@@ -464,7 +496,7 @@ fn allowed_inits(inits: Option<&Vec<String>>, opts: &ExportOpts) -> Vec<String> 
 }
 
 /// Exact match, or prefix match when `pattern` ends with `*`.
-fn pat_match(name: &str, pattern: &str) -> bool {
+pub(crate) fn pat_match(name: &str, pattern: &str) -> bool {
     match pattern.strip_suffix('*') {
         Some(prefix) => name.starts_with(prefix),
         None => name == pattern,

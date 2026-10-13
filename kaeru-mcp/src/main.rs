@@ -18,6 +18,8 @@
 // with the external `config` crate that this module imports from.
 mod api;
 mod auth;
+mod canonical;
+mod cloud;
 mod cloud_client;
 mod hygiene;
 mod params;
@@ -27,7 +29,6 @@ mod server;
 mod settings;
 mod sse;
 mod stdio_bridge;
-mod tools;
 mod update;
 mod utils;
 
@@ -63,8 +64,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // `--stdio` is the bridge, not a second server: it forwards to the daemon
     // that owns the vault rather than opening the vault itself. The flag is
-    // read straight off argv because the daemon has no other arguments, and a
-    // parser for exactly one of them would be furniture.
+    // read straight off argv because the daemon has no other arguments.
     if std::env::args().any(|a| a == "--stdio") {
         let url = format!(
             "http://{}:{}{}",
@@ -212,7 +212,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let server = KaeruServer::new(store, clouds, cancel.child_token(), hygiene_enabled);
     server.hygiene_scheduler().spawn_sweeper();
 
-    // Read-only HTTP API (`/v1/…`, plus the legacy `/graph.json` alias) — OFF
+    // Shared HTTP memory API (`/v1/<operation>`) — OFF
     // unless `KAERU_MCP_VIZ_ENABLE` is set, so a daemon never exposes a
     // whole-graph export unasked. When on, scope is operator-configured (no
     // names in source): `KAERU_MCP_VIZ_INITIATIVES` is the allow ceiling
@@ -237,7 +237,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .unwrap_or_default()
     };
     let api_router = viz_enabled.then(|| {
-        api::router(
+        api::router_with_clouds(
             server.store(),
             api::ApiConfig {
                 allow: viz_csv("KAERU_MCP_VIZ_INITIATIVES"),
@@ -250,12 +250,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     .ok()
                     .filter(|s| !s.is_empty()),
             },
+            server.cloud_registry(),
         )
     });
     if viz_enabled {
-        tracing::info!(
-            "HTTP API enabled (KAERU_MCP_VIZ_ENABLE): /v1/export, and /graph.json as a deprecated alias"
-        );
+        tracing::info!("HTTP API enabled (KAERU_MCP_VIZ_ENABLE): named /v1/ memory operations");
     }
 
     let mut session_manager = LocalSessionManager::default();
@@ -271,7 +270,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     // Asks once a day whether this binary is behind, and leaves the answer
-    // where `awake` will hand it to an agent. Spawned: a slow or unreachable
+    // where initialization will hand it to an agent. Spawned: a slow or unreachable
     // GitHub must never delay startup, and a failure is silence (#99).
     update::spawn(server.update_notice(), cancel.child_token());
 

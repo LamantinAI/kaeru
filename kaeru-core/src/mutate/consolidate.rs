@@ -1,19 +1,18 @@
 //! Tier-promotion / demotion: `consolidate_out` (operational → archival)
 //! and `consolidate_in` (archival → operational). Provenance via
-//! `derived_from` is replicated onto the new node so it survives the
-//! tier boundary.
+//! incident relations are preserved across a content-preserving tier boundary.
 
 use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
+use super::identity::carry_identity;
 use super::{
     attach_edge_to_initiative, attach_node_to_initiative, attach_node_to_initiative_named,
     build_body_tags, carry_chain_membership, edge_version_seconds, initiatives_of_node, merge_tags,
-    node_version_seconds, now_validity_seconds, read_derived_from_targets, read_node_now,
-    tags_literal,
+    node_version_seconds, now_validity_seconds, read_node_now, tags_literal,
 };
-use crate::errors::Result;
+use crate::errors::{Error, Result};
 use crate::graph::audit::write_audit;
 use crate::graph::{NodeId, NodeType, Tier, new_node_id};
 use crate::store::Store;
@@ -47,15 +46,17 @@ pub fn consolidate_out(
     new_name: &str,
     new_body: &str,
 ) -> Result<NodeId> {
-    consolidate(
-        store,
-        operational_id,
-        new_type,
-        Tier::Archival,
-        new_name,
-        new_body,
-        "consolidate_out",
-    )
+    store.atomic(|store| {
+        consolidate(
+            store,
+            operational_id,
+            new_type,
+            Tier::Archival,
+            new_name,
+            new_body,
+            "consolidate_out",
+        )
+    })
 }
 
 /// Tier-demotion mutation: brings an archival node back into the
@@ -71,15 +72,17 @@ pub fn consolidate_in(
     new_name: &str,
     new_body: &str,
 ) -> Result<NodeId> {
-    consolidate(
-        store,
-        archival_id,
-        new_type,
-        Tier::Operational,
-        new_name,
-        new_body,
-        "consolidate_in",
-    )
+    store.atomic(|store| {
+        consolidate(
+            store,
+            archival_id,
+            new_type,
+            Tier::Operational,
+            new_name,
+            new_body,
+            "consolidate_in",
+        )
+    })
 }
 
 fn consolidate(
@@ -91,24 +94,12 @@ fn consolidate(
     new_body: &str,
     audit_op: &str,
 ) -> Result<NodeId> {
-    // Step 0 — collect the old node's outgoing `derived_from` targets so
-    // we can replicate them on the new node. Read first; the retraction
-    // below doesn't drop the edge rows, but reading before mutating keeps
-    // the data flow easy to follow.
-    let provenance_targets = read_derived_from_targets(store, old_id)?;
-
-    // The new node inherits the old one's memory layer (a core node's
-    // consolidation must not silently drop out of the awake injection
-    // band). Read before the retract below hides the row. Visibility is
-    // deliberately NOT inherited: `shared` means "is in the cloud", and the
-    // new node — a brand-new id — is not there yet; the MCP layer surfaces
-    // a re-share hint instead.
-    let current = read_node_now(store, old_id)?;
-    let inherited_layer = current
-        .as_ref()
-        .map(|n| n.layer.clone())
-        .unwrap_or_else(|| "warm".to_string());
-    let inherited_tags: Vec<String> = current.map(|n| n.tags).unwrap_or_default();
+    let current = read_node_now(store, old_id)?
+        .ok_or_else(|| Error::NotFound(format!("node {old_id} not found at NOW")))?;
+    let unchanged_content =
+        current.body.as_deref().unwrap_or("") == new_body && current.name == new_name;
+    let inherited_layer = current.layer.clone();
+    let inherited_tags = current.tags;
 
     let new_id = new_node_id();
     let new_type_str = new_type.as_str();
@@ -154,25 +145,7 @@ fn consolidate(
         }
     }
 
-    // Step 2 — replicate derived_from edges so provenance survives the
-    // tier boundary.
-    for target in &provenance_targets {
-        let edge_secs = edge_version_seconds(store, &new_id, target, "derived_from")?;
-        let mut p_edge: BTreeMap<String, DataValue> = BTreeMap::new();
-        p_edge.insert("src".to_string(), DataValue::Str(new_id.clone().into()));
-        p_edge.insert("dst".to_string(), DataValue::Str(target.clone().into()));
-        let s_edge = format!(
-            r#"
-            ?[src, dst, edge_type, validity, weight, properties] <-
-                [[$src, $dst, 'derived_from', [{edge_secs}.0, true], 1.0, null]]
-            :put edge {{src, dst, edge_type, validity => weight, properties}}
-            "#
-        );
-        store
-            .db_ref()
-            .run_script(&s_edge, p_edge, ScriptMutability::Mutable)?;
-        attach_edge_to_initiative(store, &new_id, target, "derived_from")?;
-    }
+    carry_identity(store, old_id, &new_id, unchanged_content)?;
 
     // Step 3 — consolidated_to edge: old → new.
     let edge_secs = edge_version_seconds(store, old_id, &new_id, "consolidated_to")?;

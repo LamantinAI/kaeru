@@ -4,13 +4,15 @@
 
 use std::str::FromStr;
 
-use kaeru_core::{EdgeType, Layer, NodeType, Tier, Visibility};
+use kaeru_core::{
+    EdgeType, Layer, NodeType, Tier, Visibility, link_with_weight, node_brief_by_id, upsert_node,
+};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Value, from_str, json};
 
 use super::cloud_or_err;
+use crate::KaeruMemory;
 use crate::cloud_client::CloudClient;
-use crate::{KaeruMemory, mem_tool_cloud_named};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // cloud_recall (network) — list the cloud's shared nodes for an initiative.
@@ -33,7 +35,7 @@ pub struct CloudRecallArgs {
     pub query: Option<String>,
 }
 
-async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
+pub(super) async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
     // The verb names its initiative, so there is nothing to fall back to.
     let init = a.initiative.clone();
     let client = match cloud_or_err(mem, a.cloud.as_deref()) {
@@ -56,7 +58,7 @@ async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
     if !(200..300).contains(&code) {
         return json!({ "error": format!("cloud list failed ({code}): {resp}") });
     }
-    let arr: Value = match serde_json::from_str(&resp) {
+    let arr: Value = match from_str(&resp) {
         Ok(v) => v,
         Err(e) => return json!({ "error": format!("bad cloud response: {e}") }),
     };
@@ -76,7 +78,7 @@ pub struct PullArgs {
     pub cloud: Option<String>,
 }
 
-async fn do_pull(mem: &KaeruMemory, a: PullArgs) -> Value {
+pub(super) async fn do_pull(mem: &KaeruMemory, a: PullArgs) -> Value {
     // The verb names its initiative, so there is nothing to fall back to.
     let init = a.initiative.clone();
     let client = match cloud_or_err(mem, a.cloud.as_deref()) {
@@ -94,7 +96,7 @@ async fn do_pull(mem: &KaeruMemory, a: PullArgs) -> Value {
     if !(200..300).contains(&code) {
         return json!({ "error": format!("cloud GET failed ({code}): {resp}") });
     }
-    let v: Value = match serde_json::from_str(&resp) {
+    let v: Value = match from_str(&resp) {
         Ok(v) => v,
         Err(e) => return json!({ "error": format!("bad cloud response: {e}") }),
     };
@@ -140,7 +142,7 @@ async fn do_pull(mem: &KaeruMemory, a: PullArgs) -> Value {
     let name_w = name.clone();
     let up = mem
         .blocking(move |s| {
-            kaeru_core::upsert_node(
+            upsert_node(
                 s,
                 &id,
                 node_type,
@@ -187,7 +189,7 @@ async fn recreate_local_edges(
     if !(200..300).contains(&code) {
         return 0;
     }
-    let items: Vec<Value> = serde_json::from_str::<Value>(&resp)
+    let items: Vec<Value> = from_str::<Value>(&resp)
         .ok()
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
@@ -208,21 +210,15 @@ async fn recreate_local_edges(
     mem.blocking_in(Some(initiative), move |s| {
         let mut linked = 0;
         for (src, dst, et, weight) in &parsed {
-            let both_local = kaeru_core::node_brief_by_id(s, src)
-                .ok()
-                .flatten()
-                .is_some()
-                && kaeru_core::node_brief_by_id(s, dst)
-                    .ok()
-                    .flatten()
-                    .is_some();
+            let both_local = node_brief_by_id(s, src).ok().flatten().is_some()
+                && node_brief_by_id(s, dst).ok().flatten().is_some();
             if !both_local {
                 continue;
             }
             let Ok(edge) = et.parse::<EdgeType>() else {
                 continue;
             };
-            if kaeru_core::link_with_weight(s, src, dst, edge, *weight).is_ok() {
+            if link_with_weight(s, src, dst, edge, *weight).is_ok() {
                 linked += 1;
             }
         }
@@ -231,39 +227,6 @@ async fn recreate_local_edges(
     .await
 }
 
-mem_tool_cloud_named!(
-    /// `kaeru_cloud_recall` — list what the cloud holds for an initiative.
-    CloudRecall,
-    "kaeru_cloud_recall",
-    "List the shared nodes the cloud holds for an initiative — discovery for cross-session / \
-     cross-user recall. Then kaeru_pull one to bring it local. `cloud` targets a named cloud.",
-    CloudRecallArgs,
-    { "type": "object", "properties": {
-        "initiative": { "type": "string", "description": "initiative (project) to read in the cloud" },
-        "cloud": { "type": "string", "description": "named cloud (default: the configured default)" },
-        "query": { "type": "string", "description": "optional filter; matches name and body cloud-side" },
-        "limit": { "type": "integer", "description": "page size (default 50)" },
-        "offset": { "type": "integer", "description": "how many to skip, for the next page" }
-    }, "required": ["initiative"] },
-    |mem, a| do_cloud_recall(mem, a).await
-);
-
-mem_tool_cloud_named!(
-    /// `kaeru_pull` — materialise a cloud node into the local vault.
-    Pull,
-    "kaeru_pull",
-    "Pull a shared node from the cloud into the local vault by id, attaching it to the given \
-     initiative — the recall mechanism for team knowledge you don't have locally yet. `cloud` \
-     targets a named cloud.",
-    PullArgs,
-    { "type": "object", "properties": {
-        "id": { "type": "string", "description": "the cloud node's id (from kaeru_cloud_recall)" },
-        "initiative": { "type": "string", "description": "initiative to attach it to (default: the memory's own)" },
-        "cloud": { "type": "string", "description": "named cloud (default: the configured default)" }
-    }, "required": ["id", "initiative"] },
-    |mem, a| do_pull(mem, a).await
-);
-
 #[derive(Debug, Deserialize)]
 pub struct CloudInitiativesArgs {
     /// Which cloud to ask, when several are configured.
@@ -271,41 +234,29 @@ pub struct CloudInitiativesArgs {
     pub cloud: Option<String>,
 }
 
-crate::mem_tool_unscoped!(
-    /// `kaeru_cloud_initiatives` — what a cloud holds, by initiative.
-    CloudInitiatives,
-    "kaeru_cloud_initiatives",
-    "List the initiatives a cloud holds, with how many shared nodes each has. Ask this before \
-     `kaeru_cloud_recall` in an unfamiliar cloud: it tells an initiative that is empty here \
-     apart from one this cloud has never heard of, which a recall alone cannot.",
-    CloudInitiativesArgs,
-    { "type": "object", "properties": {
-        "cloud": { "type": "string", "description": "named cloud (default: the configured default)" }
-    } },
-    |mem, a| {
-        let client = match mem.clouds().resolve(a.cloud.as_deref()) {
-            Ok(c) => c,
-            Err(why) => return json!({ "error": why }),
-        };
-        match client.list_initiatives().await {
-            Ok((code, body)) if (200..300).contains(&code) => {
-                let items = serde_json::from_str::<Value>(&body)
-                    .ok()
-                    .and_then(|v| v.as_array().cloned())
-                    .unwrap_or_default();
-                json!({
-                    "cloud": client.name(),
-                    "initiatives": items
-                        .iter()
-                        .map(|it| json!({
-                            "name": it.get("name").and_then(|x| x.as_str()).unwrap_or(""),
-                            "nodes": it.get("nodes").and_then(|x| x.as_u64()).unwrap_or(0),
-                        }))
-                        .collect::<Vec<_>>(),
-                })
-            }
-            Ok((code, body)) => json!({ "cloud": client.name(), "status": code, "error": body }),
-            Err(e) => json!({ "cloud": client.name(), "error": e }),
+pub(super) async fn do_cloud_initiatives(mem: &KaeruMemory, a: CloudInitiativesArgs) -> Value {
+    let client = match mem.cloud_registry().resolve(a.cloud.as_deref()) {
+        Ok(c) => c,
+        Err(why) => return json!({ "error": why }),
+    };
+    match client.list_initiatives().await {
+        Ok((code, body)) if (200..300).contains(&code) => {
+            let items = from_str::<Value>(&body)
+                .ok()
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default();
+            json!({
+                "cloud": client.name(),
+                "initiatives": items
+                    .iter()
+                    .map(|it| json!({
+                        "name": it.get("name").and_then(|x| x.as_str()).unwrap_or(""),
+                        "nodes": it.get("nodes").and_then(|x| x.as_u64()).unwrap_or(0),
+                    }))
+                    .collect::<Vec<_>>(),
+            })
         }
+        Ok((code, body)) => json!({ "cloud": client.name(), "status": code, "error": body }),
+        Err(e) => json!({ "cloud": client.name(), "error": e }),
     }
-);
+}

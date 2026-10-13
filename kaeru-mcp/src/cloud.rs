@@ -1,0 +1,869 @@
+//! Cloud sharing & recall tools — the local↔cloud bridge.
+//!
+//! - `policy`  — read / set an initiative's sticky `share_policy` (Gate 1).
+//! - `share`   — push a node to the team cloud through both gates.
+//! - `cloud_recall` — list what the cloud holds for an initiative (discovery).
+//! - `pull`    — materialise a cloud node into the local vault (the recall).
+//!
+//! `policy` is purely local (no HTTP); the other three talk to `kaeru-cloud`
+//! and are async. Sharing is gated: the initiative must permit it
+//! (`SharePolicy::permits_share`) and the node must clear the deterministic
+//! pre-share secret guard. Both gates fail *safe* — a refusal returns an
+//! explanatory message, never a silent push.
+
+use std::collections::HashSet;
+use std::str::FromStr;
+
+use kaeru_core::api::{EdgeChange, EdgeMirror};
+use kaeru_core::guard::scan_public;
+use kaeru_core::{
+    EdgeType, Error, GuardHit, Layer, NodeFull, NodeType, Store, Tier, Visibility,
+    cloud_links as core_cloud_links, edges_in_initiative, edges_of, get_share_policy,
+    get_visibility, initiative_clouds, link_remote_to, link_with_weight, local_nodes_for_review,
+    node_brief_by_id, permits_cloud, read_node_full, set_visibility, upsert_node,
+};
+use rmcp::ErrorData as McpError;
+use rmcp::model::CallToolResult;
+use serde_json::{Value, from_str, json};
+
+use crate::cloud_client::{CloudClient, CloudRegistry};
+use crate::utils::{resolve_name_or_id, text, to_mcp, with_initiative};
+
+fn not_configured() -> McpError {
+    McpError::internal_error(
+        "cloud not configured — set up clouds.toml or KAERU_MCP_CLOUD_URL (and KAERU_MCP_CLOUD_TOKEN)".to_string(),
+        None,
+    )
+}
+
+/// Renders a guard hit as `rule: "fragment"`. The fragment is
+/// `GuardHit.matched`, which the guard already truncates for safe display —
+/// showing it is what lets a human tell a real secret from a false positive
+/// without re-reading the whole body.
+fn format_hit(h: &GuardHit) -> String {
+    format!("{}: {:?}", h.rule, h.matched)
+}
+
+/// Runs both share gates on node `id` and, if they pass, pushes it to the
+/// cloud — marking the local copy `shared` only **after** the cloud accepts
+/// it (so `shared` always means "is in the cloud"). Returns a human-readable
+/// outcome. Shared by the `share` tool and the capture verbs that take
+/// `visibility: shared`, so a capture-and-share is a single call.
+pub async fn push_to_cloud(
+    store: &Store,
+    cloud: &CloudClient,
+    id: &str,
+    initiative: &str,
+    force: bool,
+) -> Result<String, McpError> {
+    // Gate 1a — may this initiative leave at all?
+    let pol = get_share_policy(store, initiative).map_err(to_mcp)?;
+    if !pol.permits_share() {
+        return Ok(format!(
+            "not shared: initiative `{initiative}` is `{}` — run `policy {initiative} team` to allow.",
+            pol.as_str()
+        ));
+    }
+
+    // Gate 1b — and may it leave to THIS cloud? `team` used to open an
+    // initiative to every configured cloud at once, leaving the destination
+    // entirely to the caller's argument. That is fine with one cloud and is
+    // not a permission model with several of differing trust: a valid cloud
+    // name is accepted whatever the initiative, so naming the wrong one is
+    // still a way out. An initiative with no list is unrestricted, so this
+    // changes nothing until someone asks for it.
+    if !permits_cloud(store, initiative, cloud.name()).map_err(to_mcp)? {
+        let allowed = initiative_clouds(store, initiative).map_err(to_mcp)?;
+        return Ok(format!(
+            "not shared: initiative `{initiative}` may only be shared into {} — not `{}`. \
+             Change it with `policy {initiative} team --clouds <names>`.",
+            allowed
+                .iter()
+                .map(|c| format!("`{c}`"))
+                .collect::<Vec<_>>()
+                .join(", "),
+            cloud.name()
+        ));
+    }
+
+    let full = read_node_full(store, &id.to_string())
+        .map_err(to_mcp)?
+        .ok_or_else(|| to_mcp(Error::NotFound(format!("node {id} not found at NOW"))))?;
+
+    // Gate 2 — pre-share secret guard over name + body. Use the strict
+    // scanner: sharing leaves the machine, so the gate must be at least as
+    // strict as the local markdown export (which uses `scan_public`).
+    // `properties` joined the payload in #85, so it joins the guard's remit in
+    // the same change — a URL or a status registry is content leaving the
+    // machine like any other. `tags` are still unscanned; see AGENTS.md.
+    let scan_target = format!(
+        "{}\n{}\n{}",
+        full.name,
+        full.body.clone().unwrap_or_default(),
+        full.properties
+            .as_ref()
+            .map(|p| p.to_string())
+            .unwrap_or_default()
+    );
+    let hits = scan_public(&scan_target);
+    if !hits.is_empty() && !force {
+        let shown: Vec<String> = hits.iter().map(format_hit).collect();
+        return Ok(format!(
+            "not shared: pre-share guard flagged {} secret(s) [{}]. Remove them, or force=true to override.",
+            hits.len(),
+            shown.join("; ")
+        ));
+    }
+
+    let body = json!({
+        "id": full.id,
+        "node_type": full.node_type,
+        "tier": full.tier,
+        "name": full.name,
+        "body": full.body,
+        "tags": full.tags,
+        "initiative": initiative,
+        "layer": full.layer,
+        // A `reference`'s URL and a `board`'s status registry live here. The
+        // payload omitted the field entirely, so of 78 references in a live
+        // cloud not one carried the link it was cited for (#85).
+        "properties": full.properties,
+    });
+    let (code, resp) = cloud
+        .post_node(&body)
+        .await
+        .map_err(|e| McpError::internal_error(format!("cloud POST failed: {e}"), None))?;
+
+    if !(200..300).contains(&code) {
+        return Ok(format!("not shared: cloud rejected ({code}): {resp}"));
+    }
+    set_visibility(store, &full.id, Visibility::Shared).map_err(to_mcp)?;
+
+    // Push edges to/from already-shared neighbours so the cloud keeps the
+    // graph structure, not just the nodes. An edge whose other endpoint is
+    // still local is skipped — it gets pushed when that endpoint is shared.
+    let edges = edges_of(store, &full.id).map_err(to_mcp)?;
+    let mut edges_pushed = 0;
+    let mut held_back = 0;
+    let mut rejected: Vec<String> = Vec::new();
+    for (src, dst, edge_type, weight) in &edges {
+        let other = if *src == full.id { dst } else { src };
+        if get_visibility(store, other).map_err(to_mcp)? != Visibility::Shared {
+            held_back += 1;
+            continue;
+        }
+        let ebody = json!({ "src": src, "dst": dst, "edge_type": edge_type, "weight": weight });
+        let (ecode, eresp) = cloud
+            .post_edge(&ebody)
+            .await
+            .map_err(|e| McpError::internal_error(format!("cloud POST edge failed: {e}"), None))?;
+        if (200..300).contains(&ecode) {
+            edges_pushed += 1;
+        } else {
+            // A non-2xx used to just skip the increment, so an edge the cloud
+            // refused looked exactly like an edge that was never eligible.
+            rejected.push(format!("{edge_type} ({ecode}): {}", first_line(&eresp)));
+        }
+    }
+
+    Ok(format!(
+        "shared `{}` → cloud (id {}){}",
+        full.name,
+        full.id,
+        edge_outcome(edges_pushed, held_back, &rejected)
+    ))
+}
+
+/// The edge half of a share result, always stated.
+///
+/// It used to be printed only when at least one edge went up, so a share that
+/// carried the node's whole neighbourhood and a share that carried a bare node
+/// produced byte-identical lines — and since `visibility=shared` at capture
+/// runs when the node has no edges at all, the silent case was the common one
+/// (#85).
+fn edge_outcome(pushed: usize, held_back: usize, rejected: &[String]) -> String {
+    let mut parts = Vec::new();
+    parts.push(format!("+{pushed} edge(s)"));
+    if held_back > 0 {
+        parts.push(format!(
+            "{held_back} held back, other endpoint not shared — re-run `share` on this node once              it is"
+        ));
+    }
+    if !rejected.is_empty() {
+        parts.push(format!(
+            "{} REJECTED: {}",
+            rejected.len(),
+            rejected.join("; ")
+        ));
+    }
+    format!(" ({})", parts.join(" · "))
+}
+
+/// First line of a response body, capped — enough to see why a push failed
+/// without pasting a page of HTML into a tool result.
+fn first_line(body: &str) -> String {
+    let line = body.lines().next().unwrap_or("").trim();
+    if line.chars().count() > 120 {
+        format!("{}…", line.chars().take(120).collect::<String>())
+    } else {
+        line.to_string()
+    }
+}
+
+/// Mirrors a committed edit only when both endpoints are already shared.
+/// A failure is supplementary: the local mutation remains committed.
+pub async fn propagate_edge(
+    store: &Store,
+    clouds: &CloudRegistry,
+    cloud_name: Option<&str>,
+    edge: &EdgeMirror,
+    initiative: &str,
+) -> Result<(), String> {
+    if clouds.is_empty() {
+        return Ok(());
+    }
+    let shared = get_visibility(store, &edge.from).map_err(|e| e.to_string())?
+        == Visibility::Shared
+        && get_visibility(store, &edge.to).map_err(|e| e.to_string())? == Visibility::Shared;
+    if !shared {
+        return Ok(());
+    }
+    let cloud = clouds.resolve(cloud_name)?;
+    if !get_share_policy(store, initiative)
+        .map_err(|e| e.to_string())?
+        .permits_share()
+        || !permits_cloud(store, initiative, cloud.name()).map_err(|e| e.to_string())?
+    {
+        return Err(format!(
+            "{initiative} no longer permits sharing to cloud `{}`",
+            cloud.name()
+        ));
+    }
+    let mut body = json!({"src":edge.from,"dst":edge.to,"edge_type":edge.edge_type.as_str()});
+    let outcome = match edge.change {
+        EdgeChange::Upsert(weight) => {
+            body["weight"] = json!(weight);
+            cloud.post_edge(&body).await
+        }
+        EdgeChange::Retract => cloud.delete_edge(&body).await,
+    }
+    .map_err(|e| format!("cloud `{}`: {e}", cloud.name()))?;
+    if (200..300).contains(&outcome.0) {
+        Ok(())
+    } else {
+        Err(format!(
+            "cloud `{}` returned {}: {}",
+            cloud.name(),
+            outcome.0,
+            first_line(&outcome.1)
+        ))
+    }
+}
+
+/// Initiative names out of a cloud's `GET /api/v1/initiatives` payload.
+/// Best-effort: a shape we do not recognise yields nothing rather than an
+/// error, since this only ever enriches a message.
+fn initiative_names(body: &str) -> Vec<String> {
+    from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|it| {
+            it.get("name")
+                .or_else(|| it.get("initiative"))
+                .and_then(|x| x.as_str())
+                .map(String::from)
+        })
+        .collect()
+}
+
+/// Shares an existing node by name/id to the team cloud (both gates → push).
+pub async fn share(
+    store: &Store,
+    cloud: Option<&CloudClient>,
+    name: &str,
+    initiative: &str,
+    force: bool,
+) -> Result<CallToolResult, McpError> {
+    let cloud = cloud.ok_or_else(not_configured)?;
+    let id = with_initiative(store, Some(initiative), || resolve_name_or_id(store, name))?;
+    let msg = push_to_cloud(store, cloud, &id, initiative, force).await?;
+    Ok(text(&msg))
+}
+
+/// Lists the initiatives a cloud holds, with node counts.
+///
+/// The REST endpoint always existed and nothing on the agent's surface reached
+/// it, so in a real session the answer to "what's in the cloud?" was the agent
+/// shelling out to `curl` against kaeru's own API — and the user asking why it
+/// wasn't using kaeru. A tool that exists in the transport but not in the verb
+/// set is a tool the agent has to work around.
+///
+/// Not to be confused with `clouds`, which lists the clouds this daemon can
+/// reach. This lists what is *inside* one of them.
+pub async fn cloud_initiatives(cloud: Option<&CloudClient>) -> Result<CallToolResult, McpError> {
+    let cloud = cloud.ok_or_else(not_configured)?;
+    let (code, resp) = cloud
+        .list_initiatives()
+        .await
+        .map_err(|e| McpError::internal_error(format!("cloud list failed: {e}"), None))?;
+    if !(200..300).contains(&code) {
+        return Ok(text(&format!(
+            "cloud `{}`: list failed ({code}): {resp}",
+            cloud.name()
+        )));
+    }
+    let items = from_str::<Value>(&resp)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+    if items.is_empty() {
+        return Ok(text(&format!(
+            "cloud `{}` holds no initiatives yet.",
+            cloud.name()
+        )));
+    }
+    let mut out = format!("cloud `{}` ({} initiatives):\n", cloud.name(), items.len());
+    for it in &items {
+        let name = it.get("name").and_then(|x| x.as_str()).unwrap_or("");
+        let nodes = it.get("nodes").and_then(|x| x.as_u64()).unwrap_or(0);
+        out.push_str(&format!("  - {name} — {nodes} shared node(s)\n"));
+    }
+    out.push_str(
+        "\n↳ `cloud_recall <initiative>` lists or searches one; an initiative here is \
+         independent of the local one with the same name.",
+    );
+    Ok(text(&out))
+}
+
+/// Withdraws a node from a cloud and returns it to `local`.
+///
+/// `share` had no inverse at all, which made every mistake permanent: a node
+/// sent to the wrong cloud, a body the pre-share guard should have caught, an
+/// experiment that should never have left the machine. The only removal the
+/// cloud offered was deleting the whole initiative around it.
+///
+/// Both halves run, and the local half runs even if the remote one fails: a
+/// node still marked `shared` locally while the cloud no longer holds it would
+/// make `revise` promise a re-share that has nothing to update, and the local
+/// vault is the copy the agent actually reads. The result says plainly which
+/// halves happened.
+pub async fn unshare(
+    store: &Store,
+    cloud: Option<&CloudClient>,
+    name: &str,
+    initiative: &str,
+) -> Result<CallToolResult, McpError> {
+    let cloud = cloud.ok_or_else(not_configured)?;
+    let id = with_initiative(store, Some(initiative), || resolve_name_or_id(store, name))?;
+
+    let remote = cloud.delete_node(&id).await;
+    with_initiative(store, Some(initiative), || {
+        set_visibility(store, &id, Visibility::Local).map_err(to_mcp)
+    })?;
+
+    let msg = match remote {
+        Ok((code, _)) if (200..300).contains(&code) => format!(
+            "unshared: {name} — retracted from cloud `{}` and marked local again.\n\
+             ↳ the cloud keeps its history: a read at a past moment still sees it, but \
+             `cloud_recall` and the listings do not.",
+            cloud.name()
+        ),
+        Ok((code, body)) => format!(
+            "unshared LOCALLY only: {name} is marked local again, but cloud `{}` answered \
+             {code} — {body}\n↳ the cloud may still serve it; retry `unshare` once the cloud \
+             is reachable.",
+            cloud.name()
+        ),
+        Err(e) => format!(
+            "unshared LOCALLY only: {name} is marked local again, but cloud `{}` was \
+             unreachable — {e}\n↳ the cloud may still serve it; retry `unshare` when it is back.",
+            cloud.name()
+        ),
+    };
+    Ok(text(&msg))
+}
+
+/// Lists the shared nodes the cloud holds for an initiative — discovery
+/// before `pull`.
+pub async fn cloud_recall(
+    cloud: Option<&CloudClient>,
+    initiative: &str,
+    query: Option<&str>,
+    limit: Option<usize>,
+    offset: Option<usize>,
+) -> Result<CallToolResult, McpError> {
+    /// Page size when the caller does not choose one. Deliberately smaller
+    /// than the server's own default: this output lands in a context window.
+    const DEFAULT_LIMIT: usize = 25;
+
+    let cloud = cloud.ok_or_else(not_configured)?;
+    let limit = limit.unwrap_or(DEFAULT_LIMIT).max(1);
+    let offset = offset.unwrap_or(0);
+
+    let (code, resp) = cloud
+        .list_initiative(initiative, limit, offset, query)
+        .await
+        .map_err(|e| McpError::internal_error(format!("cloud list failed: {e}"), None))?;
+    if !(200..300).contains(&code) {
+        return Ok(text(&format!(
+            "cloud `{}`: list failed ({code}): {resp}",
+            cloud.name()
+        )));
+    }
+
+    let arr: Value = from_str(&resp)
+        .map_err(|e| McpError::internal_error(format!("bad cloud response: {e}"), None))?;
+    let items = arr.as_array().cloned().unwrap_or_default();
+
+    // The true total comes from the initiative listing, which already carries
+    // per-initiative counts — so a bounded page can still report honestly how
+    // much there is, without changing the listing's response shape.
+    let total = cloud
+        .list_initiatives()
+        .await
+        .ok()
+        .filter(|(code, _)| (200..300).contains(code))
+        .and_then(|(_, body)| initiative_total(&body, initiative));
+
+    if items.is_empty() {
+        // "Empty" and "not here" used to read identically, which in a
+        // multi-cloud setup is the difference between "nobody has shared
+        // anything" and "you asked the wrong cloud".
+        if let Some(q) = query {
+            return Ok(text(&format!(
+                "cloud `{}` · `{initiative}`: nothing matching {q:?}{}. \
+                 Drop `query` to list everything shared.",
+                cloud.name(),
+                total
+                    .map(|t| format!(" (of {t} shared)"))
+                    .unwrap_or_default()
+            )));
+        }
+        if offset > 0 {
+            return Ok(text(&format!(
+                "cloud `{}` · `{initiative}`: no nodes past offset {offset}{}.",
+                cloud.name(),
+                total.map(|t| format!(" (total {t})")).unwrap_or_default()
+            )));
+        }
+        let known = cloud
+            .list_initiatives()
+            .await
+            .ok()
+            .and_then(|(code, body)| (200..300).contains(&code).then(|| initiative_names(&body)));
+        let tail = match known {
+            Some(names) if !names.iter().any(|n| n == initiative) => {
+                let listed = if names.is_empty() {
+                    "it holds none at all".to_string()
+                } else {
+                    format!("it holds: {}", names.join(", "))
+                };
+                format!(
+                    " — in fact cloud `{}` has no initiative by that name; {listed}.",
+                    cloud.name()
+                )
+            }
+            _ => String::new(),
+        };
+        return Ok(text(&format!(
+            "cloud `{}`: initiative `{initiative}` has no shared nodes yet{tail}",
+            cloud.name()
+        )));
+    }
+
+    let shown = items.len();
+    let scope = query
+        .map(|q| format!(" matching {q:?}"))
+        .unwrap_or_default();
+    let header = match total {
+        // With a query the total is the initiative's, not the match count —
+        // say which, rather than implying the filter found that many.
+        Some(t) if query.is_some() => format!(
+            "cloud `{}` · `{initiative}`{scope} ({shown} shown, of {t} shared):\n",
+            cloud.name()
+        ),
+        Some(t) => format!(
+            "cloud `{}` · `{initiative}` ({}–{} of {t}):\n",
+            cloud.name(),
+            offset + 1,
+            offset + shown
+        ),
+        None => format!(
+            "cloud `{}` · `{initiative}`{scope} ({shown} shared, from {offset}):\n",
+            cloud.name()
+        ),
+    };
+    let mut out = header;
+    for it in &items {
+        let id = it.get("id").and_then(|x| x.as_str()).unwrap_or("");
+        let nt = it.get("node_type").and_then(|x| x.as_str()).unwrap_or("");
+        let nm = it.get("name").and_then(|x| x.as_str()).unwrap_or("");
+        out.push_str(&format!("  - {nm} ({nt}) — {id}\n"));
+        if let Some(e) = it.get("body_excerpt").and_then(|x| x.as_str()) {
+            out.push_str(&format!("    {e}\n"));
+        }
+    }
+
+    // Never truncate silently: say a page ended and how to ask for the next.
+    let more = match total {
+        Some(t) if offset + shown < t => Some(t - offset - shown),
+        _ => (shown == limit).then_some(0),
+    };
+    if let Some(rest) = more {
+        let rest = if rest > 0 {
+            format!("{rest} more")
+        } else {
+            "more".to_string()
+        };
+        out.push_str(&format!(
+            "\n↳ {rest} — next page: `cloud_recall {initiative}{} --offset {} --limit {limit}`.",
+            query.map(|q| format!(" --query {q:?}")).unwrap_or_default(),
+            offset + shown
+        ));
+    }
+    out.push_str("\n↳ `pull <id> <initiative>` materialises one locally.");
+    Ok(text(&out))
+}
+
+/// A named initiative's node count out of `GET /api/v1/initiatives`.
+fn initiative_total(body: &str, initiative: &str) -> Option<usize> {
+    from_str::<Value>(body)
+        .ok()?
+        .as_array()?
+        .iter()
+        .find(|it| it.get("name").and_then(|x| x.as_str()) == Some(initiative))
+        .and_then(|it| it.get("nodes").and_then(|x| x.as_u64()))
+        .map(|n| n as usize)
+}
+
+/// Pulls a shared node from the cloud into the local vault by id — the
+/// recall mechanism. Materialises it under the same id, attached to the
+/// given initiative, so it joins the local working graph.
+pub async fn pull(
+    store: &Store,
+    cloud: Option<&CloudClient>,
+    id: &str,
+    initiative: &str,
+) -> Result<CallToolResult, McpError> {
+    let cloud = cloud.ok_or_else(not_configured)?;
+
+    let (code, resp) = cloud
+        .get_node(id)
+        .await
+        .map_err(|e| McpError::internal_error(format!("cloud GET failed: {e}"), None))?;
+    if code == 404 {
+        return Ok(text(&format!("cloud has no node {id}")));
+    }
+    if !(200..300).contains(&code) {
+        return Ok(text(&format!("cloud GET failed ({code}): {resp}")));
+    }
+
+    let v: Value = from_str(&resp)
+        .map_err(|e| McpError::internal_error(format!("bad cloud response: {e}"), None))?;
+    let node_type_s = v.get("node_type").and_then(|x| x.as_str()).unwrap_or("");
+    let tier_s = v.get("tier").and_then(|x| x.as_str()).unwrap_or("");
+    let name = v
+        .get("name")
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string();
+    let body = v.get("body").and_then(|x| x.as_str()).map(String::from);
+    let tags: Vec<String> = v
+        .get("tags")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    // Preserve the cloud node's layer so pull keeps its recall priority.
+    let layer = v
+        .get("layer")
+        .and_then(|x| x.as_str())
+        .map(|s| Layer::from_str(s).unwrap_or_default())
+        .unwrap_or_default();
+
+    let node_type = NodeType::from_str(node_type_s).map_err(to_mcp)?;
+    let tier = Tier::from_str(tier_s).map_err(to_mcp)?;
+    // A cloud too old to send the field sends nothing, and `None` tells
+    // `upsert_node` to keep whatever is local rather than clear it. That
+    // ordering matters: the destructive case was pulling a `cite` to refresh
+    // it and losing the URL it was cited for (#85).
+    let properties = v.get("properties").filter(|p| !p.is_null());
+
+    upsert_node(
+        store,
+        &id.to_string(),
+        node_type,
+        tier,
+        &name,
+        body.as_deref(),
+        &tags,
+        Some(initiative),
+        Visibility::Shared,
+        layer,
+        properties,
+    )
+    .map_err(to_mcp)?;
+
+    // Rebuild structure: recreate every cloud edge of this initiative whose
+    // BOTH endpoints already exist locally. Pulling more nodes fills in more
+    // edges over time; an edge to a not-yet-pulled node is simply skipped.
+    let rebuilt = recreate_local_edges(store, cloud, initiative).await?;
+    let mut edge_parts = vec![format!("+{} edge(s) linked", rebuilt.linked)];
+    if rebuilt.kept > 0 {
+        edge_parts.push(format!("{} already local, left as they are", rebuilt.kept));
+    }
+    let edge_note = format!(" ({})", edge_parts.join(" · "));
+
+    Ok(text(&format!(
+        "pulled `{name}` from cloud into local initiative `{initiative}` (id {id}){edge_note}"
+    )))
+}
+
+/// Fetches the initiative's edges from the cloud and `link`s locally every
+/// one whose both endpoints are already present in the local vault.
+/// Idempotent at NOW (re-linking an existing edge is harmless).
+async fn recreate_local_edges(
+    store: &Store,
+    cloud: &CloudClient,
+    initiative: &str,
+) -> Result<EdgeRebuild, McpError> {
+    let (code, resp) = cloud
+        .list_edges(initiative)
+        .await
+        .map_err(|e| McpError::internal_error(format!("cloud list edges failed: {e}"), None))?;
+    if !(200..300).contains(&code) {
+        return Ok(EdgeRebuild { linked: 0, kept: 0 });
+    }
+    let items: Vec<Value> = from_str::<Value>(&resp)
+        .ok()
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
+
+    // What the vault already holds, read once. A cloud edge that matches one
+    // of these is left exactly as it is: `recreate_local_edges` used to call
+    // `link_with_weight` unconditionally, which meant every pull reverted a
+    // local `reweight` (a reweight never reaches the cloud, so the cloud's
+    // value is by definition the stale one) and re-linked what `unlink` had
+    // just retracted (#85).
+    let local_edges: HashSet<(String, String, String)> = edges_in_initiative(store, initiative)
+        .map_err(to_mcp)?
+        .into_iter()
+        .map(|(src, dst, et, _)| (src, dst, et))
+        .collect();
+
+    let mut linked = 0;
+    let mut kept = 0;
+    for it in &items {
+        let src = it.get("src").and_then(|x| x.as_str()).unwrap_or("");
+        let dst = it.get("dst").and_then(|x| x.as_str()).unwrap_or("");
+        let et = it.get("edge_type").and_then(|x| x.as_str()).unwrap_or("");
+        if src.is_empty() || dst.is_empty() || et.is_empty() {
+            continue;
+        }
+        // Preserve the cloud edge's weight (default 1.0 for older payloads).
+        let weight = it.get("weight").and_then(|x| x.as_f64()).unwrap_or(1.0);
+        let both_local = node_brief_by_id(store, &src.to_string())
+            .ok()
+            .flatten()
+            .is_some()
+            && node_brief_by_id(store, &dst.to_string())
+                .ok()
+                .flatten()
+                .is_some();
+        if !both_local {
+            continue;
+        }
+        let Ok(edge) = et.parse::<EdgeType>() else {
+            continue;
+        };
+        if local_edges.contains(&(src.to_string(), dst.to_string(), et.to_string())) {
+            kept += 1;
+            continue;
+        }
+        with_initiative(store, Some(initiative), || {
+            link_with_weight(store, &src.to_string(), &dst.to_string(), edge, weight)
+                .map_err(to_mcp)
+        })?;
+        linked += 1;
+    }
+    Ok(EdgeRebuild { linked, kept })
+}
+
+/// What one pull's edge rebuild did.
+struct EdgeRebuild {
+    /// Edges the cloud held that the vault did not, now created locally.
+    linked: usize,
+    /// Edges already present locally, left untouched — weight and all.
+    kept: usize,
+}
+
+/// Creates a soft link from a local node to a cloud node by id — a reference
+/// without copying. Purely local; the dst is resolved later via
+/// `cloud_links`. `cloud_name` (when given) records which cloud the dst lives
+/// in (`dst_store = cloud:<name>`) and must be a configured cloud; omit it
+/// for the default cloud.
+pub fn link_cloud(
+    store: &Store,
+    clouds: &CloudRegistry,
+    name: &str,
+    cloud_id: &str,
+    edge_type_str: &str,
+    cloud_name: Option<&str>,
+    initiative: &str,
+) -> Result<CallToolResult, McpError> {
+    // Refuse to bake a name we can't resolve later — that would dangle.
+    if let Some(cn) = cloud_name
+        && !clouds.contains(cn)
+    {
+        return Ok(text(&format!(
+            "unknown cloud `{cn}` — configured: [{}]",
+            clouds.names().join(", ")
+        )));
+    }
+    with_initiative(store, Some(initiative), || {
+        let edge: EdgeType = edge_type_str.parse().map_err(to_mcp)?;
+        let src = resolve_name_or_id(store, name)?;
+        link_remote_to(store, &src, &cloud_id.to_string(), edge, cloud_name).map_err(to_mcp)?;
+        let tag = cloud_name
+            .map(|n| format!("cloud:{n}:"))
+            .unwrap_or_else(|| "cloud:".to_string());
+        Ok(text(&format!(
+            "soft-linked `{name}` -[{}]-> {tag}{cloud_id}",
+            edge.as_str()
+        )))
+    })
+}
+
+/// Resolves a node's cloud soft links — fetches each linked cloud node and
+/// shows it. The lazy-resolution path for soft links; each link is routed to
+/// the cloud it was created against (multi-cloud aware).
+pub async fn cloud_links(
+    store: &Store,
+    clouds: &CloudRegistry,
+    name: &str,
+    initiative: &str,
+) -> Result<CallToolResult, McpError> {
+    if clouds.is_empty() {
+        return Err(not_configured());
+    }
+
+    let links = with_initiative(store, Some(initiative), || {
+        let id = resolve_name_or_id(store, name)?;
+        core_cloud_links(store, &id).map_err(to_mcp)
+    })?;
+
+    if links.is_empty() {
+        return Ok(text(&format!("`{name}` has no cloud soft links")));
+    }
+
+    let mut out = format!("cloud soft links of `{name}` ({}):\n", links.len());
+    for (edge_type, cloud_name, dst) in &links {
+        // Display tag: cloud:dst for the default, cloud:<name>:dst otherwise.
+        let tag = cloud_name
+            .as_deref()
+            .map(|n| format!("cloud:{n}:{dst}"))
+            .unwrap_or_else(|| format!("cloud:{dst}"));
+        let Some(client) = clouds.get(cloud_name.as_deref()) else {
+            out.push_str(&format!(
+                "  -[{edge_type}]-> {tag} (unresolved — cloud `{}` not configured)\n",
+                cloud_name.as_deref().unwrap_or("default")
+            ));
+            continue;
+        };
+        match client.get_node(dst).await {
+            Ok((200..=299, body)) => {
+                let v: Value = from_str(&body).unwrap_or(Value::Null);
+                let nm = v.get("name").and_then(|x| x.as_str()).unwrap_or("?");
+                let nt = v.get("node_type").and_then(|x| x.as_str()).unwrap_or("?");
+                out.push_str(&format!("  -[{edge_type}]-> {nm} ({nt}) — {tag}\n"));
+            }
+            Ok((code, _)) => {
+                out.push_str(&format!("  -[{edge_type}]-> {tag} (unresolved, {code})\n"));
+            }
+            Err(e) => {
+                out.push_str(&format!("  -[{edge_type}]-> {tag} (error: {e})\n"));
+            }
+        }
+    }
+    Ok(text(&out))
+}
+
+/// Batch sync-review: splits a team initiative's still-`local` nodes into
+/// PROPOSE SHARE (guard-clean) vs KEEP LOCAL (secret-guard flagged). Review
+/// once, then `share` the approved ones — low-friction periodic sharing
+/// instead of a decision per capture. Purely local; proposes, never pushes.
+pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, McpError> {
+    let pol = get_share_policy(store, initiative).map_err(to_mcp)?;
+    if !pol.permits_share() {
+        return Ok(text(&format!(
+            "initiative `{initiative}` is `{}` — nothing to sync. \
+             Run `policy {initiative} team` to enable sharing.",
+            pol.as_str()
+        )));
+    }
+
+    let locals = local_nodes_for_review(store, initiative).map_err(to_mcp)?;
+    if locals.is_empty() {
+        return Ok(text(&format!(
+            "`{initiative}`: no local nodes to review (all shared, or empty)"
+        )));
+    }
+
+    let mut propose: Vec<&NodeFull> = Vec::new();
+    let mut keep: Vec<(&NodeFull, Vec<String>)> = Vec::new();
+    for n in &locals {
+        let target = format!(
+            "{}\n{}\n{}",
+            n.name,
+            n.body.clone().unwrap_or_default(),
+            n.properties
+                .as_ref()
+                .map(|p| p.to_string())
+                .unwrap_or_default()
+        );
+        // Strict scanner — the share gate must be ≥ the export gate (see `share`).
+        let hits = scan_public(&target);
+        if hits.is_empty() {
+            propose.push(n);
+        } else {
+            // Rule id + the matched fragment (already truncated by the
+            // guard for safe display) — without the fragment a false
+            // positive can't be recognised without re-reading the body.
+            keep.push((n, hits.iter().map(format_hit).collect()));
+        }
+    }
+
+    let mut out = format!(
+        "sync review — initiative `{initiative}` ({} local node(s)):\n\n",
+        locals.len()
+    );
+    out.push_str(&format!(
+        "PROPOSE SHARE ({}) — guard-clean, candidate team knowledge:\n",
+        propose.len()
+    ));
+    for n in &propose {
+        out.push_str(&format!("  - {} ({}) — {}\n", n.name, n.node_type, n.id));
+    }
+    out.push_str(&format!(
+        "\nKEEP LOCAL ({}) — secret guard flagged:\n",
+        keep.len()
+    ));
+    for (n, hits) in &keep {
+        out.push_str(&format!(
+            "  - {} ({}) — {} [{}]\n",
+            n.name,
+            n.node_type,
+            n.id,
+            hits.join("; ")
+        ));
+    }
+    out.push_str(
+        "\nReview the PROPOSE list, then `share <name> <initiative>` the ones you approve.",
+    );
+    Ok(text(&out))
+}

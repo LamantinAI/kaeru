@@ -33,7 +33,12 @@ use crate::store::Store;
 /// a new version. Keep this list and the primitives that write these audit
 /// ops in step — a rewrite whose op is missing here is a change that
 /// disappears from `history` entirely.
-pub const UNVERSIONED_OPS: [&str; 3] = ["set_layer", "set_visibility", "set_edge_weight"];
+pub const UNVERSIONED_OPS: [&str; 4] = [
+    "metadata_update",
+    "set_layer",
+    "set_visibility",
+    "set_edge_weight",
+];
 
 /// One in-place change, as the audit trail recorded it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -155,7 +160,12 @@ mod tests {
         // here so that rename fails a test instead.
         assert_eq!(
             UNVERSIONED_OPS,
-            ["set_layer", "set_visibility", "set_edge_weight"]
+            [
+                "metadata_update",
+                "set_layer",
+                "set_visibility",
+                "set_edge_weight"
+            ]
         );
     }
 }

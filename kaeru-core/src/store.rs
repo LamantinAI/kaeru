@@ -14,9 +14,12 @@ use cozo::{DbInstance, NamedRows, ScriptMutability};
 use crate::config::KaeruConfig;
 use crate::errors::{Error, Result};
 
+mod database;
+pub(crate) use database::Database;
+
 /// In-process handle to the kaeru substrate.
 pub struct Store {
-    db: DbInstance,
+    db: Database,
     /// Process-local current initiative. Set via `use_initiative`,
     /// read by primitives that scope by initiative (junction lookups).
     current_initiative: Mutex<Option<String>>,
@@ -33,6 +36,8 @@ pub struct Store {
     /// `cargo test` can each pin their own config without racing on
     /// shared state.
     config: KaeruConfig,
+    pub(crate) api_snapshots: Mutex<BTreeMap<String, crate::api::read::Snapshot>>,
+    pub(crate) api_requests: Mutex<()>,
 }
 
 impl Store {
@@ -49,10 +54,12 @@ impl Store {
         let db = DbInstance::new("mem", "", "")
             .map_err(|e| Error::Substrate(format!("failed to open cozo in-memory: {e:?}")))?;
         let store = Self {
-            db,
+            db: Database::new(db),
             current_initiative: Mutex::new(None),
             scope_guard: Mutex::new(()),
             config,
+            api_snapshots: Mutex::new(BTreeMap::new()),
+            api_requests: Mutex::new(()),
         };
         store.bootstrap_schema()?;
         Ok(store)
@@ -88,10 +95,12 @@ impl Store {
         })?;
 
         let store = Self {
-            db,
+            db: Database::new(db),
             current_initiative: Mutex::new(None),
             scope_guard: Mutex::new(()),
             config,
+            api_snapshots: Mutex::new(BTreeMap::new()),
+            api_requests: Mutex::new(()),
         };
         store.bootstrap_schema()?;
         Ok(store)
@@ -171,8 +180,19 @@ impl Store {
     /// Internal accessor for primitives that need to issue parametrised scripts.
     /// Restricted to crate-visibility so external code goes through the
     /// curator-API primitives, not raw scripts.
-    pub(crate) fn db_ref(&self) -> &DbInstance {
+    pub(crate) fn db_ref(&self) -> &Database {
         &self.db
+    }
+
+    /// Atomically compose core primitives, including their audit events. Invoke
+    /// inside `scoped` when a command needs an initiative; nested atomic calls
+    /// join the outer transaction. A failure or panic rolls back every script.
+    pub fn atomic<T>(&self, f: impl FnOnce(&Self) -> Result<T>) -> Result<T> {
+        self.db.atomic(|| f(self))
+    }
+
+    pub(crate) fn generation(&self) -> u64 {
+        self.db.generation()
     }
 
     /// Idempotent schema bootstrap.
@@ -203,7 +223,7 @@ impl Store {
             }
         }
         self.ensure_fts_indexes()?;
-        crate::migrate::run_migrations(&self.db, !node_present)?;
+        crate::migrate::run_migrations(self.db.raw(), !node_present)?;
         Ok(())
     }
 
@@ -243,6 +263,10 @@ impl Store {
 /// `edge_initiative`) deliberately do not — initiative membership is
 /// append-only and read via prefix-scan.
 const SCHEMA_STATEMENTS: &[&str] = &[
+    ":create api_operation { caller: String, request_id: String => tool: String, arguments_hash: String, result: Json, created_at: Float default now() }",
+    ":create api_slot_revision { initiative: String, slot: String => revision: String }",
+    ":create api_trail_summary { chain_id: String => fingerprints: Json, stale: Bool default false }",
+    ":create api_hypothesis_decision { hypothesis: String, version: Int => status: String, evidence: [String] default [] }",
     r#"
     :create node {
         id: String,

@@ -28,40 +28,42 @@ pub fn link_with_weight(
     edge_type: EdgeType,
     weight: f64,
 ) -> Result<()> {
-    let w = weight.clamp(0.0, 1.0);
+    store.atomic(|store| {
+        let w = weight.clamp(0.0, 1.0);
 
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("src".to_string(), DataValue::Str(src.clone().into()));
-    params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
-    params.insert(
-        "edge_type".to_string(),
-        DataValue::Str(edge_type.as_str().into()),
-    );
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("src".to_string(), DataValue::Str(src.clone().into()));
+        params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+        params.insert(
+            "edge_type".to_string(),
+            DataValue::Str(edge_type.as_str().into()),
+        );
 
-    // One second past the key's newest row when that row is already at NOW,
-    // so a correction inside the same second is not outranked by what it
-    // corrects (#96).
-    let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
-    // `{w:.6}` keeps a decimal point so Cozo reads it as a Float, not an Int.
-    let script = format!(
-        r#"
-        ?[src, dst, edge_type, validity, weight, properties] <-
-            [[$src, $dst, $edge_type, [{now_secs}.0, true], {w:.6}, null]]
-        :put edge {{src, dst, edge_type, validity => weight, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&script, params, ScriptMutability::Mutable)?;
+        // One second past the key's newest row when that row is already at NOW,
+        // so a correction inside the same second is not outranked by what it
+        // corrects (#96).
+        let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
+        // `{w:.6}` keeps a decimal point so Cozo reads it as a Float, not an Int.
+        let script = format!(
+            r#"
+            ?[src, dst, edge_type, validity, weight, properties] <-
+                [[$src, $dst, $edge_type, [{now_secs}.0, true], {w:.6}, null]]
+            :put edge {{src, dst, edge_type, validity => weight, properties}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&script, params, ScriptMutability::Mutable)?;
 
-    attach_edge_to_initiative(store, src, dst, edge_type.as_str())?;
-    write_audit(
-        store.db_ref(),
-        "link",
-        "system",
-        &[src.clone(), dst.clone()],
-    )?;
-    Ok(())
+        attach_edge_to_initiative(store, src, dst, edge_type.as_str())?;
+        write_audit(
+            store.db_ref(),
+            "link",
+            "system",
+            &[src.clone(), dst.clone()],
+        )?;
+        Ok(())
+    })
 }
 
 /// Updates the `weight` of an existing edge **in place** at NOW, leaving
@@ -81,54 +83,56 @@ pub fn set_edge_weight(
     edge_type: EdgeType,
     weight: f64,
 ) -> Result<()> {
-    let w = weight.clamp(0.0, 1.0);
+    store.atomic(|store| {
+        let w = weight.clamp(0.0, 1.0);
 
-    let mut rp: BTreeMap<String, DataValue> = BTreeMap::new();
-    rp.insert("src".to_string(), DataValue::Str(src.clone().into()));
-    rp.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
-    rp.insert("et".to_string(), DataValue::Str(edge_type.as_str().into()));
+        let mut rp: BTreeMap<String, DataValue> = BTreeMap::new();
+        rp.insert("src".to_string(), DataValue::Str(src.clone().into()));
+        rp.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+        rp.insert("et".to_string(), DataValue::Str(edge_type.as_str().into()));
 
-    let read = r#"
-        ?[validity, properties, dst_store] :=
-            *edge{src, dst, edge_type, validity, properties, dst_store @ 'NOW'},
-            src = $src, dst = $dst, edge_type = $et
-    "#;
-    let rows = store
-        .db_ref()
-        .run_script(read, rp.clone(), ScriptMutability::Immutable)?;
-    let row = rows.rows.first().ok_or_else(|| {
-        Error::NotFound(format!(
-            "edge {src} -[{}]-> {dst} not found at NOW",
-            edge_type.as_str()
-        ))
-    })?;
+        let read = r#"
+            ?[validity, properties, dst_store] :=
+                *edge{src, dst, edge_type, validity, properties, dst_store @ 'NOW'},
+                src = $src, dst = $dst, edge_type = $et
+        "#;
+        let rows = store
+            .db_ref()
+            .run_script(read, rp.clone(), ScriptMutability::Immutable)?;
+        let row = rows.rows.first().ok_or_else(|| {
+            Error::NotFound(format!(
+                "edge {src} -[{}]-> {dst} not found at NOW",
+                edge_type.as_str()
+            ))
+        })?;
 
-    let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
-    p.insert("src".to_string(), DataValue::Str(src.clone().into()));
-    p.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
-    p.insert("et".to_string(), DataValue::Str(edge_type.as_str().into()));
-    p.insert("validity".to_string(), row[0].clone());
-    p.insert("properties".to_string(), row[1].clone());
-    p.insert("dst_store".to_string(), row[2].clone());
+        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+        p.insert("src".to_string(), DataValue::Str(src.clone().into()));
+        p.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+        p.insert("et".to_string(), DataValue::Str(edge_type.as_str().into()));
+        p.insert("validity".to_string(), row[0].clone());
+        p.insert("properties".to_string(), row[1].clone());
+        p.insert("dst_store".to_string(), row[2].clone());
 
-    let put = format!(
-        r#"
-        ?[src, dst, edge_type, validity, weight, properties, dst_store] <-
-            [[$src, $dst, $et, $validity, {w:.6}, $properties, $dst_store]]
-        :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&put, p, ScriptMutability::Mutable)?;
+        let put = format!(
+            r#"
+            ?[src, dst, edge_type, validity, weight, properties, dst_store] <-
+                [[$src, $dst, $et, $validity, {w:.6}, $properties, $dst_store]]
+            :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&put, p, ScriptMutability::Mutable)?;
 
-    write_audit(
-        store.db_ref(),
-        "set_edge_weight",
-        "system",
-        &[src.clone(), dst.clone()],
-    )?;
-    Ok(())
+        write_audit(
+            store.db_ref(),
+            "set_edge_weight",
+            "system",
+            &[src.clone(), dst.clone()],
+        )?;
+        Ok(())
+    })
 }
 
 /// Creates a **soft link** from a local node to a node in the *default*
@@ -163,43 +167,45 @@ pub fn link_remote_to(
     edge_type: EdgeType,
     cloud_name: Option<&str>,
 ) -> Result<()> {
-    let dst_store = match cloud_name {
-        None => "cloud".to_string(),
-        Some(n) => format!("cloud:{n}"),
-    };
+    store.atomic(|store| {
+        let dst_store = match cloud_name {
+            None => "cloud".to_string(),
+            Some(n) => format!("cloud:{n}"),
+        };
 
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("src".to_string(), DataValue::Str(src.clone().into()));
-    params.insert(
-        "dst".to_string(),
-        DataValue::Str(dst_cloud_id.clone().into()),
-    );
-    params.insert(
-        "edge_type".to_string(),
-        DataValue::Str(edge_type.as_str().into()),
-    );
-    params.insert("dst_store".to_string(), DataValue::Str(dst_store.into()));
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("src".to_string(), DataValue::Str(src.clone().into()));
+        params.insert(
+            "dst".to_string(),
+            DataValue::Str(dst_cloud_id.clone().into()),
+        );
+        params.insert(
+            "edge_type".to_string(),
+            DataValue::Str(edge_type.as_str().into()),
+        );
+        params.insert("dst_store".to_string(), DataValue::Str(dst_store.into()));
 
-    let now_secs = edge_version_seconds(store, src, dst_cloud_id, edge_type.as_str())?;
-    let script = format!(
-        r#"
-        ?[src, dst, edge_type, validity, weight, properties, dst_store] <-
-            [[$src, $dst, $edge_type, [{now_secs}.0, true], 1.0, null, $dst_store]]
-        :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&script, params, ScriptMutability::Mutable)?;
+        let now_secs = edge_version_seconds(store, src, dst_cloud_id, edge_type.as_str())?;
+        let script = format!(
+            r#"
+            ?[src, dst, edge_type, validity, weight, properties, dst_store] <-
+                [[$src, $dst, $edge_type, [{now_secs}.0, true], 1.0, null, $dst_store]]
+            :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&script, params, ScriptMutability::Mutable)?;
 
-    attach_edge_to_initiative(store, src, dst_cloud_id, edge_type.as_str())?;
-    write_audit(
-        store.db_ref(),
-        "link_remote",
-        "system",
-        &[src.clone(), dst_cloud_id.clone()],
-    )?;
-    Ok(())
+        attach_edge_to_initiative(store, src, dst_cloud_id, edge_type.as_str())?;
+        write_audit(
+            store.db_ref(),
+            "link_remote",
+            "system",
+            &[src.clone(), dst_cloud_id.clone()],
+        )?;
+        Ok(())
+    })
 }
 
 /// Retracts a previously-asserted edge through the bi-temporal substrate.
@@ -210,33 +216,35 @@ pub fn link_remote_to(
 /// No-op-safe: retracting an edge that was never asserted is harmless —
 /// the substrate just records a retraction with no effect on reads.
 pub fn unlink(store: &Store, src: &NodeId, dst: &NodeId, edge_type: EdgeType) -> Result<()> {
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("src".to_string(), DataValue::Str(src.clone().into()));
-    params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
-    params.insert(
-        "edge_type".to_string(),
-        DataValue::Str(edge_type.as_str().into()),
-    );
+    store.atomic(|store| {
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("src".to_string(), DataValue::Str(src.clone().into()));
+        params.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+        params.insert(
+            "edge_type".to_string(),
+            DataValue::Str(edge_type.as_str().into()),
+        );
 
-    // A retraction issued after an assertion must outrank it even when both
-    // land in the same second — that is the whole point of the bump (#96).
-    let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
-    let script = format!(
-        r#"
-        ?[src, dst, edge_type, validity, weight, properties] <-
-            [[$src, $dst, $edge_type, [{now_secs}.0, false], 1.0, null]]
-        :put edge {{src, dst, edge_type, validity => weight, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&script, params, ScriptMutability::Mutable)?;
+        // A retraction issued after an assertion must outrank it even when both
+        // land in the same second — that is the whole point of the bump (#96).
+        let now_secs = edge_version_seconds(store, src, dst, edge_type.as_str())?;
+        let script = format!(
+            r#"
+            ?[src, dst, edge_type, validity, weight, properties] <-
+                [[$src, $dst, $edge_type, [{now_secs}.0, false], 1.0, null]]
+            :put edge {{src, dst, edge_type, validity => weight, properties}}
+            "#
+        );
+        store
+            .db_ref()
+            .run_script(&script, params, ScriptMutability::Mutable)?;
 
-    write_audit(
-        store.db_ref(),
-        "unlink",
-        "system",
-        &[src.clone(), dst.clone()],
-    )?;
-    Ok(())
+        write_audit(
+            store.db_ref(),
+            "unlink",
+            "system",
+            &[src.clone(), dst.clone()],
+        )?;
+        Ok(())
+    })
 }

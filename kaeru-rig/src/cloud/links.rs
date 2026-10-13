@@ -2,11 +2,11 @@
 //! `cloud_links` resolves those references lazily — each routed back to the
 //! cloud it was created against (multi-cloud aware).
 
-use kaeru_core::EdgeType;
+use kaeru_core::{EdgeType, Error, cloud_links, link_remote_to};
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Value, from_str, json};
 
-use crate::{KaeruMemory, mem_tool_cloud_named, resolve};
+use crate::{KaeruMemory, resolve};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // link_cloud (local) — soft-link a local node to a cloud node by id.
@@ -24,15 +24,15 @@ pub struct LinkCloudArgs {
     pub initiative: String,
 }
 
-async fn do_link_cloud(mem: &KaeruMemory, a: LinkCloudArgs) -> Value {
+pub(super) async fn do_link_cloud(mem: &KaeruMemory, a: LinkCloudArgs) -> Value {
     // The verb names its initiative, so there is nothing to fall back to.
     let init = a.initiative.clone();
     // Refuse to bake a cloud name we can't resolve later — that would dangle.
     if let Some(cn) = a.cloud.as_deref()
-        && !mem.clouds().contains(cn)
+        && !mem.cloud_registry().contains(cn)
     {
         return json!({
-            "error": format!("unknown cloud `{cn}` — configured: [{}]", mem.clouds().names().join(", "))
+            "error": format!("unknown cloud `{cn}` — configured: [{}]", mem.cloud_registry().names().join(", "))
         });
     }
 
@@ -49,8 +49,11 @@ async fn do_link_cloud(mem: &KaeruMemory, a: LinkCloudArgs) -> Value {
             Ok(e) => e,
             Err(e) => return json!({ "error": e.to_string() }),
         };
-        let src = resolve(s, &name);
-        match kaeru_core::link_remote_to(s, &src, &cloud_id, edge, cloud_name.as_deref()) {
+        let src = match resolve(s, &name) {
+            Ok(id) => id,
+            Err(error) => return json!({"error":error}),
+        };
+        match link_remote_to(s, &src, &cloud_id, edge, cloud_name.as_deref()) {
             Ok(()) => {
                 let tag = cloud_name
                     .as_deref()
@@ -74,18 +77,18 @@ pub struct CloudLinksArgs {
     pub initiative: String,
 }
 
-async fn do_cloud_links(mem: &KaeruMemory, a: CloudLinksArgs) -> Value {
+pub(super) async fn do_cloud_links(mem: &KaeruMemory, a: CloudLinksArgs) -> Value {
     // The verb names its initiative, so there is nothing to fall back to.
     let init = a.initiative.clone();
-    if mem.clouds().is_empty() {
+    if mem.cloud_registry().is_empty() {
         return json!({ "error": "cloud not configured" });
     }
 
     let name = a.name.clone();
     let links = mem
         .blocking_in(Some(init), move |s| {
-            let id = resolve(s, &name);
-            kaeru_core::cloud_links(s, &id)
+            let id = resolve(s, &name).map_err(Error::Invalid)?;
+            cloud_links(s, &id)
         })
         .await;
     let links = match links {
@@ -102,7 +105,7 @@ async fn do_cloud_links(mem: &KaeruMemory, a: CloudLinksArgs) -> Value {
             .as_deref()
             .map(|n| format!("cloud:{n}:{dst}"))
             .unwrap_or_else(|| format!("cloud:{dst}"));
-        let Some(client) = mem.cloud(cloud_name.as_deref()) else {
+        let Ok(client) = mem.cloud_registry().resolve(cloud_name.as_deref()) else {
             out.push(json!({
                 "edge_type": edge_type, "target": tag, "resolved": false,
                 "note": format!("cloud `{}` not configured", cloud_name.as_deref().unwrap_or("default")),
@@ -111,7 +114,7 @@ async fn do_cloud_links(mem: &KaeruMemory, a: CloudLinksArgs) -> Value {
         };
         match client.get_node(dst).await {
             Ok((200..=299, body)) => {
-                let v: Value = serde_json::from_str(&body).unwrap_or(Value::Null);
+                let v: Value = from_str(&body).unwrap_or(Value::Null);
                 out.push(json!({
                     "edge_type": edge_type,
                     "target": tag,
@@ -130,35 +133,3 @@ async fn do_cloud_links(mem: &KaeruMemory, a: CloudLinksArgs) -> Value {
     }
     json!({ "name": a.name, "links": out })
 }
-
-mem_tool_cloud_named!(
-    /// `kaeru_link_cloud` — soft-link a local node to a cloud node by id.
-    LinkCloud,
-    "kaeru_link_cloud",
-    "Soft-link a local node to a cloud node by id — a reference without copying, resolved lazily \
-     via kaeru_cloud_links. Edge type defaults to refers_to. `cloud` records which cloud the dst \
-     lives in.",
-    LinkCloudArgs,
-    { "type": "object", "properties": {
-        "name": { "type": "string", "description": "local source node name or id" },
-        "cloud_id": { "type": "string", "description": "the cloud node's id" },
-        "edge_type": { "type": "string", "description": "link type (default refers_to)" },
-        "cloud": { "type": "string", "description": "named cloud the dst lives in" },
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" }
-    }, "required": ["name", "cloud_id", "initiative"] },
-    |mem, a| do_link_cloud(mem, a).await
-);
-
-mem_tool_cloud_named!(
-    /// `kaeru_cloud_links` — resolve a node's cloud soft links.
-    CloudLinks,
-    "kaeru_cloud_links",
-    "Resolve a node's cloud soft links — fetch and show the cloud nodes they point to. The lazy \
-     resolution path for kaeru_link_cloud; each link routes to the cloud it was created against.",
-    CloudLinksArgs,
-    { "type": "object", "properties": {
-        "name": { "type": "string", "description": "local node name or id" },
-        "initiative": { "type": "string", "description": "initiative (default: the memory's own)" }
-    }, "required": ["name", "initiative"] },
-    |mem, a| do_cloud_links(mem, a).await
-);

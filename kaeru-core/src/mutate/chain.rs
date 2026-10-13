@@ -147,102 +147,120 @@ pub fn create_chain(
     if path.len() < 2 {
         return Ok(None);
     }
-    check_hop_cap(store, path.len())?;
+    create_chain_from_members(store, &path, name, summary)
+}
 
-    // The path is deterministic, so a repeated call would otherwise freeze an
-    // identical trail again — reuse the existing chain instead of duplicating.
-    // A repeat with a fresh name/summary is the agent relabelling the trail,
-    // so refresh that metadata rather than silently dropping it.
-    if let Some(existing) = find_duplicate_chain(store, &path)? {
-        if name.is_some() || summary.is_some() {
-            let cur = read_node_full(store, &existing)?;
-            let new_name = name
-                .map(String::from)
-                .or_else(|| cur.as_ref().map(|c| c.name.clone()))
-                .unwrap_or_default();
-            let new_body = summary
-                .map(String::from)
-                .or_else(|| cur.as_ref().and_then(|c| c.body.clone()));
-            let layer = cur
-                .as_ref()
-                .and_then(|c| Layer::from_str(&c.layer).ok())
-                .unwrap_or(Layer::Warm);
-            upsert_node(
-                store,
-                &existing,
-                NodeType::Chain,
-                Tier::Operational,
-                &new_name,
-                new_body.as_deref(),
-                &[],
-                store.current_initiative().as_deref(),
-                Visibility::Local,
-                layer,
-                None,
-            )?;
-        }
-        // Uniform with the fresh-create path: an unscoped reuse also backfills
-        // the endpoints' initiatives (idempotent), so a chain reached this way
-        // is never left invisible to scoped reads either.
-        if store.current_initiative().is_none() {
-            inherit_endpoint_initiatives(store, &existing, from, to)?;
-        }
-        return Ok(Some(ChainOutcome {
-            id: existing,
-            reused: true,
-        }));
+/// Persists an already resolved route. The API uses this after its authorized
+/// traversal so saving a trail cannot rediscover a different, hidden route.
+pub(crate) fn create_chain_from_members(
+    store: &Store,
+    path: &[NodeId],
+    name: Option<&str>,
+    summary: Option<&str>,
+) -> Result<Option<ChainOutcome>> {
+    if path.len() < 2 {
+        return Ok(None);
     }
+    let from = &path[0];
+    let to = path.last().unwrap();
+    store.atomic(|store| {
+        check_hop_cap(store, path.len())?;
 
-    let from_name = node_brief_by_id(store, from)?
-        .map(|b| b.name)
-        .unwrap_or_default();
-    let to_name = node_brief_by_id(store, to)?
-        .map(|b| b.name)
-        .unwrap_or_default();
-    let chain_name = name
-        .map(String::from)
-        .unwrap_or_else(|| format!("chain-{from_name}-to-{to_name}"));
-    let body = summary.map(String::from).unwrap_or_else(|| {
-        format!(
-            "reasoning chain: {from_name} → {to_name} ({} nodes)",
-            path.len()
-        )
-    });
+        // The path is deterministic, so a repeated call would otherwise freeze an
+        // identical trail again — reuse the existing chain instead of duplicating.
+        // A repeat with a fresh name/summary is the agent relabelling the trail,
+        // so refresh that metadata rather than silently dropping it.
+        if let Some(existing) = find_duplicate_chain(store, &path)? {
+            if name.is_some() || summary.is_some() {
+                let cur = read_node_full(store, &existing)?;
+                let new_name = name
+                    .map(String::from)
+                    .or_else(|| cur.as_ref().map(|c| c.name.clone()))
+                    .unwrap_or_default();
+                let new_body = summary
+                    .map(String::from)
+                    .or_else(|| cur.as_ref().and_then(|c| c.body.clone()));
+                let layer = cur
+                    .as_ref()
+                    .and_then(|c| Layer::from_str(&c.layer).ok())
+                    .unwrap_or(Layer::Warm);
+                upsert_node(
+                    store,
+                    &existing,
+                    NodeType::Chain,
+                    Tier::Operational,
+                    &new_name,
+                    new_body.as_deref(),
+                    &[],
+                    store.current_initiative().as_deref(),
+                    Visibility::Local,
+                    layer,
+                    None,
+                )?;
+            }
+            // Uniform with the fresh-create path: an unscoped reuse also backfills
+            // the endpoints' initiatives (idempotent), so a chain reached this way
+            // is never left invisible to scoped reads either.
+            if store.current_initiative().is_none() {
+                inherit_endpoint_initiatives(store, &existing, from, to)?;
+            }
+            return Ok(Some(ChainOutcome {
+                id: existing,
+                reused: true,
+            }));
+        }
 
-    let chain_id = new_node_id();
-    let initiative = store.current_initiative();
-    upsert_node(
-        store,
-        &chain_id,
-        NodeType::Chain,
-        Tier::Operational,
-        &chain_name,
-        Some(&body),
-        &[],
-        initiative.as_deref(),
-        Visibility::Local,
-        Layer::Warm,
-        None,
-    )?;
-    // With no active scope the upsert left the chain node without any
-    // membership, and a chain invisible to every scoped read is never
-    // intended. Inherit the initiatives of its **endpoints** — the nodes the
-    // caller chose — not the pass-through path members it merely traverses.
-    if initiative.is_none() {
-        inherit_endpoint_initiatives(store, &chain_id, from, to)?;
-    }
-    replace_members(store, &chain_id, &path)?;
+        let from_name = node_brief_by_id(store, from)?
+            .map(|b| b.name)
+            .unwrap_or_default();
+        let to_name = node_brief_by_id(store, to)?
+            .map(|b| b.name)
+            .unwrap_or_default();
+        let chain_name = name
+            .map(String::from)
+            .unwrap_or_else(|| format!("chain-{from_name}-to-{to_name}"));
+        let body = summary.map(String::from).unwrap_or_else(|| {
+            format!(
+                "reasoning chain: {from_name} → {to_name} ({} nodes)",
+                path.len()
+            )
+        });
 
-    write_audit(
-        store.db_ref(),
-        "create_chain",
-        "system",
-        &[chain_id.clone(), from.clone(), to.clone()],
-    )?;
-    Ok(Some(ChainOutcome {
-        id: chain_id,
-        reused: false,
-    }))
+        let chain_id = new_node_id();
+        let initiative = store.current_initiative();
+        upsert_node(
+            store,
+            &chain_id,
+            NodeType::Chain,
+            Tier::Operational,
+            &chain_name,
+            Some(&body),
+            &[],
+            initiative.as_deref(),
+            Visibility::Local,
+            Layer::Warm,
+            None,
+        )?;
+        // With no active scope the upsert left the chain node without any
+        // membership, and a chain invisible to every scoped read is never
+        // intended. Inherit the initiatives of its **endpoints** — the nodes the
+        // caller chose — not the pass-through path members it merely traverses.
+        if initiative.is_none() {
+            inherit_endpoint_initiatives(store, &chain_id, from, to)?;
+        }
+        replace_members(store, &chain_id, &path)?;
+
+        write_audit(
+            store.db_ref(),
+            "create_chain",
+            "system",
+            &[chain_id.clone(), from.clone(), to.clone()],
+        )?;
+        Ok(Some(ChainOutcome {
+            id: chain_id,
+            reused: false,
+        }))
+    })
 }
 
 /// Recomputes a chain's shortest weighted path between its current endpoints
