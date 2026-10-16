@@ -79,28 +79,30 @@ def from_journal(path: Path) -> list[dict]:
     asks: dict[str, dict] = {}
     out: list[dict] = []
     for row in rows:
+        if not isinstance(row, dict):
+            continue
+        session = row.get("session")
+        if not isinstance(session, str) or not session:
+            continue
         if row.get("event") in ("Stop", "PreToolUse"):
-            key = (row.get("session"), row.get("turn"))
-            asks[key] = row
+            asks[session] = row
         elif row.get("event") == "UserPromptSubmit":
             outcome = str(row.get("outcome") or "")
-            # The journal does not carry the turn id on the reply row, so the
-            # ask is the last one logged for that session.
-            ask = next(
-                (
-                    a
-                    for (session, _), a in reversed(list(asks.items()))
-                    if session == row.get("session")
-                ),
-                None,
-            )
+            # Match the hook's one pending ask per session, consumed by the
+            # next prompt. Even an unasked reply clears it: retaining an old
+            # ask would attach later outcomes to an already answered question.
+            ask = asks.pop(session, None)
             if not ask or not ask.get("q"):
+                continue
+            if not row.get("after_shape") or row["after_shape"] != ask.get("shape"):
+                continue
+            if outcome not in ("miss", "answered", "complaint", "capture_nudge"):
                 continue
             out.append(
                 {
                     "ask": ask.get("q", ""),
                     "hits": [{"name": n, "excerpt": ""} for n in ask.get("hits", [])],
-                    "label": "miss" if outcome.endswith("miss") else "other",
+                    "label": "miss" if outcome == "miss" else "other",
                 }
             )
     return out

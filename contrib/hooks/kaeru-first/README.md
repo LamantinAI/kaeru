@@ -201,6 +201,14 @@ lift — so the comparison is like for like. The bar to ship it: **lift ≥ 2 an
 precision well clear of the lexical ~4%.** Below that, it is a second negative
 result and the judge stays where it is.
 
+`python3 eval_judge.py decisions.jsonl --from-journal` builds a corpus from
+recorded question/reply pairs. Each session's latest question is consumed by
+one reply; unasked outcomes and replies without a matching question shape
+are excluded. The journal stores hit names, so their excerpts remain empty.
+
+Run the offline suite with `python3 -m unittest discover -s . -p 'test_*.py'`.
+It covers journal pairing and uses local fake services for the hook and judge.
+
 **If it ever does get wired in, it stays opt-in.** Two environment variables,
 both of them absent by default:
 
