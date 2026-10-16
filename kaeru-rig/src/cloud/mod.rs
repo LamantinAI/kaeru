@@ -36,7 +36,10 @@ pub(crate) async fn call(mem: &KaeruMemory, name: &str, args: Value) -> Value {
         } };
     }
     match name {
-        "clouds" => json!({"clouds": mem.cloud_registry().names()}),
+        "clouds" => {
+            mem.store.record_read_trace("clouds", vec![], vec![]);
+            json!({"clouds": mem.cloud_registry().names()})
+        }
         "share" => decode!(share::do_share),
         "unshare" => decode!(share::do_unshare),
         "cloud_initiatives" => decode!(pull::do_cloud_initiatives),

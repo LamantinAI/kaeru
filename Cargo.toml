@@ -21,6 +21,7 @@ authors = ["GrumpyChubbyCat <lamantin-ai@yandex.ru>"]
 # sqlite (e.g. an app that also uses sqlx). Keep graph-algo + requests + rocksdb.
 cozo = { version = "0.7", default-features = false, features = ["graph-algo", "requests", "storage-rocksdb"] }
 crossbeam-channel = "0.5"
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 jsonschema = { version = "0.33", default-features = false }
 sha2 = "0.10"
 tower = { version = "0.5", features = ["util"] }

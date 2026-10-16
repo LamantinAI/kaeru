@@ -258,9 +258,12 @@ async fn cloud_call(
             .map_err(|e| McpError::invalid_params(e, None))
     };
     match name {
-        "clouds" => Ok(CallToolResult::structured(
-            json!({"clouds":clouds.names(),"endpoints":clouds.names().into_iter().filter_map(|name|clouds.resolve(Some(name)).ok().map(|client|(name,client.base_url().to_string()))).collect::<BTreeMap<_,_>>(),"loaded_at":clouds.loaded_at()}),
-        )),
+        "clouds" => {
+            store.record_read_trace("clouds", vec![], vec![]);
+            Ok(CallToolResult::structured(
+                json!({"clouds":clouds.names(),"endpoints":clouds.names().into_iter().filter_map(|name|clouds.resolve(Some(name)).ok().map(|client|(name,client.base_url().to_string()))).collect::<BTreeMap<_,_>>(),"loaded_at":clouds.loaded_at()}),
+            ))
+        }
         "share" => {
             let p: ShareParams = decode(args)?;
             share(
@@ -284,11 +287,12 @@ async fn cloud_call(
         }
         "cloud_initiatives" => {
             let p: CloudScopeParams = decode(args)?;
-            cloud_initiatives(Some(client(p.cloud.as_deref())?)).await
+            cloud_initiatives(store, Some(client(p.cloud.as_deref())?)).await
         }
         "cloud_recall" => {
             let p: CloudRecallParams = decode(args)?;
             cloud_recall(
+                store,
                 Some(client(p.cloud.as_deref())?),
                 &p.initiative,
                 p.query.as_deref(),

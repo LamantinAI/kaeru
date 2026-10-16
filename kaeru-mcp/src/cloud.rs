@@ -302,7 +302,10 @@ pub async fn share(
 ///
 /// Not to be confused with `clouds`, which lists the clouds this daemon can
 /// reach. This lists what is *inside* one of them.
-pub async fn cloud_initiatives(cloud: Option<&CloudClient>) -> Result<CallToolResult, McpError> {
+pub async fn cloud_initiatives(
+    store: &Store,
+    cloud: Option<&CloudClient>,
+) -> Result<CallToolResult, McpError> {
     let cloud = cloud.ok_or_else(not_configured)?;
     let (code, resp) = cloud
         .list_initiatives()
@@ -318,6 +321,14 @@ pub async fn cloud_initiatives(cloud: Option<&CloudClient>) -> Result<CallToolRe
         .ok()
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
+    store.record_read_trace(
+        "cloud_initiatives",
+        vec![],
+        items
+            .iter()
+            .filter_map(|it| it.get("name")?.as_str().map(str::to_owned))
+            .collect(),
+    );
     if items.is_empty() {
         return Ok(text(&format!(
             "cloud `{}` holds no initiatives yet.",
@@ -388,6 +399,7 @@ pub async fn unshare(
 /// Lists the shared nodes the cloud holds for an initiative — discovery
 /// before `pull`.
 pub async fn cloud_recall(
+    store: &Store,
     cloud: Option<&CloudClient>,
     initiative: &str,
     query: Option<&str>,
@@ -428,6 +440,7 @@ pub async fn cloud_recall(
         .and_then(|(_, body)| initiative_total(&body, initiative));
 
     if items.is_empty() {
+        store.record_read_trace("cloud_recall", vec![], vec![initiative.into()]);
         // "Empty" and "not here" used to read identically, which in a
         // multi-cloud setup is the difference between "nobody has shared
         // anything" and "you asked the wrong cloud".
@@ -524,6 +537,14 @@ pub async fn cloud_recall(
         ));
     }
     out.push_str("\n↳ `pull <id> <initiative>` materialises one locally.");
+    store.record_read_trace(
+        "cloud_recall",
+        items
+            .iter()
+            .filter_map(|it| it.get("id")?.as_str().map(str::to_owned))
+            .collect(),
+        vec![initiative.into()],
+    );
     Ok(text(&out))
 }
 
@@ -758,10 +779,12 @@ pub async fn cloud_links(
     })?;
 
     if links.is_empty() {
+        store.record_read_trace("cloud_links", vec![], vec![initiative.into()]);
         return Ok(text(&format!("`{name}` has no cloud soft links")));
     }
 
     let mut out = format!("cloud soft links of `{name}` ({}):\n", links.len());
+    let mut delivered_ids = Vec::new();
     for (edge_type, cloud_name, dst) in &links {
         // Display tag: cloud:dst for the default, cloud:<name>:dst otherwise.
         let tag = cloud_name
@@ -778,6 +801,9 @@ pub async fn cloud_links(
         match client.get_node(dst).await {
             Ok((200..=299, body)) => {
                 let v: Value = from_str(&body).unwrap_or(Value::Null);
+                if v.get("name").and_then(Value::as_str).is_some() {
+                    delivered_ids.push(dst.clone());
+                }
                 let nm = v.get("name").and_then(|x| x.as_str()).unwrap_or("?");
                 let nt = v.get("node_type").and_then(|x| x.as_str()).unwrap_or("?");
                 out.push_str(&format!("  -[{edge_type}]-> {nm} ({nt}) — {tag}\n"));
@@ -790,6 +816,7 @@ pub async fn cloud_links(
             }
         }
     }
+    store.record_read_trace("cloud_links", delivered_ids, vec![initiative.into()]);
     Ok(text(&out))
 }
 
@@ -800,6 +827,7 @@ pub async fn cloud_links(
 pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, McpError> {
     let pol = get_share_policy(store, initiative).map_err(to_mcp)?;
     if !pol.permits_share() {
+        store.record_read_trace("sync_review", vec![], vec![initiative.into()]);
         return Ok(text(&format!(
             "initiative `{initiative}` is `{}` — nothing to sync. \
              Run `policy {initiative} team` to enable sharing.",
@@ -809,6 +837,7 @@ pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, Mc
 
     let locals = local_nodes_for_review(store, initiative).map_err(to_mcp)?;
     if locals.is_empty() {
+        store.record_read_trace("sync_review", vec![], vec![initiative.into()]);
         return Ok(text(&format!(
             "`{initiative}`: no local nodes to review (all shared, or empty)"
         )));
@@ -864,6 +893,11 @@ pub fn sync_review(store: &Store, initiative: &str) -> Result<CallToolResult, Mc
     }
     out.push_str(
         "\nReview the PROPOSE list, then `share <name> <initiative>` the ones you approve.",
+    );
+    store.record_read_trace(
+        "sync_review",
+        locals.iter().map(|n| n.id.clone()).collect(),
+        vec![initiative.into()],
     );
     Ok(text(&out))
 }

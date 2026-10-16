@@ -35,6 +35,7 @@ pub(super) async fn do_sync_review(mem: &KaeruMemory, a: SyncReviewArgs) -> Valu
             Err(e) => return json!({ "error": e.to_string() }),
         };
         if !pol.permits_share() {
+            s.record_read_trace("sync_review", vec![], vec![init2.clone()]);
             return json!({
                 "message": format!(
                     "initiative `{init2}` is `{}` — nothing to sync; set policy=team first.",
@@ -68,6 +69,11 @@ pub(super) async fn do_sync_review(mem: &KaeruMemory, a: SyncReviewArgs) -> Valu
                 }));
             }
         }
+        s.record_read_trace(
+            "sync_review",
+            locals.iter().map(|n| n.id.clone()).collect(),
+            vec![init2.clone()],
+        );
         json!({ "initiative": init2, "propose_share": propose, "keep_local": keep })
     })
     .await

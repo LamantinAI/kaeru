@@ -169,3 +169,12 @@ for practical limits, including current metadata and optional cloud behavior.
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Store verification and read tracing
+
+An independent temporal oracle checks recorded state against the substrate.
+Optional local read tracing records delivered IDs and operation metadata, with
+72 hours of raw JSONL followed by gzip and 14 days total retention. Enable it
+with `KAERU_READ_TRACE_ENABLED=true`; no journal is written by default. See
+[storage verification and read tracing](docs/architecture.md#local-read-delivery-journal)
+for configuration, retention boundaries and the lossy-delivery contract.

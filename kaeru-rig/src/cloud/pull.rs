@@ -63,6 +63,14 @@ pub(super) async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Va
         Err(e) => return json!({ "error": format!("bad cloud response: {e}") }),
     };
     let items = arr.as_array().cloned().unwrap_or_default();
+    mem.store.record_read_trace(
+        "cloud_recall",
+        items
+            .iter()
+            .filter_map(|n| n.get("id")?.as_str().map(str::to_owned))
+            .collect(),
+        vec![init.clone()],
+    );
     json!({ "initiative": init, "count": items.len(), "nodes": items })
 }
 
@@ -245,6 +253,14 @@ pub(super) async fn do_cloud_initiatives(mem: &KaeruMemory, a: CloudInitiativesA
                 .ok()
                 .and_then(|v| v.as_array().cloned())
                 .unwrap_or_default();
+            mem.store.record_read_trace(
+                "cloud_initiatives",
+                vec![],
+                items
+                    .iter()
+                    .filter_map(|n| n.get("name")?.as_str().map(str::to_owned))
+                    .collect(),
+            );
             json!({
                 "cloud": client.name(),
                 "initiatives": items

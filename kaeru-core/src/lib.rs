@@ -20,6 +20,7 @@ mod migrate;
 pub mod models;
 pub mod mutate;
 pub mod naming;
+mod read_trace;
 pub mod recall;
 pub mod sanitize;
 pub mod session;

@@ -96,10 +96,13 @@ pub(super) async fn do_cloud_links(mem: &KaeruMemory, a: CloudLinksArgs) -> Valu
         Err(e) => return json!({ "error": e.to_string() }),
     };
     if links.is_empty() {
+        mem.store
+            .record_read_trace("cloud_links", vec![], vec![a.initiative.clone()]);
         return json!({ "name": a.name, "links": [] });
     }
 
     let mut out: Vec<Value> = Vec::with_capacity(links.len());
+    let mut delivered_ids = Vec::new();
     for (edge_type, cloud_name, dst) in &links {
         let tag = cloud_name
             .as_deref()
@@ -115,6 +118,9 @@ pub(super) async fn do_cloud_links(mem: &KaeruMemory, a: CloudLinksArgs) -> Valu
         match client.get_node(dst).await {
             Ok((200..=299, body)) => {
                 let v: Value = from_str(&body).unwrap_or(Value::Null);
+                if v.get("name").and_then(Value::as_str).is_some() {
+                    delivered_ids.push(dst.clone());
+                }
                 out.push(json!({
                     "edge_type": edge_type,
                     "target": tag,
@@ -131,5 +137,7 @@ pub(super) async fn do_cloud_links(mem: &KaeruMemory, a: CloudLinksArgs) -> Valu
             })),
         }
     }
+    mem.store
+        .record_read_trace("cloud_links", delivered_ids, vec![a.initiative.clone()]);
     json!({ "name": a.name, "links": out })
 }

@@ -8,11 +8,15 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
+use std::time::Duration;
 
+use chrono::Utc;
 use cozo::{DbInstance, NamedRows, ScriptMutability};
 
 use crate::config::KaeruConfig;
 use crate::errors::{Error, Result};
+use crate::models::ReadTraceEvent;
+use crate::read_trace::ReadTrace;
 
 mod database;
 pub(crate) use database::Database;
@@ -36,6 +40,7 @@ pub struct Store {
     /// `cargo test` can each pin their own config without racing on
     /// shared state.
     config: KaeruConfig,
+    read_trace: ReadTrace,
     pub(crate) api_snapshots: Mutex<BTreeMap<String, crate::api::read::Snapshot>>,
     pub(crate) api_requests: Mutex<()>,
 }
@@ -57,6 +62,7 @@ impl Store {
             db: Database::new(db),
             current_initiative: Mutex::new(None),
             scope_guard: Mutex::new(()),
+            read_trace: ReadTrace::start(&config),
             config,
             api_snapshots: Mutex::new(BTreeMap::new()),
             api_requests: Mutex::new(()),
@@ -98,6 +104,7 @@ impl Store {
             db: Database::new(db),
             current_initiative: Mutex::new(None),
             scope_guard: Mutex::new(()),
+            read_trace: ReadTrace::start(&config),
             config,
             api_snapshots: Mutex::new(BTreeMap::new()),
             api_requests: Mutex::new(()),
@@ -109,6 +116,39 @@ impl Store {
     /// Returns the runtime configuration this store was opened with.
     pub fn config(&self) -> &KaeruConfig {
         &self.config
+    }
+
+    /// Fast producer guard; asynchronous worker failure can still drop events.
+    pub(crate) fn read_trace_enabled(&self) -> bool {
+        self.read_trace.enabled()
+    }
+
+    /// Enqueues only delivered read metadata; overload/I/O failures are dropped.
+    pub fn record_read_trace(
+        &self,
+        operation: &str,
+        node_ids: Vec<String>,
+        initiatives: Vec<String>,
+    ) {
+        if !self.read_trace.enabled() {
+            return;
+        }
+        self.read_trace.record(ReadTraceEvent {
+            operation: operation.into(),
+            node_ids,
+            initiatives,
+            timestamp: Utc::now(),
+        });
+    }
+
+    /// Explicit host/test barrier; never invoked by memory reads.
+    pub fn flush_read_trace(&self, timeout: Duration) -> bool {
+        self.read_trace.flush(timeout, false)
+    }
+
+    /// Bounded orderly shutdown. Dropping a Store itself never waits for this.
+    pub fn shutdown_read_trace(&self, timeout: Duration) -> bool {
+        self.read_trace.flush(timeout, true)
     }
 
     /// Sets the current initiative for this Store handle. Subsequent

@@ -278,7 +278,11 @@ pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOpt
     if let Ok(response) = result.as_mut() {
         response.request_id = request_id;
     }
-    result.unwrap_or_else(|issue| Response::rejected(name, issue))
+    let response = result.unwrap_or_else(|issue| Response::rejected(name, issue));
+    if is_read(name, action.as_deref(), &args) && !matches!(response.state, State::Rejected) {
+        read::trace::delivered(store, &response, initiative.as_deref());
+    }
+    response
 }
 
 pub fn normalize_arguments(name: &str, arguments: &mut Value) {

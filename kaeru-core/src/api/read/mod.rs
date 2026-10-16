@@ -13,6 +13,7 @@ mod reasoning;
 mod record;
 mod reflect;
 mod search;
+pub(super) mod trace;
 pub(super) use context::{context, scope_nodes};
 pub(super) use history::{history, initiatives, time_string};
 pub(super) use node::{created_at, entity, filter_references, node, relations};

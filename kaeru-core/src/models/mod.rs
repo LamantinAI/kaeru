@@ -3,6 +3,7 @@
 mod access;
 mod catalogue;
 mod mirror;
+mod read_trace;
 mod records;
 mod references;
 mod response;
@@ -11,6 +12,7 @@ mod search;
 pub use access::ApiOptions;
 pub use catalogue::{ToolAnnotations, ToolDefinition};
 pub use mirror::{EdgeChange, EdgeMirror};
+pub use read_trace::ReadTraceEvent;
 pub use records::{
     Artifact, Change, ContentRange, ContextData, Entity, EvidenceResult, FailedStep, HistoryData,
     HistoryEvent, InitiativesData, MutationData, NodeData, RecordData, RelationData,

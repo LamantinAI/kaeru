@@ -27,6 +27,7 @@ use crate::errors::Result;
 /// Shared contract and transport defaults.
 pub mod api;
 pub mod cloud;
+pub mod read_trace;
 pub mod search;
 pub use api::API_VERSION;
 
@@ -116,6 +117,15 @@ pub struct KaeruConfig {
     /// "stale after N days" trigger never fires for an initiative nobody
     /// opens — it is only ever read when that initiative is touched.
     pub hygiene_sweep_interval_secs: u64,
+    /// Opt-in metadata-only journal outside the vault; failure never fails reads.
+    pub read_trace_enabled: bool,
+    pub read_trace_dir: PathBuf,
+    pub read_trace_raw_ttl_secs: u64,
+    pub read_trace_retention_secs: u64,
+    pub read_trace_queue_capacity: usize,
+    pub read_trace_segment_bytes: u64,
+    pub read_trace_segment_secs: u64,
+    pub read_trace_maintenance_interval_secs: u64,
 }
 
 impl KaeruConfig {
@@ -145,6 +155,14 @@ impl KaeruConfig {
             hygiene_core_review_age_secs: 30 * 24 * 60 * 60,
             hygiene_promote_in_degree: 5,
             hygiene_sweep_interval_secs: 6 * 60 * 60,
+            read_trace_enabled: false,
+            read_trace_dir: read_trace::default_directory(),
+            read_trace_raw_ttl_secs: read_trace::RAW_TTL_SECS,
+            read_trace_retention_secs: read_trace::RETENTION_SECS,
+            read_trace_queue_capacity: read_trace::QUEUE_CAPACITY,
+            read_trace_segment_bytes: read_trace::SEGMENT_BYTES,
+            read_trace_segment_secs: read_trace::SEGMENT_SECS,
+            read_trace_maintenance_interval_secs: read_trace::MAINTENANCE_SECS,
         }
     }
 

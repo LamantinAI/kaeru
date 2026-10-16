@@ -500,3 +500,6 @@ mod hygiene_flag_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod read_trace_tests;

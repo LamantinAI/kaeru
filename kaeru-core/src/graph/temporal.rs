@@ -46,7 +46,8 @@ pub struct Revision {
 
 /// Returns the **full** node as-of `at_seconds` (Unix seconds) — every
 /// field plus the untruncated body — or `None` if no row was valid at that
-/// time. Pass the current time to read the node as it is now.
+/// time. For the latest committed state use `read_node_full`: a burst of
+/// revisions can allocate recorded seconds ahead of the wall-clock cutoff.
 pub fn at(store: &Store, id: &NodeId, at_seconds: f64) -> Result<Option<NodeSnapshot>> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));

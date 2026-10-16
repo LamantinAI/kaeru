@@ -167,3 +167,90 @@ reads. Adapter tests check transport policy and matching definitions. These
 checks establish implementation behavior. Whether a model consults memory and
 uses the result well requires a separate agent benchmark with its API and host
 instructions recorded.
+
+## Independent recorded-state verification
+
+`kaeru-core/tests/support/recorded_reference.rs` is a pure Rust oracle with
+no Cozo or core imports. It reduces a sequence of assertions/retractions for
+each key at a requested recorded second. The newest eligible timestamp wins;
+an assertion wins a same-time tie. Rewriting the identical recorded key
+replaces its payload. Node IDs and `(source, destination, edge type)` are
+independent keys.
+
+`tests/store_reference.rs` compares explicit boundaries and generated mixed
+sequences with substrate reads, then checks actual public revisions, retraction
+and rollback against requested content. Only allocated timestamps are observed
+from storage for public writes. Expected values come from the operation inputs.
+Current metadata is tested separately; this oracle does not invent historical
+layer, visibility, properties or membership values.
+
+## Local read-delivery journal
+
+Read tracing is opt-in and independent of graph history. It records successful
+read delivery after scope/visibility checks and pagination. Each event contains
+exactly `operation`, `timestamp` (UTC), `initiatives` and `node_ids`. IDs and
+initiatives are sorted and deduplicated. Names, bodies, queries, request IDs,
+credentials and arbitrary properties are never copied into journal events.
+
+A content read means a returned record, saved trail, retention proposal or
+history subject. Relation endpoints, successor pointers, trail members, slot
+pointers and path-only IDs do not count as content reads on their own. Each
+cursor page produces its own event. Empty successful reads produce empty ID
+lists; rejected operations and mutations are excluded. Cloud recall, resolved
+cloud links, initiative listings and sync-review candidates are covered too.
+Internal requests, auxiliary cloud totals and mutation-only `pull` receipts
+produce no read event. There are no extra network requests for tracing.
+
+The common API hook serves local MCP, HTTP and Rig calls once. Cloud adapters
+capture known returned fields before rendering; the writer never receives raw
+responses. Existing reminder-delivery and hygiene-report behavior is unchanged:
+tracing itself adds no substrate writes. A trace shows what was delivered, not
+proof that an agent used it to reach a correct answer.
+
+Enable it when starting the host:
+
+```sh
+KAERU_READ_TRACE_ENABLED=true kaeru-mcp
+```
+
+The default directory is `$XDG_STATE_HOME/kaeru/read-trace` on Linux (fallback
+`~/.local/state/kaeru/read-trace`), `~/Library/Logs/kaeru/read-trace` on macOS,
+and `%LOCALAPPDATA%/kaeru/read-trace` on Windows. Override it with
+`KAERU_READ_TRACE_DIR`. It must be outside the vault; symlink ancestry is
+resolved and parent-traversal paths are rejected. New Unix directories/files
+use permissions 0700/0600. One exclusive OS lock owns a trace directory: hosts
+with independent Stores should configure distinct directories.
+
+| Environment variable | Default | Meaning |
+| --- | --- | --- |
+| `KAERU_READ_TRACE_ENABLED` | `false` | Enable the local journal. |
+| `KAERU_READ_TRACE_DIR` | Platform state directory | Directory outside the vault. |
+| `KAERU_READ_TRACE_RAW_TTL_SECS` | `259200` | 72 hours before gzip compression. |
+| `KAERU_READ_TRACE_RETENTION_SECS` | `1209600` | 14 days total age, including the first 72 hours. |
+| `KAERU_READ_TRACE_QUEUE_CAPACITY` | `256` | Bounded event queue, maximum 65536. |
+| `KAERU_READ_TRACE_SEGMENT_BYTES` | `4194304` | Segment/event byte limit, maximum 64 MiB. |
+| `KAERU_READ_TRACE_SEGMENT_SECS` | `3600` | Maximum active time span before rotation. |
+| `KAERU_READ_TRACE_MAINTENANCE_INTERVAL_SECS` | `60` | Idle/busy maintenance cadence. |
+
+Producers only enqueue with `try_send`. Filesystem operations, rotation, gzip
+and deletion run on one background thread. A full queue, oversized event,
+initialization/ownership error or failed write can drop events; reads continue
+without retrying the event. Invalid queue/segment settings or raw TTL greater
+than total retention disable tracing. This is a lossy observation journal,
+not a transactional audit log.
+
+Closed segments encode event timestamps in their filenames. Age is based on
+the youngest event in a segment, never filesystem modification time. Normal
+cleanup lag is at most one segment span plus one maintenance interval (about
+one hour and one minute by default); process downtime postpones cleanup until
+startup. Maintenance runs at startup and during idle periods. It rotates the
+active file before compression, publishes a completed gzip archive before
+removing raw data, and retains raw on compression failure. Restart recovery
+keeps complete lines from interrupted active files and discards their torn
+tail. Recognized unrecoverable partial segments expire too. Unrecognized
+files and directories are left alone.
+
+`Store::flush_read_trace(timeout)` is an explicit bounded delivery barrier;
+`Store::shutdown_read_trace(timeout)` drains and releases directory ownership.
+Hosts can call these during orderly shutdown. Memory reads never call them,
+and dropping a Store does not wait for filesystem work.

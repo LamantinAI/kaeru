@@ -1987,6 +1987,8 @@ dependencies = [
  "config",
  "cozo",
  "crossbeam-channel",
+ "flate2",
+ "fs2",
  "jsonschema",
  "proptest",
  "schemars",

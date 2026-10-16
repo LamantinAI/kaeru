@@ -60,7 +60,15 @@ mod tests {
 
     #[tokio::test]
     async fn named_routes_enforce_scope_and_current_visibility() {
-        let store = Arc::new(Store::open_in_memory().unwrap());
+        let directory =
+            std::env::temp_dir().join(format!("kaeru-http-trace-{}", kaeru_core::new_node_id()));
+        let cfg = kaeru_core::KaeruConfig {
+            read_trace_enabled: true,
+            read_trace_dir: directory.join("trace"),
+            vault_path: directory.join("vault"),
+            ..kaeru_core::KaeruConfig::defaults()
+        };
+        let store = Arc::new(Store::open_in_memory_with(cfg).unwrap());
         let captured = api::execute(
             &store,
             "note",
@@ -91,7 +99,7 @@ mod tests {
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::NOT_FOUND);
         let app = router(
-            store,
+            store.clone(),
             ApiConfig {
                 allow: vec!["visible".into()],
                 include_local: true,
@@ -110,6 +118,23 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::OK);
+        assert!(store.shutdown_read_trace(std::time::Duration::from_secs(3)));
+        let mut events = Vec::<kaeru_core::models::ReadTraceEvent>::new();
+        for entry in std::fs::read_dir(directory.join("trace")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_some_and(|e| e == "jsonl") {
+                for line in std::fs::read_to_string(path).unwrap().lines() {
+                    events.push(serde_json::from_str(line).unwrap());
+                }
+            }
+        }
+        assert_eq!(
+            events.len(),
+            1,
+            "denied HTTP reads are not logged; successful reads are not duplicated"
+        );
+        assert_eq!(events[0].node_ids, vec![id]);
+        std::fs::remove_dir_all(directory).unwrap();
     }
     #[tokio::test]
     async fn removed_http_paths_have_no_aliases() {

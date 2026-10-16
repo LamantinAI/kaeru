@@ -103,6 +103,16 @@ Before changing code, orient yourself by crate and responsibility:
 9. The HTTP surface in `kaeru-mcp/src/api/` is the **same verb set over a second transport**, not a parallel API. A route is named after the verb it serves (`/v1/context` is `context`); do not invent a vocabulary the curator API does not have, and do not add a `POST /call/{verb}` tunnel. Three rules hold across every handler: `/v1/` on the path, a `Principal` argument, and everything leaving the process going out through `egress`.
 10. **Nothing leaves without asking `egress` both questions.** The operator's initiative ceiling (`reaches` / `reaches_node`) and the node's visibility (`may_show`) are two halves of one rule, and a handler that asks only the first does not fail — it succeeds, serving `local` nodes that the verbs asking both correctly refuse. `local` is the default visibility, so the blast radius is an ordinary vault. Ask before a node is read, described **or followed**: a node filtered after its edges are walked still leaves its id and the graph's shape in the response.
 
+## Read tracing and temporal tests
+
+Read tracing is opt-in through `KaeruConfig`, writes outside the vault and
+never blocks reads on I/O. Journal events contain only operation, UTC time,
+returned content IDs and authorized initiatives. Keep collection after paging
+and access checks; do not log arbitrary response JSON or internal fetches.
+Its shared DTO lives in `models/read_trace.rs`, defaults in
+`config/read_trace.rs`, and writer/retention logic in `read_trace/`.
+Use temporary directories and injected maintenance time in tests.
+
 ## Local Runbook
 
 - `cargo check --workspace` — quick type-check after changes that touch more than one crate.
@@ -302,7 +312,7 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   adapters. Deliberate transport-only operations must be listed explicitly in
   `DAEMON_ONLY`. Update the shared catalogue and models when a contract changes.
 - **Two writes to one key stay in the order they were issued (#96).**
-  `Validity` is whole seconds and the substrate resolves the assertion at
+  Kaeru allocates recorded seconds and the substrate resolves the assertion at
   equal timestamps, so `link` then an immediate `unlink` used to leave the
   edge live — the write nobody made last. A write to a key that already
   carries a row at or after NOW now lands one second past it
@@ -312,16 +322,12 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   clock. Use these helpers in any new primitive that mints a version of an
   **existing** key; a brand-new id needs no query. The RMW pairs keep sharing
   one timestamp on purpose — see `reassert_node_now`.
-- **A multi-write operation retracts last (#96).** `supersedes` and
-  `consolidate` are several writes and not a transaction, so the order
-  decides what a failure in the middle leaves behind: assert the successor,
-  wire its edges and memberships, retract the predecessor at the end. A
-  failure before retraction preserves the predecessor and may leave a partial
-  successor; `lint` does not detect every incomplete replacement. Retracting
-  first could leave neither readable, on the path `settle` uses for every
-  promotion into cortex. Keep that order when adding a verb
-  that replaces a node; making it all-or-nothing needs one Cozo script and is
-  still open.
+- **Composite mutations are atomic.** Replacement and consolidation execute
+  through `Store::atomic`, including relationships, memberships and audit.
+  Nested failures roll back the whole intrinsic operation. Keep copy-forward
+  reads before retraction within that transaction; external effects remain
+  separate. Differential temporal tests live in `tests/store_reference.rs`;
+  their independent oracle must not import Cozo or production core code.
 - **A capture can make its edge in the same call (#102).** `episode`, `jot`,
   `cite` and `task` take `link_to` plus `weight`, and the edge is written
   inside the capture. The nudge that asked for a link afterwards was measured
@@ -443,9 +449,10 @@ where an initiative may go is the only thing that catches that.
   missing and leaves the rest — including its weight — alone. A `reweight`
   never reaches the cloud unless both endpoints are shared, so the cloud's
   weight is by definition the one more likely to be stale.
-- **Whole-second caveat.** A node retracted inside the same second it was
-  ingested carries an assert and a retract that cannot be ordered, and may
-  still read until the next write. Retrying a second later settles it.
+- **Recorded time can lead wall time.** Per-key mutation helpers advance
+  successive recorded versions by at least one second. Use a returned recorded
+  timestamp for historical queries and a normal current read for the latest
+  committed state. Metadata continues to describe its current value.
 
 ## Sharing & Cloud — Known Limitations
 

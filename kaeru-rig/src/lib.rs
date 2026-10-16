@@ -187,3 +187,6 @@ pub(crate) fn resolve(store: &Store, reference: &str) -> Result<String, String> 
     )
     .map_err(|e| e.message)
 }
+
+#[cfg(test)]
+mod read_trace_tests;
