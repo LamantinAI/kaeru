@@ -71,17 +71,18 @@ async function record(request, env) {
   const ip = request.headers.get("CF-Connecting-IP") || "";
   const hash = await sha256(`${salt}|${ip}|${ua}`);
 
-  const first = await env.DB.prepare("INSERT OR IGNORE INTO seen (day, hash) VALUES (?, ?)")
-    .bind(day, hash)
-    .run();
-  if (first.meta.changes !== 1) return; // already counted today
-
-  await env.DB.prepare(
-    `INSERT INTO daily (day, version, os, channel, env, installs) VALUES (?, ?, ?, ?, ?, 1)
-     ON CONFLICT (day, version, os, channel, env) DO UPDATE SET installs = installs + 1`,
-  )
-    .bind(day, version, os, channel, environment)
-    .run();
+  // D1 batches are sequential transactions: either the tally and dedup marker
+  // both commit, or neither does. Check membership before inserting the marker
+  // so duplicate requests cannot increment an existing bucket again.
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO daily (day, version, os, channel, env, installs)
+       SELECT ?, ?, ?, ?, ?, 1
+       WHERE NOT EXISTS (SELECT 1 FROM seen WHERE day = ? AND hash = ?)
+       ON CONFLICT (day, version, os, channel, env) DO UPDATE SET installs = installs + 1`,
+    ).bind(day, version, os, channel, environment, day, hash),
+    env.DB.prepare("INSERT OR IGNORE INTO seen (day, hash) VALUES (?, ?)").bind(day, hash),
+  ]);
 }
 
 async function saltFor(env, day) {

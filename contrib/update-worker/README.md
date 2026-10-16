@@ -53,7 +53,20 @@ A day's count is a lower bound: installs behind one office IP with the same
 version and OS count once, and offline machines and those with the check off
 are not seen at all.
 
+The tally and its daily deduplication marker commit together in a
+[D1 batch transaction](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch).
+A failed write leaves neither behind, so a later request can retry counting.
+
 ## Local check
+
+The offline regression suite needs Node.js 24 and uses an in-memory SQLite
+database with injected write failures and concurrent requests:
+
+```sh
+node --test contrib/update-worker/test/counter.test.mjs
+```
+
+For a local Worker runtime, run from `contrib/update-worker`:
 
 ```sh
 npx wrangler d1 execute kaeru-updates --local --file=schema.sql

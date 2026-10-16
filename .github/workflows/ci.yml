@@ -18,6 +18,16 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  test-update-worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Test transactional update counting
+        run: node --test contrib/update-worker/test/counter.test.mjs
+
   test:
     runs-on: ubuntu-latest
     steps:
