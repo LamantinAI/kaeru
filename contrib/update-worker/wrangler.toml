@@ -1,0 +1,17 @@
+name = "kaeru-updates"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+# A daily sweep drops yesterday's salt and the per-day hashes, so nothing
+# that could link one day's request to another's outlives the day.
+[triggers]
+crons = ["17 0 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "kaeru-updates"
+database_id = "REPLACE_WITH_D1_ID"
+
+# Optional: `wrangler secret put GITHUB_TOKEN` lifts the 60-requests-an-hour
+# limit GitHub puts on unauthenticated calls from Cloudflare's shared egress.
+# The response is cached for an hour either way.

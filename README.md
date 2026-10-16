@@ -48,6 +48,17 @@ when a fact was true in the world. Intrinsic mutations, audit and replay records
 commit together. Existing vaults migrate on open without removing their history; old unscoped
 records are recovered under `legacy-unscoped`.
 
+## Update checks
+
+The daily update check asks `updates.lamantin-ai.com` for the public GitHub
+release listing and falls back to GitHub when the endpoint is unavailable.
+Its User-Agent includes the kaeru version, OS/architecture, installation
+channel and environment. The endpoint keeps daily aggregate counts using
+salted IP/User-Agent fingerprints, deleting the daily salt and hashes on the
+next sweep; no vault content is sent. Set `KAERU_MCP_UPDATE_CHECK=0` to disable
+the check. See [the update Worker](contrib/update-worker/) for storage and
+counting details.
+
 ## Layout
 
 ```
