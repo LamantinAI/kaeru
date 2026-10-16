@@ -52,13 +52,16 @@ esac
 
 if [[ "$VERSION" == "latest" ]]; then
     say "resolving latest release of $REPO"
-    # Split curl from grep|sed: with `set -o pipefail`, grep -m1 closing
-    # the pipe early can SIGPIPE curl and abort the script before we
-    # even use the result.
+    # No pipe at all. Splitting curl from `grep -m1` was not enough: grep
+    # still closes the pipe after the first match while printf is writing
+    # the rest of an ~18 KB response, and under `set -o pipefail` that
+    # SIGPIPE (exit 141) aborts the install. It is a race, so it passed
+    # locally and failed on a CI builder. Bash's own regex reads the
+    # variable in place.
     api_response=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest")
-    tag=$(printf '%s\n' "$api_response" | grep -m1 '"tag_name"' \
-        | sed -E 's/.*"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
-    [[ -n "$tag" ]] || die "could not resolve latest tag from GitHub API"
+    tag_re='"tag_name"[[:space:]]*:[[:space:]]*"([^"]+)"'
+    [[ "$api_response" =~ $tag_re ]] || die "could not resolve latest tag from GitHub API"
+    tag="${BASH_REMATCH[1]}"
 else
     tag="$VERSION"
 fi
