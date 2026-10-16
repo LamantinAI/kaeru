@@ -79,6 +79,19 @@ its currentness, material conflicts and saved reasoning:
 {"initiative": "billing", "node": {"id": "<returned-id>"}}
 ```
 
+Search hits already carry `currentness`: `superseded`, `contested`, `refuted`
+or `current`. A superseded hit names accessible replacements in `successors`;
+by default, search includes those records even when they do not match the
+literal text. An ordinary `read` includes material counterevidence in
+`conflicts`. These fields describe only records the caller may access.
+
+To inspect all accessible links, in both directions and with their edge types,
+read the selected record with `"include": ["relations"]`:
+
+```json
+{"initiative": "billing", "node": {"id": "<returned-id>"}, "include": ["relations"]}
+```
+
 To save a decision, call `note`:
 
 ```json
