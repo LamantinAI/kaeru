@@ -9,6 +9,7 @@ use crate::Store;
 use crate::api::access::check_scope;
 use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
 use crate::config::api::API_SEARCH_CANDIDATE_LIMIT;
+use crate::config::search::FTS_SCAN_LIMIT;
 use crate::models::{Issue, NodeData, Omission, Response, ResponseData, SearchData};
 use crate::recall::literal_ids;
 
@@ -49,13 +50,16 @@ pub(in crate::api) fn search(
     let mut seen = BTreeSet::new();
     let mut hits = vec![];
     let mut truncated = false;
+    let mut scan_truncated = false;
     for scope in &scopes {
         store.use_initiative(scope);
         let nodes = if let Some(query) = &query {
             let candidates =
                 literal_ids(store, query, API_SEARCH_CANDIDATE_LIMIT).map_err(issue_from_error)?;
-            truncated |= candidates.len() >= API_SEARCH_CANDIDATE_LIMIT;
+            truncated |= candidates.candidates_truncated;
+            scan_truncated |= candidates.scan_truncated;
             candidates
+                .ids
                 .into_iter()
                 .filter_map(|n| node(store, &n, options, false).ok())
                 .collect()
@@ -95,6 +99,15 @@ pub(in crate::api) fn search(
             section: "candidate_scan".into(),
             count: 1,
             reason: format!("{API_SEARCH_CANDIDATE_LIMIT}_candidate_cap"),
+        });
+    }
+    if scan_truncated {
+        let c = response.coverage.as_mut().unwrap();
+        c.complete = false;
+        c.omitted.push(Omission {
+            section: "candidate_scan".into(),
+            count: 1,
+            reason: format!("{FTS_SCAN_LIMIT}_fts_scan_cap"),
         });
     }
     Ok(response)

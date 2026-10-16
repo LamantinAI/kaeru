@@ -27,6 +27,7 @@ use crate::errors::Result;
 /// Shared contract and transport defaults.
 pub mod api;
 pub mod cloud;
+pub mod search;
 pub use api::API_VERSION;
 
 /// Tunables read by curator-API primitives. Every field has a default

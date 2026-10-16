@@ -6,6 +6,7 @@ mod mirror;
 mod records;
 mod references;
 mod response;
+mod search;
 
 pub use access::ApiOptions;
 pub use catalogue::{ToolAnnotations, ToolDefinition};
@@ -20,6 +21,7 @@ pub use references::{
     TextSource,
 };
 pub use response::{Continuation, Coverage, Issue, Omission, Response, ResponseData, State};
+pub(crate) use search::SearchCandidates;
 
 mod export;
 pub use export::{
