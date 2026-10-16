@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 use crate::canonical;
 use crate::cloud_client::CloudRegistry;
 use crate::hygiene::HygieneScheduler;
+use crate::settings::{MCP_SERVER_NAME, MCP_SERVER_TITLE, MCP_SERVER_WEBSITE_URL};
 use crate::update::UpdateNotice;
 
 #[derive(Clone)]
@@ -95,7 +96,11 @@ impl ServerHandler for KaeruServer {
         let mut info=ServerInfo::new(
             ServerCapabilities::builder().enable_tools().build(),
         )
-        .with_server_info(Implementation::new("kaeru", env!("CARGO_PKG_VERSION")))
+        .with_server_info(
+            Implementation::new(MCP_SERVER_NAME, env!("CARGO_PKG_VERSION"))
+                .with_title(MCP_SERVER_TITLE)
+                .with_website_url(MCP_SERVER_WEBSITE_URL),
+        )
         .with_protocol_version(ProtocolVersion::LATEST)
         .with_instructions(
             "Kaeru is your memory of record. Pass initiative on project calls. \
@@ -135,7 +140,31 @@ impl ServerHandler for KaeruServer {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use kaeru_core::Store;
+    use rmcp::ServerHandler;
+    use tokio_util::sync::CancellationToken;
+
+    use super::KaeruServer;
+    use crate::cloud_client::CloudRegistry;
+
+    #[test]
+    fn server_advertises_its_product_identity() {
+        let server = KaeruServer::new(
+            Store::open_in_memory().unwrap(),
+            CloudRegistry::default(),
+            CancellationToken::new(),
+            false,
+        );
+        let info = server.get_info().server_info;
+        assert_eq!(info.name, "kaeru");
+        assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(info.title.as_deref(), Some("kaeru memory"));
+        assert_eq!(
+            info.website_url.as_deref(),
+            Some("https://lamantin-ai.com/products/kaeru/")
+        );
+    }
+
     #[test]
     fn instructions_fit_the_client_truncation_budget() {
         let server = KaeruServer::new(
