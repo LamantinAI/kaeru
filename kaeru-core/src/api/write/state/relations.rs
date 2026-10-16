@@ -3,9 +3,9 @@ use serde_json::{Value, json};
 use crate::api::access::resolve;
 use crate::api::graph::supersession_reaches;
 use crate::api::read::{entity, relations};
-use crate::api::types::{Entity, Issue, MutationData, Response, State};
 use crate::api::write::{assign_slot, changed, check_revision, result, target};
 use crate::api::{ApiOptions, ApiResult, Args, hash, issue_from_error};
+use crate::models::{Entity, Issue, MutationData, Response, State};
 use crate::{
     EdgeType, Store, forget as core_forget, link_with_weight, pin as core_pin, read_node_full,
     set_edge_weight, slots_in, unlink, unpin,

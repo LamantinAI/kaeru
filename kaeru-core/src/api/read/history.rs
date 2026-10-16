@@ -3,14 +3,14 @@
 use chrono::{DateTime, Utc};
 use serde_json::json;
 
+use super::relations;
 use crate::api::access::{check_scope, resolve};
-use crate::api::types::{
+use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
+use crate::config::api::API_EXCERPT_CHARS;
+use crate::models::{
     ContentRange, HistoryData, HistoryEvent, InitiativesData, Response, ResponseData,
 };
-use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
 use crate::{Store, history as core_history, list_initiatives, unversioned_changes};
-
-use super::relations;
 
 pub(in crate::api) fn history(
     store: &Store,
@@ -25,17 +25,17 @@ pub(in crate::api) fn history(
             let body_range = r
                 .body
                 .as_ref()
-                .filter(|b| b.chars().count() > 400)
+                .filter(|b| b.chars().count() > API_EXCERPT_CHARS)
                 .map(|b| ContentRange {
                     start: 0,
-                    end: 400,
+                    end: API_EXCERPT_CHARS,
                     total: b.chars().count(),
                 });
             HistoryEvent {
                 recorded_at: time_string(r.seconds),
                 asserted: r.asserted,
                 name: r.name,
-                body: r.body.map(|b| b.chars().take(400).collect()),
+                body: r.body.map(|b| b.chars().take(API_EXCERPT_CHARS).collect()),
                 body_range,
             }
         })

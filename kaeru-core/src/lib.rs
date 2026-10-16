@@ -17,6 +17,7 @@ pub mod graph;
 pub mod guard;
 pub mod hygiene;
 mod migrate;
+pub mod models;
 pub mod mutate;
 pub mod naming;
 pub mod recall;

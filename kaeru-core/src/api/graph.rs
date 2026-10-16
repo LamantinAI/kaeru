@@ -8,6 +8,7 @@ use cozo::{DataValue, ScriptMutability};
 use super::access::check_node;
 use super::read::relations;
 use super::{ApiOptions, ApiResult, Issue, issue_from_error};
+use crate::config::api::API_TRAVERSAL_NODE_LIMIT;
 use crate::{Error, Store};
 
 pub(super) fn provenance(
@@ -41,7 +42,7 @@ pub(super) fn provenance(
             result.push(edge.to.clone());
             queue.push_back((edge.to, depth + 1));
         }
-        if seen.len() > 5000 {
+        if seen.len() > API_TRAVERSAL_NODE_LIMIT {
             return Err(Issue::new("TRAVERSAL_LIMIT", "narrow this provenance view"));
         }
     }
@@ -100,7 +101,7 @@ pub(super) fn path(
         }
         best.insert(key, route.cost);
         visited += 1;
-        if visited > 5000 {
+        if visited > API_TRAVERSAL_NODE_LIMIT {
             return Err(Issue::new("TRAVERSAL_LIMIT", "narrow this graph route"));
         }
         for edge in relations(store, current, options)? {
@@ -135,7 +136,7 @@ pub(super) fn supersession_reaches(store: &Store, start: &str, end: &str) -> Api
         if !seen.insert(id.clone()) {
             continue;
         }
-        if seen.len() > 5000 {
+        if seen.len() > API_TRAVERSAL_NODE_LIMIT {
             return Err(Issue::new(
                 "TRAVERSAL_LIMIT",
                 "cannot establish supersession acyclicity",

@@ -1,15 +1,16 @@
 //! Intrinsic commands grouped by status, content, graph edits and trails.
 
+use content::{replacement, revise, synthesise};
+use relations::{forget, pin, relate};
+use status::{review, task_update, verdict};
+use trail::trail;
+
 use crate::Store;
 use crate::api::{ApiOptions, ApiResult, Args, Response};
 mod content;
 mod relations;
 mod status;
 mod trail;
-use content::{replacement, revise, synthesise};
-use relations::{forget, pin, relate};
-use status::{review, task_update, verdict};
-use trail::trail;
 
 pub(super) fn dispatch(
     store: &Store,

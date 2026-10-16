@@ -17,6 +17,7 @@ use self::access::{check_node, check_scope, resolve};
 use self::read::{dispatch as read_dispatch, entity as read_entity};
 use self::surface::DEFINITIONS;
 use self::write::{dispatch as write_dispatch, run_hygiene, supplements};
+use crate::config::api::API_REPLAY_TTL_SECONDS;
 use crate::graph::audit::write_audit;
 use crate::{Error, Store, read_node_full};
 
@@ -24,9 +25,8 @@ mod access;
 mod graph;
 pub(crate) mod read;
 mod surface;
-pub mod types;
 mod write;
-pub use types::{
+pub use crate::models::{
     ApiOptions, Artifact, ArtifactSource, Change, CheckEvidence, ContentRange, ContextData,
     Continuation, Coverage, EdgeChange, EdgeMirror, Entity, Evidence, EvidenceResult,
     ExistingEvidence, FailedStep, HistoryData, HistoryEvent, IdRef, InitiativesData, Issue,
@@ -39,7 +39,7 @@ type ApiResult<T> = Result<T, Issue>;
 
 /// Version of the memory response contract, independent of the MCP transport
 /// version and the crate/release version.
-pub const API_VERSION: u32 = 1;
+pub use crate::config::API_VERSION;
 
 /// Resolve a reference inside an already scoped store span. Adapters use the
 /// same ambiguity and membership checks as local commands before network I/O.
@@ -393,7 +393,7 @@ fn cached(
         ));
     }
     let created = row[3].get_float().unwrap_or(0.0);
-    if Utc::now().timestamp() as f64 - created > 86400.0 {
+    if Utc::now().timestamp() as f64 - created > API_REPLAY_TTL_SECONDS as f64 {
         return Err(Issue::new(
             "IDEMPOTENCY_EXPIRED",
             "replay window expired; inspect current state before a new operation",

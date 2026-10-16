@@ -21,7 +21,7 @@ use crate::cloud::{
     share, sync_review, unshare,
 };
 use crate::cloud_client::CloudRegistry;
-use crate::params::{
+use crate::models::{
     CloudLinksParams, CloudRecallParams, CloudScopeParams, LinkCloudParams, PullParams,
     ShareParams, SyncReviewParams, UnshareParams,
 };

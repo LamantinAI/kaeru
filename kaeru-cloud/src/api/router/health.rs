@@ -2,29 +2,16 @@
 //! service is up and reports the build version.
 
 use axum::Json;
-use serde::Serialize;
-use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::api::state::AppState;
+pub use crate::models::HealthView;
 
 pub const HEALTH_TAG: &str = "health";
 
 pub fn health_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(health))
-}
-
-/// What `/health` answers. A local daemon reads `core_version` to warn when it
-/// and the cloud run different kaeru-core versions.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct HealthView {
-    /// Always `"ok"` when the service answers at all.
-    pub status: String,
-    /// Always `"kaeru-cloud"`.
-    pub service: String,
-    /// The kaeru-core version this cloud was built from.
-    pub core_version: String,
 }
 
 #[utoipa::path(

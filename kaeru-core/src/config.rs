@@ -1,6 +1,6 @@
 //! Runtime configuration for `kaeru-core`.
 //!
-//! `KaeruConfig` collects every tunable cap, default, and path the
+//! `KaeruConfig` collects the runtime-tunable caps and paths the
 //! curator API reads at runtime. Defaults are calibrated for an LLM
 //! agent's working set (5–15 items "under microscope") and platform
 //! conventions; overrides come from `KAERU_*` environment variables
@@ -8,7 +8,7 @@
 //! and passing it to [`crate::Store::open_with_config`].
 //!
 //! Sources are merged through the `config` crate: built-in defaults
-//! first, environment variables on top. Adapter crates (`kaeru-cli`,
+//! first, environment variables on top. Adapter crates (`kaeru-rig`,
 //! `kaeru-mcp`, …) can layer their own file sources on top by chaining
 //! more `add_source` calls before `try_deserialize`.
 //!
@@ -23,6 +23,11 @@ use config::{Config, Environment};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::Result;
+
+/// Shared contract and transport defaults.
+pub mod api;
+pub mod cloud;
+pub use api::API_VERSION;
 
 /// Tunables read by curator-API primitives. Every field has a default
 /// suitable for typical agent sessions; overriding a field changes the

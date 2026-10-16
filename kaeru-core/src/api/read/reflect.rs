@@ -2,13 +2,12 @@
 
 use serde_json::{Value, json};
 
+use super::{context, relations, scope_nodes, trails};
 use crate::api::access::check_scope;
-use crate::api::types::{ContextData, Response, ResponseData, Section};
 use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
 use crate::guard::scan_public;
+use crate::models::{ContextData, Response, ResponseData, Section};
 use crate::{Store, get_share_policy, list_initiatives};
-
-use super::{context, relations, scope_nodes, trails};
 
 pub(in crate::api) fn reflect(
     store: &Store,

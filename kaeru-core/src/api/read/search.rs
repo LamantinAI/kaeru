@@ -4,13 +4,13 @@ use std::collections::BTreeSet;
 
 use serde_json::Value;
 
+use super::{node, scope_nodes};
 use crate::Store;
 use crate::api::access::check_scope;
-use crate::api::types::{Issue, NodeData, Omission, Response, ResponseData, SearchData};
 use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
+use crate::config::api::API_SEARCH_CANDIDATE_LIMIT;
+use crate::models::{Issue, NodeData, Omission, Response, ResponseData, SearchData};
 use crate::recall::literal_ids;
-
-use super::{node, scope_nodes};
 
 pub(in crate::api) fn search(
     store: &Store,
@@ -52,8 +52,9 @@ pub(in crate::api) fn search(
     for scope in &scopes {
         store.use_initiative(scope);
         let nodes = if let Some(query) = &query {
-            let candidates = literal_ids(store, query, 5000).map_err(issue_from_error)?;
-            truncated |= candidates.len() >= 5000;
+            let candidates =
+                literal_ids(store, query, API_SEARCH_CANDIDATE_LIMIT).map_err(issue_from_error)?;
+            truncated |= candidates.len() >= API_SEARCH_CANDIDATE_LIMIT;
             candidates
                 .into_iter()
                 .filter_map(|n| node(store, &n, options, false).ok())
@@ -93,7 +94,7 @@ pub(in crate::api) fn search(
         c.omitted.push(Omission {
             section: "candidate_scan".into(),
             count: 1,
-            reason: "5000_candidate_cap".into(),
+            reason: format!("{API_SEARCH_CANDIDATE_LIMIT}_candidate_cap"),
         });
     }
     Ok(response)

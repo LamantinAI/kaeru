@@ -1,5 +1,7 @@
 //! Scoped, bounded read dispatch shared by all adapters.
 
+use paging::{continued, paginate};
+
 use super::write::{policy_read, retention_preview};
 use super::{ApiOptions, ApiResult, Args, Issue, Response};
 use crate::Store;
@@ -15,7 +17,6 @@ pub(super) use context::{context, scope_nodes};
 pub(super) use history::{history, initiatives, time_string};
 pub(super) use node::{created_at, entity, filter_references, node, relations};
 pub(crate) use paging::Snapshot;
-use paging::{continued, paginate};
 pub(super) use reasoning::{content_hash, trails};
 pub(super) use record::{historical_node, read};
 pub(super) use reflect::reflect;

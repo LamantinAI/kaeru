@@ -5,13 +5,13 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 use serde_json::{Value, json};
 
-use crate::api::access::{check_node, check_scope};
-use crate::api::types::{ContentRange, Entity, Issue, NodeData, RelationData};
-use crate::api::{ApiOptions, ApiResult, hash, issue_from_error};
-use crate::graph::temporal::{parse_validity, validity_seconds};
-use crate::{Error, Store, initiatives_of_node, read_node_full};
-
 use super::time_string;
+use crate::api::access::{check_node, check_scope};
+use crate::api::{ApiOptions, ApiResult, hash, issue_from_error};
+use crate::config::api::API_EXCERPT_CHARS;
+use crate::graph::temporal::{parse_validity, validity_seconds};
+use crate::models::{ContentRange, Entity, Issue, NodeData, RelationData};
+use crate::{Error, Store, initiatives_of_node, read_node_full};
 
 pub(in crate::api) fn node(
     store: &Store,
@@ -102,17 +102,17 @@ pub(in crate::api) fn node(
     filter_references(store, &mut props, options);
     let body_range = if !full {
         body.as_ref()
-            .filter(|b| b.chars().count() > 400)
+            .filter(|b| b.chars().count() > API_EXCERPT_CHARS)
             .map(|b| ContentRange {
                 start: 0,
-                end: 400,
+                end: API_EXCERPT_CHARS,
                 total: b.chars().count(),
             })
     } else {
         None
     };
     if !full {
-        body = body.map(|b| b.chars().take(400).collect());
+        body = body.map(|b| b.chars().take(API_EXCERPT_CHARS).collect());
     }
     Ok(NodeData {
         initiatives: initiatives_of_node(store, &id.to_string())

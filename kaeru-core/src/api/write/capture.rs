@@ -6,11 +6,9 @@ use serde_json::{Value, from_value, json};
 use sha2::{Digest, Sha256};
 
 use super::super::access::{check_scope, resolve};
-use super::super::types::{
-    Evidence, FailedStep, Issue, NodeRef, Response, ResponseData, Source, State,
-};
 use super::super::{ApiOptions, ApiResult, Args, issue_from_error, put_properties};
 use super::{capture_slot, result};
+use crate::models::{Evidence, FailedStep, Issue, NodeRef, Response, ResponseData, Source, State};
 use crate::mutate::{build_body_tags, tags_literal};
 use crate::{
     EdgeType, Error, HypothesisStatus, Layer, NodeType, Store, Tier, Visibility, cite_with_layer,

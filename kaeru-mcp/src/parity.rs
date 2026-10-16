@@ -1,21 +1,8 @@
-//! The two surfaces are one API — this is what keeps them that way (#98).
+//! MCP and Rig expose the same names and complete input schemas.
 //!
-//! `kaeru-rig` is the in-process form of the same curator API this daemon
-//! serves over MCP, and an agent must see the same verbs with the same
-//! parameters whichever way it reaches kaeru. They drifted: at 0.7.3 the
-//! daemon had 71 tools and the adapter 61, `kaeru_recall` on the rig side was
-//! this crate's `search`, half the rig tools could not take an `initiative`
-//! at all, and `link`'s deliberately-required `weight` was optional there.
-//! Albert configures memory both ways and names its tools in its prompt, so
-//! every one of those differences broke one of the two modes.
-//!
-//! The test compares actual names and complete input schemas, including
-//! nested definitions and conditional action variants. Both adapters consume
-//! the same core catalogue; a transport may not silently weaken its contract.
-//!
-//! When a verb is genuinely daemon-only, add it to [`DAEMON_ONLY`] with the
-//! reason. That list is the whole allowance; anything else is a diff and this
-//! test fails naming it.
+//! Both adapters consume the core catalogue. These tests compare the actual
+//! registrations, including nested definitions and required action variants.
+//! Deliberate transport-only operations must be listed in `DAEMON_ONLY`.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

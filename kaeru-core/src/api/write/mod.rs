@@ -12,11 +12,11 @@ use self::manage::{
 use self::state::dispatch as state_dispatch;
 use super::access::{check_node, resolve};
 use super::read::{entity, node};
-use super::types::{
-    Change, FailedStep, Issue, MutationData, NodeRef, Response, ResponseData, SlotChange, State,
-};
 use super::{ApiOptions, ApiResult, Args, hash, issue_from_error};
 use crate::graph::audit::write_audit_details;
+use crate::models::{
+    Change, FailedStep, Issue, MutationData, NodeRef, Response, ResponseData, SlotChange, State,
+};
 use crate::{EdgeType, Error, Store, link_with_weight, new_node_id, release_slot, slot_holder};
 
 mod capture;

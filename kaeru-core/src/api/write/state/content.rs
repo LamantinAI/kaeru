@@ -2,10 +2,10 @@ use serde_json::{Value, from_value, json};
 
 use crate::api::access::resolve;
 use crate::api::read::{entity, relations};
-use crate::api::types::{Issue, NodeRef, Response, ResponseData, Source, State};
 use crate::api::write::capture::source_text;
 use crate::api::write::{changed, result, target};
 use crate::api::{ApiOptions, ApiResult, Args, issue_from_error, properties, put_properties};
+use crate::models::{Issue, NodeRef, Response, ResponseData, Source, State};
 use crate::{
     NodeType, Store, Tier, consolidate_in, consolidate_out, improve, read_node_full, set_reminder,
     supersedes, synthesise as core_synthesise, upsert_node,

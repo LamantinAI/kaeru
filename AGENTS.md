@@ -73,7 +73,7 @@ The workspace targets Rust `1.95+` with edition `2024` and uses a shared depende
 
 Workspace members:
 
-- `kaeru-core/` — library crate: substrate, schema, primitives.
+- `kaeru-core/` — library crate: substrate, schema, primitives and shared exchange models (`src/models/`).
 - `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 1.6, streamable HTTP transport). The agent's surface; also proxies into `kaeru-cloud` for sharing / recall.
 - `kaeru-cloud/` — binary crate `kaeru-cloud`: the shared cloud tier (Axum REST over `kaeru-core`, bearer-token auth). One per team; local daemons connect to it.
 - `kaeru-rig/` — embedded `rig` adapter over the shared `kaeru-core::api`
@@ -118,10 +118,12 @@ The substrate stores its data under a platform-specific default path resolved at
 ```
 kaeru-core/src/
 ├── config.rs               ← KaeruConfig (env-driven via `config` crate)
+├── config/                 ← shared API bounds and cloud transport defaults
+├── models/                 ← canonical API and export exchange contracts
 ├── errors.rs
 ├── store.rs                ← Store: in-memory + disk constructors
 ├── store/                  ← transaction-aware Database
-├── api/                    ← shared schemas, DTOs, authorization, reads and commands
+├── api/                    ← shared catalogue, authorization, reads and commands
 ├── session.rs              ← pin / unpin / active_window / awake
 ├── hygiene.rs              ← the automatic layer-tidying pass (due / collect / apply)
 ├── export.rs               ← Obsidian-friendly markdown snapshot
@@ -166,7 +168,7 @@ kaeru-mcp/src/
 ├── main.rs                 ← tokio + tracing init; builds Store + CloudRegistry
 ├── settings.rs             ← KaeruMcpConfig (KAERU_MCP_* env + clouds.toml file source)
 ├── server.rs               ← explicit ServerHandler and shared registrations
-├── params.rs               ← retained cloud input DTOs
+├── models/                 ← cloud adapter request DTOs
 ├── utils.rs                ← output builders + input parsing (with_initiative, parse_*)
 ├── cloud_client.rs         ← async reqwest client + CloudRegistry (named multi-cloud)
 ├── canonical.rs            ← local dispatch plus asynchronous supplements
@@ -174,13 +176,14 @@ kaeru-mcp/src/
 └── api/                    ← the HTTP surface: one route per curator verb
     ├── principal.rs        ← who is asking (one variant today, by design)
     ├── egress.rs           ← ApiConfig: the initiative ceiling, visibility, redaction
-    └── v1/                 ← shared named-operation handler
+    └── handlers.rs         ← shared named-operation HTTP handler
 
 kaeru-cloud/src/
 ├── main.rs                 ← thin entrypoint (config + tracing → run)
 ├── lib.rs                  ← run(): build state, bind, serve
 ├── config.rs               ← KaeruCloudConfig (KAERU_CLOUD_* env)
 ├── errors.rs               ← ApiError + StartError (thiserror)
+├── models/                 ← HTTP request, response and OpenAPI error contracts
 └── api/                    ← state.rs, extractors.rs (bearer), errors.rs (IntoResponse), router/
 ```
 
@@ -190,7 +193,19 @@ Triggers to refactor a flat file into a `mod.rs`-with-submodules layout:
 - more than three cohesive primitives accumulate in one file, or
 - shared internal types start appearing across what was one file.
 
-Shared cross-submodule types live in the parent `mod.rs` (or in a `base.rs` if the helper surface is wide enough to deserve its own file).
+Exchange DTOs belong in dedicated `models/` modules. Shared memory and export
+contracts are owned by `kaeru-core/src/models/`; MCP-only request shapes and cloud
+HTTP shapes are owned by their adapter's `src/models/`. Handlers import these
+models rather than defining request/response structs alongside execution logic.
+Domain entities and private algorithm state remain with their domain code.
+
+`kaeru-core/tests/` contains Cargo integration tests of the public library API
+(contracts, transactions, recorded history and migrations). These are test
+binaries, not runtime modules. Unit tests of private helpers may remain under
+`#[cfg(test)]` beside those helpers.
+
+The HTTP `/v1/` prefix versions the external contract. It does not require a
+physical `api/v1` directory: `api/handlers.rs` dispatches the shared operations.
 
 ## Important Import Rule
 
@@ -281,18 +296,11 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   and put back, not in an archive nobody opens. A pass is therefore
   idempotent on an unchanged graph — a new test says so on the node the old
   one could not see.
-- **`kaeru-rig` mirrors the `kaeru-mcp` verb surface 1:1 (#98).** Same verbs,
-  same parameter names, same optionality — the adapter is the in-process form
-  of one API, not a second one, and an application configurable both ways
-  (embedded, or over MCP) names its memory tools in a prompt that has to work
-  in either mode. The daemon is the reference; when a verb changes there, it
-  changes here. `kaeru-mcp/src/parity.rs` diffs the two tool tables — names,
-  properties and the required set — and fails naming what drifted, with
-  `DAEMON_ONLY` as the whole allowance for a verb the adapter deliberately
-  lacks. Shared vocabulary lives in the core rather than in an adapter for the
-  same reason: `timeparse` (what `2h` means to `when` / `since` / `due`) and
-  `naming` (the name `claim` invents from its text) were in `kaeru-mcp`, which
-  is why the rig `at` used to take a bare number.
+- **MCP and Rig share one canonical catalogue.** Tool names, parameter names,
+  optionality and nested input schemas come from `kaeru-core::api`. The parity
+  tests in `kaeru-mcp/src/parity.rs` compare actual registrations from both
+  adapters. Deliberate transport-only operations must be listed explicitly in
+  `DAEMON_ONLY`. Update the shared catalogue and models when a contract changes.
 - **Two writes to one key stay in the order they were issued (#96).**
   `Validity` is whole seconds and the substrate resolves the assertion at
   equal timestamps, so `link` then an immediate `unlink` used to leave the

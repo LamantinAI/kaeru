@@ -6,20 +6,20 @@ use chrono::{DateTime, Utc};
 use cozo::{DataValue, ScriptMutability};
 use serde_json::{Value, json};
 
+use super::{historical_node, node};
 use crate::api::access::{check_node, check_scope};
-use crate::api::types::{
+use crate::api::write::slot_revision;
+use crate::api::{API_VERSION, ApiOptions, ApiResult, Args, issue_from_error};
+use crate::config::api::API_EXCERPT_CHARS;
+use crate::models::{
     ContentRange, ContextData, Issue, NodeData, Omission, Response, ResponseData, Section,
     SlotChange,
 };
-use crate::api::write::slot_revision;
-use crate::api::{API_VERSION, ApiOptions, ApiResult, Args, issue_from_error};
 use crate::recall::open_work::reminder_schedule;
 use crate::{
     BoardStatus, Error, NodeType, Store, board_node_id, effective_statuses_at, read_node_full,
     slots_in, under_review_pinned, version,
 };
-
-use super::{historical_node, node};
 
 pub(in crate::api) fn scope_nodes(
     store: &Store,
@@ -112,13 +112,13 @@ pub(in crate::api) fn context(
             {
                 if at.is_some()
                     && let Some(body) = record.body.as_mut()
-                    && body.chars().count() > 400
+                    && body.chars().count() > API_EXCERPT_CHARS
                 {
                     let total = body.chars().count();
-                    *body = body.chars().take(400).collect();
+                    *body = body.chars().take(API_EXCERPT_CHARS).collect();
                     record.body_range = Some(ContentRange {
                         start: 0,
-                        end: 400,
+                        end: API_EXCERPT_CHARS,
                         total,
                     });
                 }

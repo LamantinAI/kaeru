@@ -22,7 +22,7 @@ mod canonical;
 mod cloud;
 mod cloud_client;
 mod hygiene;
-mod params;
+mod models;
 #[cfg(test)]
 mod parity;
 mod server;

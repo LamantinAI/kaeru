@@ -1,4 +1,4 @@
-//! Input DTOs for the nine retained cloud operations.
+//! Input models used by the cloud operation adapter.
 
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -12,7 +12,7 @@ pub struct ShareParams {
     /// Override the pre-share secret guard when it flags content. Default false.
     #[serde(default)]
     pub force: bool,
-    /// Target cloud name in a multi-cloud setup. Omit for the default cloud.
+    /// Target cloud name in a multi-cloud setup. Omit only when one cloud is configured.
     #[serde(default)]
     pub cloud: Option<String>,
 }
@@ -41,7 +41,7 @@ pub struct PullParams {
     pub id: String,
     /// Initiative to attach the pulled node to locally.
     pub initiative: String,
-    /// Source cloud name in a multi-cloud setup. Omit for the default cloud.
+    /// Source cloud name in a multi-cloud setup. Omit only when one cloud is configured.
     #[serde(default)]
     pub cloud: Option<String>,
 }
@@ -77,7 +77,7 @@ pub struct LinkCloudParams {
     /// Edge type for the soft link — closed vocabulary, one of: `refers_to` (default), `causal`, `derived_from`, `contradicts`, `part_of`, `blocks`, `targets`, `supersedes`, `verifies`, `falsifies`, `temporal`, `consolidated_to`.
     #[serde(default)]
     pub edge_type: Option<String>,
-    /// Cloud the dst lives in (multi-cloud). Omit for the default cloud — the
+    /// Cloud the dst lives in (multi-cloud). Omit when one cloud is configured; the
     /// soft link records the name so resolution routes to the right endpoint.
     #[serde(default)]
     pub cloud: Option<String>,

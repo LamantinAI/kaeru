@@ -1,16 +1,20 @@
 //! Named HTTP routes over the same memory operations as MCP.
 
 pub mod egress;
+mod handlers;
 pub mod principal;
-mod v1;
 
-use crate::cloud_client::CloudRegistry;
+use std::sync::Arc;
+
 use axum::Router;
 use axum::routing::post;
+
+use self::handlers::invoke;
+use crate::cloud_client::CloudRegistry;
 pub use egress::ApiConfig;
 use kaeru_core::Store;
 use kaeru_core::api::tool_definitions;
-use std::sync::Arc;
+use kaeru_core::config::api::API_OPERATION_PREFIX;
 
 #[derive(Clone)]
 pub struct ApiState {
@@ -27,7 +31,10 @@ pub fn router(store: Arc<Store>, cfg: ApiConfig) -> Router {
 pub fn router_with_clouds(store: Arc<Store>, cfg: ApiConfig, clouds: CloudRegistry) -> Router {
     let mut router = Router::new();
     for tool in tool_definitions() {
-        router = router.route(&format!("/v1/{}", tool.name), post(v1::invoke));
+        router = router.route(
+            &format!("{API_OPERATION_PREFIX}{}", tool.name),
+            post(invoke),
+        );
     }
     router.with_state(ApiState { store, cfg, clouds })
 }

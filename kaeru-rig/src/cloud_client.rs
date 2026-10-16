@@ -9,18 +9,10 @@
 //! sends `Bearer ` (the cloud treats an empty *expected* token as auth-disabled).
 
 use std::collections::HashMap;
-use std::time::Duration;
 
 use serde_json::Value;
 
-/// Hard ceiling on any single cloud request. Without it a dead or
-/// black-holed connection blocks the calling tool indefinitely — reqwest
-/// sets no total-request timeout by default.
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Ceiling on TCP connect alone, so an unreachable host fails fast
-/// instead of waiting out the OS connect timeout.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+use kaeru_core::config::cloud::{CLOUD_CONNECT_TIMEOUT, CLOUD_REQUEST_TIMEOUT};
 
 /// Percent-encodes a query-string value. Deliberately hand-rolled and
 /// minimal: the only values that reach it are search terms, and pulling a URL
@@ -58,9 +50,7 @@ impl CloudClient {
         &self.name
     }
 
-    /// The endpoint this client talks to — printed by `kaeru_config` and
-    /// `kaeru_clouds`, which exist to answer "which cloud am I about to
-    /// touch?" before a verb touches one.
+    /// The endpoint reported in cloud diagnostics.
     pub fn base_url(&self) -> &str {
         &self.base_url
     }
@@ -70,8 +60,8 @@ impl CloudClient {
         // fall back to the default client rather than panicking — a cloud
         // client without timeouts still beats no client at all.
         let client = reqwest::Client::builder()
-            .timeout(REQUEST_TIMEOUT)
-            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(CLOUD_REQUEST_TIMEOUT)
+            .connect_timeout(CLOUD_CONNECT_TIMEOUT)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {

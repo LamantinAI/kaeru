@@ -5,10 +5,10 @@ use serde_json::json;
 
 use crate::api::access::resolve;
 use crate::api::read::{entity, node, relations};
-use crate::api::types::{Evidence, EvidenceResult, Issue, NodeRef, Response, ResponseData, State};
 use crate::api::write::capture::{record_decision, record_evidence};
 use crate::api::write::{changed, result, target};
 use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
+use crate::models::{Evidence, EvidenceResult, Issue, NodeRef, Response, ResponseData, State};
 use crate::{
     EdgeType, EpisodeKind, Error, HypothesisStatus, NodeType, Significance, Store,
     derive_auto_name, effective_statuses, link, mark_resolved, mark_under_review, read_node_full,

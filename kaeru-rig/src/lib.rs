@@ -95,8 +95,20 @@ impl KaeruMemory {
     /// reactor — **call it from inside the host's runtime**, and call
     /// [`shutdown_hygiene`](Self::shutdown_hygiene) when the host winds down.
     ///
-    /// ```ignore
-    /// let mem = KaeruMemory::with_initiative(store, "albert").with_hygiene();
+    /// ```rust
+    /// use std::sync::Arc;
+    ///
+    /// use kaeru_core::Store;
+    /// use kaeru_rig::KaeruMemory;
+    ///
+    /// #[tokio::main(flavor = "current_thread")]
+    /// async fn main() {
+    ///     let store = Arc::new(Store::open_in_memory().expect("open in-memory vault"));
+    ///     let mem = KaeruMemory::with_initiative(store, "my-project").with_hygiene();
+    ///
+    ///     // Stop the background scheduler before the host runtime shuts down.
+    ///     mem.shutdown_hygiene();
+    /// }
     /// ```
     #[must_use]
     pub fn with_hygiene(mut self) -> Self {

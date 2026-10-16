@@ -7,10 +7,10 @@ use serde_json::{Map, Value, from_value, json};
 use crate::api::access::{check_node, resolve};
 use crate::api::graph::path;
 use crate::api::read::{content_hash, node, relations};
-use crate::api::types::{Issue, MutationData, NodeRef, Response, State};
 use crate::api::write::{result, target};
 use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
 use crate::graph::audit::write_audit;
+use crate::models::{Issue, MutationData, NodeRef, Response, State};
 use crate::mutate::chain::create_chain_from_members;
 use crate::{Error, Store, improve, read_chain};
 

@@ -6,8 +6,9 @@ use cozo::{DataValue, ScriptMutability};
 use serde_json::{Value, json};
 
 use crate::api::access::check_node;
-use crate::api::types::{ContentRange, Issue, TrailData};
 use crate::api::{ApiOptions, ApiResult, hash, issue_from_error};
+use crate::config::api::API_EXCERPT_CHARS;
+use crate::models::{ContentRange, Issue, TrailData};
 use crate::{Error, Store, read_node_full};
 
 pub(in crate::api) fn content_hash(store: &Store, id: &str) -> ApiResult<String> {
@@ -83,10 +84,10 @@ pub(in crate::api) fn trails(
         let summary_range = n
             .body
             .as_ref()
-            .filter(|b| b.chars().count() > 400 && chain_id != id)
+            .filter(|b| b.chars().count() > API_EXCERPT_CHARS && chain_id != id)
             .map(|b| ContentRange {
                 start: 0,
-                end: 400,
+                end: API_EXCERPT_CHARS,
                 total: b.chars().count(),
             });
         out.push(TrailData {
@@ -95,7 +96,7 @@ pub(in crate::api) fn trails(
             summary: if chain_id == id {
                 None
             } else {
-                n.body.map(|b| b.chars().take(400).collect())
+                n.body.map(|b| b.chars().take(API_EXCERPT_CHARS).collect())
             },
             stale,
             members: if expanded { members } else { vec![] },

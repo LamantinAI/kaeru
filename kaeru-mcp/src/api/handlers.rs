@@ -2,12 +2,13 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use kaeru_core::api::ApiOptions;
 use serde_json::{Value, json};
 
 use crate::api::ApiState;
 use crate::api::principal::Principal;
-use crate::canonical;
+use crate::canonical::{call_with_options, options};
+use kaeru_core::config::api::API_OPERATION_PREFIX;
+use kaeru_core::models::ApiOptions;
 
 pub async fn invoke(
     _principal: Principal,
@@ -15,16 +16,15 @@ pub async fn invoke(
     uri: Uri,
     Json(arguments): Json<Value>,
 ) -> Response {
-    let name = uri.path().strip_prefix("/v1/").unwrap_or("");
+    let name = uri.path().strip_prefix(API_OPERATION_PREFIX).unwrap_or("");
     let options = ApiOptions {
         allowed_initiatives: Some(state.cfg.allow.clone()),
         denied_initiatives: state.cfg.deny.clone(),
         include_local: state.cfg.include_local,
         caller: "http-local-operator".into(),
-        ..canonical::options()
+        ..options()
     };
-    let outcome =
-        canonical::call_with_options(state.store, &state.clouds, name, arguments, options).await;
+    let outcome = call_with_options(state.store, &state.clouds, name, arguments, options).await;
     let (status, mut value) = match outcome {
         Ok(outcome) => {
             let value = outcome

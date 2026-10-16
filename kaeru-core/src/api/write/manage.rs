@@ -5,13 +5,13 @@ use serde_json::{Value, json, to_value, to_vec_pretty};
 
 use super::super::access::{check_node, check_scope, resolve};
 use super::super::read::entity;
-use super::super::types::{
-    Artifact, ContextData, Entity, FailedStep, Issue, MutationData, Response, ResponseData,
-    RetentionProposal, Section, State,
-};
 use super::super::{ApiOptions, ApiResult, Args, hash, issue_from_error};
 use super::{assign_slot, changed, check_revision, result, target};
 use crate::hygiene::{collect, force_pass};
+use crate::models::{
+    Artifact, ContextData, Entity, FailedStep, Issue, MutationData, Response, ResponseData,
+    RetentionProposal, Section, State,
+};
 use crate::mutate::board::set_terminal_status;
 use crate::{
     EpisodeKind, ExportOpts, Layer, Significance, Store, add_status, attach_node,

@@ -6,16 +6,15 @@ use chrono::DateTime;
 use cozo::{DataValue, ScriptMutability};
 use serde_json::{Value, json};
 
+use super::time_string;
+use super::{created_at, filter_references, node, relations, trails};
 use crate::api::access::{check_node, check_scope, resolve};
 use crate::api::graph::{path, provenance};
-use crate::api::types::{Issue, NodeData, NodeRef, Omission, RecordData, Response, ResponseData};
 use crate::api::{ApiOptions, ApiResult, Args, hash, issue_from_error};
 use crate::graph::temporal::parse_validity;
+use crate::models::{Issue, NodeData, NodeRef, Omission, RecordData, Response, ResponseData};
 use crate::{Error, Store, at, history as core_history, initiatives_of_node, read_node_full};
 
-use super::time_string;
-
-use super::{created_at, filter_references, node, relations, trails};
 pub(in crate::api) fn historical_node(
     store: &Store,
     id: &str,

@@ -1,21 +1,23 @@
 //! Bounded retrieval with currentness and stored reasoning on the ordinary path.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use chrono::Utc;
-
 use serde_json::{Value, json, to_string, to_vec};
 
-use crate::api::types::{
+use super::node;
+use crate::api::{ApiOptions, ApiResult, Args, hash, issue_from_error};
+use crate::config::api::{
+    API_BODY_CHUNK_CHARS, API_DEFAULT_CONTEXT_BUDGET_CHARS, API_DEFAULT_READ_BUDGET_CHARS,
+    API_DEFAULT_SEARCH_LIMIT, API_MAX_CACHED_SNAPSHOTS, API_MAX_SNAPSHOT_BYTES, API_SNAPSHOT_TTL,
+};
+use crate::hygiene::take_pending_report;
+use crate::models::{
     ContentRange, Continuation, HistoryEvent, Issue, NodeData, Omission, RelationData, Response,
     ResponseData, RetentionProposal, SlotChange, TrailData,
 };
-use crate::api::{ApiOptions, ApiResult, Args, hash, issue_from_error};
-use crate::hygiene::take_pending_report;
 use crate::{Store, new_node_id, stamp_reminder_seen};
-
-use super::node;
 
 #[derive(Clone)]
 pub(crate) struct Snapshot {
@@ -133,9 +135,9 @@ fn items(data: &ResponseData) -> Vec<Item> {
         ResponseData::Record(d) => {
             let chars: Vec<char> = d.node.body.as_deref().unwrap_or("").chars().collect();
             let body = chars
-                .chunks(256)
+                .chunks(API_BODY_CHUNK_CHARS)
                 .enumerate()
-                .map(|(i, c)| Item::Body(c.iter().collect(), i * 256));
+                .map(|(i, c)| Item::Body(c.iter().collect(), i * API_BODY_CHUNK_CHARS));
             d.conflicts
                 .iter()
                 .cloned()
@@ -250,16 +252,18 @@ pub(in crate::api) fn paginate(
         .value("budget_chars")
         .as_u64()
         .unwrap_or(if full.operation == "read" {
-            12000
+            API_DEFAULT_READ_BUDGET_CHARS as u64
         } else {
-            8000
+            API_DEFAULT_CONTEXT_BUDGET_CHARS as u64
         }) as usize;
     let limit = if full.operation == "search" {
-        args.value("limit").as_u64().unwrap_or(10) as usize
+        args.value("limit")
+            .as_u64()
+            .unwrap_or(API_DEFAULT_SEARCH_LIMIT as u64) as usize
     } else {
         usize::MAX
     };
-    if to_vec(&full).unwrap().len() + delivery_reserve(&full) > 8 * 1024 * 1024 {
+    if to_vec(&full).unwrap().len() + delivery_reserve(&full) > API_MAX_SNAPSHOT_BYTES {
         return Err(Issue::new(
             "SNAPSHOT_TOO_LARGE",
             "snapshot exceeds 8 MiB; narrow the view or use an authorized export for large sources",
@@ -395,7 +399,7 @@ pub(in crate::api) fn paginate(
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         snapshots.retain(|_, s| s.expires > Instant::now());
-        if snapshots.len() >= 16 {
+        if snapshots.len() >= API_MAX_CACHED_SNAPSHOTS {
             snapshots.clear();
         }
         snapshots.insert(
@@ -405,7 +409,7 @@ pub(in crate::api) fn paginate(
                 arguments_hash: arguments_hash(&full.operation, args),
                 policy_hash: policy_hash(options),
                 generation: store.generation(),
-                expires: Instant::now() + Duration::from_secs(15 * 60),
+                expires: Instant::now() + API_SNAPSHOT_TTL,
                 response: full,
             },
         );
