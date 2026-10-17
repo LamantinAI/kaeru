@@ -54,7 +54,7 @@ pub fn at(store: &Store, id: &NodeId, at_seconds: f64) -> Result<Option<NodeSnap
     let script = format!(
         r#"
         ?[type, tier, name, body, tags, layer, visibility, validity] :=
-            *node{{id, type, tier, name, body, tags, layer, visibility, validity @ {at_seconds}}}, id = $id
+            id = $id, *node{{id, type, tier, name, body, tags, layer, visibility, validity @ {at_seconds}}}
         "#
     );
     let rows = store
@@ -110,7 +110,7 @@ pub fn history(store: &Store, id: &NodeId) -> Result<Vec<Revision>> {
     // Without the `@` modifier, the read sees every bi-temporal row,
     // including retractions.
     let script = r#"
-        ?[validity, name, body] := *node{id, validity, name, body}, id = $id
+        ?[validity, name, body] := id = $id, *node{id, validity, name, body}
         :order validity
     "#;
     let rows = store
@@ -176,9 +176,126 @@ pub(crate) fn parse_validity(dv: Option<&DataValue>) -> Result<(f64, bool)> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
+    use cozo::{DataValue, ScriptMutability};
+
     use super::at;
     use crate::store::Store;
-    use crate::{EpisodeKind, Significance, node_brief_by_id, write_episode};
+    use crate::{
+        EpisodeKind, Significance, history, node_brief_by_id, read_node_full, write_episode,
+    };
+
+    /// Verify the optimizer assumption behind all four keyed reads without
+    /// a wall-clock threshold or a private performance fixture.
+    #[test]
+    fn bound_node_keys_use_prefix_join_plans() {
+        let store = Store::open_in_memory().unwrap();
+        for query in [
+            "?[id,type,name,body,validity] := id = $id, *node{id,type,name,body,validity @ 'NOW'}",
+            "?[type,tier,name,body,tags,visibility,layer,properties] := id = $id, *node{id,type,tier,name,body,tags,visibility,layer,properties @ 'NOW'}",
+            "?[type,tier,name,body,tags,layer,visibility,validity] := id = $id, *node{id,type,tier,name,body,tags,layer,visibility,validity @ 9999999999.0}",
+            "?[validity,name,body] := id = $id, *node{id,validity,name,body} :order validity",
+        ] {
+            let plan = store
+                .db_ref()
+                .run_script(
+                    &format!("::explain {{ {query} }}"),
+                    BTreeMap::from([("id".into(), DataValue::Str("missing".into()))]),
+                    ScriptMutability::Immutable,
+                )
+                .unwrap();
+            let op = plan.headers.iter().position(|h| h == "op").unwrap();
+            assert!(
+                plan.rows
+                    .iter()
+                    .any(|r| r[op].get_str() == Some("stored_prefix_join")),
+                "keyed read did not use the primary key: {plan:?}"
+            );
+        }
+    }
+
+    /// Exercise the keyed readers against explicit validity boundaries, not
+    /// wall-clock sleeps: historical assertions, withdrawal and resurrection.
+    #[test]
+    fn keyed_reads_preserve_temporal_versions_and_missing_results() {
+        let store = Store::open_in_memory().unwrap();
+        store.run(r#"
+            rows[id, validity, type, tier, name, body, tags, visibility, layer, properties] <- [
+                ['quoted\'id', [100.0, true], 'reference', 'archival', 'first', 'body one', ['one'], 'shared', 'hot', {'url': 'https://example.test/1'}],
+                ['quoted\'id', [200.0, true], 'reference', 'archival', 'second', 'body two', ['two'], 'local', 'warm', {'url': 'https://example.test/2'}],
+                ['quoted\'id', [300.0, false], 'reference', 'archival', 'second', 'body two', ['two'], 'local', 'warm', null],
+                ['quoted\'id', [400.0, true], 'reference', 'archival', 'third', 'body three', ['three'], 'shared', 'core', {'url': 'https://example.test/3'}],
+                ['withdrawn', [100.0, true], 'reference', 'archival', 'gone', 'old', [], 'local', 'warm', null],
+                ['withdrawn', [200.0, false], 'reference', 'archival', 'gone', 'old', [], 'local', 'warm', null],
+                ['unrelated', [100.0, true], 'reference', 'archival', 'other', 'not the requested body', [], 'local', 'warm', null]
+            ]
+            ?[id, validity, type, tier, name, body, tags, visibility, layer, properties, initiatives] :=
+                rows[id, validity, type, tier, name, body, tags, visibility, layer, properties], initiatives = null
+            :put node {id, validity => type, tier, name, body, tags, visibility, layer, properties, initiatives}
+        "#).unwrap();
+        let id = "quoted'id".to_string();
+        for (time, name) in [
+            (99.0, None),
+            (100.0, Some("first")),
+            (199.0, Some("first")),
+            (200.0, Some("second")),
+            (299.0, Some("second")),
+            (300.0, None),
+            (399.0, None),
+            (400.0, Some("third")),
+        ] {
+            let snapshot = at(&store, &id, time).unwrap();
+            assert_eq!(
+                snapshot.as_ref().map(|n| n.name.as_str()),
+                name,
+                "time={time}"
+            );
+            if let Some(snapshot) = snapshot {
+                // Compare the full old post-filter query with the keyed result.
+                let params = BTreeMap::from([("id".into(), DataValue::Str(id.as_str().into()))]);
+                let old = store.db_ref().run_script(&format!(
+                    "?[name, body, tags, layer, visibility] := *node{{id, name, body, tags, layer, visibility @ {time}}}, id = $id"
+                ), params, ScriptMutability::Immutable).unwrap();
+                assert_eq!(old.rows[0][0].get_str(), Some(snapshot.name.as_str()));
+                assert_eq!(old.rows[0][1].get_str(), snapshot.body.as_deref());
+                assert_eq!(old.rows[0][3].get_str(), Some(snapshot.layer.as_str()));
+                assert_eq!(old.rows[0][4].get_str(), Some(snapshot.visibility.as_str()));
+            }
+        }
+        let revisions = history(&store, &id).unwrap();
+        assert_eq!(
+            revisions
+                .iter()
+                .map(|r| (r.seconds as u64, r.asserted, r.name.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (400, true, "third"),
+                (300, false, "second"),
+                (200, true, "second"),
+                (100, true, "first")
+            ]
+        );
+        // ID readers remain deliberately cross-initiative.
+        store.use_initiative("unrelated-active-scope");
+        let brief = node_brief_by_id(&store, &id).unwrap().unwrap();
+        let full = read_node_full(&store, &id).unwrap().unwrap();
+        assert_eq!(brief.name, "third");
+        assert_eq!(brief.ts, Some(400.0));
+        assert_eq!(full.body.as_deref(), Some("body three"));
+        assert_eq!(full.tags, vec!["three"]);
+        assert_eq!(full.layer, "core");
+        assert_eq!(full.visibility, "shared");
+        assert_eq!(full.properties.unwrap()["url"], "https://example.test/3");
+        for absent in ["missing", "withdrawn"] {
+            let absent = absent.to_string();
+            assert!(node_brief_by_id(&store, &absent).unwrap().is_none());
+            assert!(read_node_full(&store, &absent).unwrap().is_none());
+            assert!(at(&store, &absent, 999.0).unwrap().is_none());
+        }
+        assert!(history(&store, &"missing".into()).unwrap().is_empty());
+        assert_eq!(history(&store, &"withdrawn".into()).unwrap().len(), 2);
+    }
 
     /// A freshly written node exposes its assertion time both through `at`
     /// (the full snapshot) and through a `NodeBrief` — in Unix **seconds**,
