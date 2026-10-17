@@ -4,7 +4,7 @@
 
 use std::str::FromStr;
 
-use kaeru_core::{EdgeType, Layer, NodeType, Tier, Visibility};
+use kaeru_core::{CloudEdge, Layer, NodeType, Tier, Visibility, restore_cloud_edges};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -19,6 +19,8 @@ use crate::{KaeruMemory, mem_tool_cloud_named};
 #[derive(Debug, Deserialize)]
 pub struct CloudRecallArgs {
     pub initiative: String,
+    #[serde(default)]
+    pub id: Option<String>,
     #[serde(default)]
     pub cloud: Option<String>,
     /// Page size. Bounded server-side; an unpaged listing on a real corpus
@@ -40,6 +42,24 @@ async fn do_cloud_recall(mem: &KaeruMemory, a: CloudRecallArgs) -> Value {
         Ok(c) => c,
         Err(v) => return v,
     };
+
+    if let Some(id) = a.id.as_deref() {
+        let (code, resp) = match client.get_node_in_initiative(&init, id).await {
+            Ok(x) => x,
+            Err(e) => return json!({ "error": format!("cloud GET failed: {e}") }),
+        };
+        if code == 404 {
+            return json!({ "message": format!("cloud has no node {id}") });
+        }
+        if !(200..300).contains(&code) {
+            return json!({ "error": format!("cloud GET failed ({code}): {resp}") });
+        }
+        let v: Value = match serde_json::from_str(&resp) {
+            Ok(val) => val,
+            Err(e) => return json!({ "error": format!("bad cloud response: {e}") }),
+        };
+        return json!({ "initiative": init, "node": v });
+    }
 
     let (code, resp) = match client
         .list_initiative(
@@ -139,7 +159,7 @@ async fn do_pull(mem: &KaeruMemory, a: PullArgs) -> Value {
     let init_w = init.clone();
     let name_w = name.clone();
     let up = mem
-        .blocking(move |s| {
+        .blocking_in(Some(init.clone()), move |s| {
             kaeru_core::upsert_node(
                 s,
                 &id,
@@ -159,7 +179,12 @@ async fn do_pull(mem: &KaeruMemory, a: PullArgs) -> Value {
         return json!({ "error": e.to_string() });
     }
 
-    let edges = recreate_local_edges(mem, &client, init.clone()).await;
+    let edges = match recreate_local_edges(mem, &client, init.clone(), a.id.clone()).await {
+        Ok(n) => n,
+        Err(e) => {
+            return json!({"error": format!("node imported, but edge restore failed: {e}"), "node_imported": true});
+        }
+    };
     let edge_note = if edges > 0 {
         format!(" (+{edges} edge(s) linked)")
     } else {
@@ -173,73 +198,53 @@ async fn do_pull(mem: &KaeruMemory, a: PullArgs) -> Value {
     })
 }
 
-/// Fetches the initiative's cloud edges and `link`s locally every one whose
-/// both endpoints already exist locally. Idempotent at NOW.
+/// Restore just the pulled node's edges; never hide an incomplete import.
 async fn recreate_local_edges(
     mem: &KaeruMemory,
     client: &CloudClient,
     initiative: String,
-) -> usize {
-    let (code, resp) = match client.list_edges(&initiative).await {
-        Ok(x) => x,
-        Err(_) => return 0,
-    };
+    target: String,
+) -> Result<usize, String> {
+    let (code, resp) = client.list_edges(&initiative).await?;
     if !(200..300).contains(&code) {
-        return 0;
+        return Err(format!(
+            "cloud `{}` edge restore failed ({code})",
+            client.name()
+        ));
     }
-    let items: Vec<Value> = serde_json::from_str::<Value>(&resp)
-        .ok()
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default();
-    let parsed: Vec<(String, String, String, f64)> = items
+    let items: Vec<Value> =
+        serde_json::from_str(&resp).map_err(|e| format!("invalid cloud edge list: {e}"))?;
+    let edges: Vec<CloudEdge> = items
         .iter()
-        .filter_map(|it| {
-            let src = it.get("src")?.as_str()?.to_string();
-            let dst = it.get("dst")?.as_str()?.to_string();
-            let et = it.get("edge_type")?.as_str()?.to_string();
-            let weight = it.get("weight").and_then(|x| x.as_f64()).unwrap_or(1.0);
-            Some((src, dst, et, weight))
+        .filter_map(|v| {
+            Some((
+                v.get("src")?.as_str()?.into(),
+                v.get("dst")?.as_str()?.into(),
+                v.get("edge_type")?.as_str()?.into(),
+                v.get("weight").and_then(Value::as_f64).unwrap_or(1.0),
+            ))
         })
         .collect();
-    if parsed.is_empty() {
-        return 0;
-    }
-
-    mem.blocking_in(Some(initiative), move |s| {
-        let mut linked = 0;
-        for (src, dst, et, weight) in &parsed {
-            let both_local = kaeru_core::node_brief_by_id(s, src)
-                .ok()
-                .flatten()
-                .is_some()
-                && kaeru_core::node_brief_by_id(s, dst)
-                    .ok()
-                    .flatten()
-                    .is_some();
-            if !both_local {
-                continue;
-            }
-            let Ok(edge) = et.parse::<EdgeType>() else {
-                continue;
-            };
-            if kaeru_core::link_with_weight(s, src, dst, edge, *weight).is_ok() {
-                linked += 1;
-            }
-        }
-        linked
-    })
-    .await
+    // This primitive scopes each mutation itself. Do not hold the outer
+    // blocking_in guard and then re-lock it inside restore_cloud_edges.
+    let store = mem.store.clone();
+    tokio::task::spawn_blocking(move || restore_cloud_edges(&store, &initiative, &target, &edges))
+        .await
+        .map_err(|e| format!("edge import task failed: {e}"))?
+        .map(|r| r.linked)
+        .map_err(|e| e.to_string())
 }
 
 mem_tool_cloud_named!(
     /// `kaeru_cloud_recall` — list what the cloud holds for an initiative.
     CloudRecall,
     "kaeru_cloud_recall",
-    "List the shared nodes the cloud holds for an initiative — discovery for cross-session / \
+    "Read a full shared node without importing it with `id`, or list nodes for an initiative — discovery for cross-session / \
      cross-user recall. Then kaeru_pull one to bring it local. `cloud` targets a named cloud.",
     CloudRecallArgs,
     { "type": "object", "properties": {
         "initiative": { "type": "string", "description": "initiative (project) to read in the cloud" },
+        "id": { "type": "string", "description": "optional node ID for direct read-only retrieval without importing" },
         "cloud": { "type": "string", "description": "named cloud (default: the configured default)" },
         "query": { "type": "string", "description": "optional filter; matches name and body cloud-side" },
         "limit": { "type": "integer", "description": "page size (default 50)" },
@@ -309,3 +314,70 @@ crate::mem_tool_unscoped!(
         }
     }
 );
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use axum::http::StatusCode;
+    use axum::{Json, Router, routing::get};
+    use kaeru_core::{Store, read_node_full};
+    use serde_json::json;
+    use tokio::net::TcpListener;
+
+    use super::{CloudRecallArgs, PullArgs, do_cloud_recall, do_pull};
+    use crate::KaeruMemory;
+    use crate::cloud_client::{CloudClient, CloudRegistry};
+
+    #[tokio::test]
+    async fn full_recall_is_read_only_scoped_and_pull_reports_partial_import() {
+        let app = Router::new()
+            .route("/api/v1/nodes/node-a", get(|| async { Json(json!({
+                "id":"node-a", "name":"full-note", "node_type":"reference", "tier":"archival",
+                "layer":"hot", "body":"complete body", "tags":[]
+            })) }))
+            .route("/api/v1/initiatives/alpha/nodes", get(|| async { Json(json!([{"id":"node-a"}])) }))
+            .route("/api/v1/initiatives/beta/nodes", get(|| async { Json(json!([])) }))
+            .route("/api/v1/initiatives/alpha/edges", get(|| async { StatusCode::SERVICE_UNAVAILABLE }));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let cloud = CloudClient::new("test".into(), format!("http://{addr}"), String::new());
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let mem = KaeruMemory::with_clouds(
+            store.clone(),
+            "beta",
+            CloudRegistry::new(HashMap::from([("test".into(), cloud)]), None),
+        );
+        for (initiative, found) in [("alpha", true), ("beta", false)] {
+            let out = do_cloud_recall(
+                &mem,
+                CloudRecallArgs {
+                    initiative: initiative.into(),
+                    id: Some("node-a".into()),
+                    cloud: None,
+                    limit: None,
+                    offset: None,
+                    query: None,
+                },
+            )
+            .await;
+            assert_eq!(out.to_string().contains("complete body"), found);
+            assert!(read_node_full(&store, &"node-a".into()).unwrap().is_none());
+        }
+        let out = do_pull(
+            &mem,
+            PullArgs {
+                initiative: "alpha".into(),
+                id: "node-a".into(),
+                cloud: None,
+            },
+        )
+        .await;
+        assert_eq!(out["node_imported"], true);
+        assert!(out["error"].as_str().unwrap().contains("node imported"));
+        assert!(read_node_full(&store, &"node-a".into()).unwrap().is_some());
+        task.abort();
+    }
+}

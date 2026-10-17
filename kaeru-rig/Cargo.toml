@@ -18,4 +18,5 @@ reqwest = { workspace = true }
 tokio-util = { workspace = true }
 
 [dev-dependencies]
+axum = { workspace = true }
 tokio = { workspace = true }

@@ -100,8 +100,58 @@ impl CloudClient {
 
     /// `GET /api/v1/nodes/{id}` — fetch a node's full record.
     pub async fn get_node(&self, id: &str) -> Result<(u16, String), String> {
-        let url = format!("{}/api/v1/nodes/{id}", self.base_url);
+        let url = format!("{}/api/v1/nodes/{}", self.base_url, urlencoding(id));
         self.get(&url).await
+    }
+
+    /// Full read without import, restricted to the requested initiative.
+    /// Older cloud APIs expose GET by id globally. Confirm membership against
+    /// their paged initiative listing before releasing the body to a caller.
+    pub async fn get_node_in_initiative(
+        &self,
+        initiative: &str,
+        id: &str,
+    ) -> Result<(u16, String), String> {
+        let (code, body) = self.get_node(id).await?;
+        if !(200..300).contains(&code) {
+            return Ok((code, body));
+        }
+        let node: Value = serde_json::from_str(&body)
+            .map_err(|e| format!("cloud `{}` invalid node: {e}", self.name()))?;
+        if node.get("id").and_then(Value::as_str) != Some(id) {
+            return Err(format!(
+                "cloud `{}` returned a different node id",
+                self.name()
+            ));
+        }
+        let name = node
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "cloud node has no name".to_string())?;
+        let mut offset = 0;
+        loop {
+            let (status, page) = self
+                .list_initiative(initiative, 500, offset, Some(name))
+                .await?;
+            if !(200..300).contains(&status) {
+                return Err(format!(
+                    "cloud `{}` membership check failed ({status})",
+                    self.name()
+                ));
+            }
+            let nodes: Vec<Value> = serde_json::from_str(&page)
+                .map_err(|e| format!("cloud membership list invalid: {e}"))?;
+            if nodes
+                .iter()
+                .any(|n| n.get("id").and_then(Value::as_str) == Some(id))
+            {
+                return Ok((code, body));
+            }
+            if nodes.len() < 500 {
+                return Ok((404, "node is not in the requested initiative".into()));
+            }
+            offset += nodes.len();
+        }
     }
 
     /// `POST /api/v1/edges` — push an edge between two shared nodes.
@@ -151,8 +201,9 @@ impl CloudClient {
             .map(|q| format!("&q={}", urlencoding(q)))
             .unwrap_or_default();
         let url = format!(
-            "{}/api/v1/initiatives/{initiative}/nodes?limit={limit}&offset={offset}{q}",
-            self.base_url
+            "{}/api/v1/initiatives/{}/nodes?limit={limit}&offset={offset}{q}",
+            self.base_url,
+            urlencoding(initiative)
         );
         self.get(&url).await
     }
@@ -217,7 +268,11 @@ impl CloudClient {
     }
 
     pub async fn list_edges(&self, initiative: &str) -> Result<(u16, String), String> {
-        let url = format!("{}/api/v1/initiatives/{initiative}/edges", self.base_url);
+        let url = format!(
+            "{}/api/v1/initiatives/{}/edges",
+            self.base_url,
+            urlencoding(initiative)
+        );
         self.get(&url).await
     }
 

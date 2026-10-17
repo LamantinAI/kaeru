@@ -522,7 +522,7 @@ impl KaeruServer {
     }
 
     #[tool(
-        description = "SEARCH or list what the cloud holds for an initiative — the second tier your local `search` cannot reach. Pass `query` to match shared names and excerpts; omit it to list everything. Then `pull <id>` brings one into the local vault. Reach for this whenever a `team` initiative's local answer looks complete: the cloud may hold nodes this machine has never seen. Paged at 25, reporting the true total and the exact call for the next page. In a multi-cloud setup `cloud` is required."
+        description = "READ a full cloud node without importing it by passing `id`, or SEARCH/list what the cloud holds for an initiative — the second tier your local `search` cannot reach. Pass `query` to match shared names and excerpts; omit it to list everything. Then `pull <id>` brings one into the local vault. Reach for this whenever a `team` initiative's local answer looks complete: the cloud may hold nodes this machine has never seen. Paged at 25, reporting the true total and the exact call for the next page. In a multi-cloud setup `cloud` is required."
     )]
     async fn cloud_recall(
         &self,
@@ -531,6 +531,7 @@ impl KaeruServer {
         tools::cloud::cloud_recall(
             Some(self.cloud_for(p.cloud.as_deref())?),
             &p.initiative,
+            p.id.as_deref(),
             p.query.as_deref(),
             p.limit,
             p.offset,
@@ -544,12 +545,14 @@ impl KaeruServer {
     async fn pull(
         &self,
         Parameters(p): Parameters<PullParams>,
+        context: rmcp::service::RequestContext<rmcp::RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         tools::cloud::pull(
-            &self.store,
+            self.store.clone(),
             Some(self.cloud_for(p.cloud.as_deref())?),
             &p.id,
             &p.initiative,
+            context.ct,
         )
         .await
     }

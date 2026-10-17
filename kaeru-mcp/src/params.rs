@@ -74,6 +74,10 @@ pub struct PullParams {
 pub struct CloudRecallParams {
     /// Initiative to list shared cloud nodes for.
     pub initiative: String,
+    /// Read a specific shared cloud node by ID directly without importing it
+    /// to the local vault or altering the local graph.
+    #[serde(default)]
+    pub id: Option<String>,
     /// Cloud name to query in a multi-cloud setup. Required when several are
     /// configured.
     #[serde(default)]

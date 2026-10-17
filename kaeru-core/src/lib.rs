@@ -51,6 +51,10 @@ pub use mutate::{
     upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
 pub use naming::derive_auto_name;
+pub use recall::cloud_import::{
+    CloudEdge, EdgeImportResult, existing_node_ids, restore_cloud_edges,
+    restore_cloud_edges_cancellable,
+};
 pub use recall::unversioned::UnversionedChange;
 pub use recall::verdicts::Verdict;
 pub use recall::{

@@ -13,6 +13,7 @@ use crate::graph::temporal::validity_seconds;
 pub mod between;
 pub mod board;
 pub mod by_name;
+pub mod cloud_import;
 pub mod fts;
 pub mod initiatives;
 pub mod layered;
@@ -40,6 +41,10 @@ pub use board::{
 pub use by_name::{
     count_by_type, local_nodes_for_review, node_brief_by_id, read_node_full, recall_id_by_name,
     recall_id_by_name_at, recall_id_by_name_ever, recall_id_by_name_global, suggest_node_name,
+};
+pub use cloud_import::{
+    CloudEdge, EdgeImportResult, existing_node_ids, restore_cloud_edges,
+    restore_cloud_edges_cancellable,
 };
 pub use fts::{FUZZY_RECALL_LIMIT_CAP, fuzzy_recall, prefix_widening};
 pub use initiatives::{
