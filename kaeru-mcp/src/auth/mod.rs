@@ -108,7 +108,6 @@ mod bearer_tests {
 
 pub mod store;
 
-pub mod cli;
 pub mod session;
 
 #[cfg(test)]

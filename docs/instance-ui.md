@@ -76,7 +76,9 @@ is an example, not an enabled account:
 ## Access and sessions
 
 Authentication mode does not widen `KAERU_MCP_VIZ_INITIATIVES`, `KAERU_MCP_VIZ_DENY` or
-`KAERU_MCP_VIZ_INCLUDE_LOCAL`. An empty allowed set shows no records. An operator
+`KAERU_MCP_VIZ_INCLUDE_LOCAL`. These variables constrain HTTP/UI access; MCP
+sessions retain their local owner capabilities. An empty allowed set shows no
+records. An operator
 intentionally viewing their own entire vault can explicitly configure:
 
 ```sh
@@ -103,9 +105,11 @@ permissions are displayed read-only, without hashes, signing keys or tokens.
 Expired sessions return to login; permission errors, failures and empty graphs
 remain visible. None request an offline snapshot.
 
-`KAERU_MCP_UI_ENABLE=0` hides the bundled pages while preserving configured
-API authentication and account endpoints. A platform frontend behind nginx can
-use the same `/auth/`, `/admin/` and `/v1/` routes.
+`KAERU_MCP_UI_ENABLE=0` hides the bundled pages while preserving account
+endpoints. Named `/v1/` routes remain active if a protected browser account
+exists or `KAERU_MCP_VIZ_ENABLE=1`; otherwise hiding the UI also removes those
+routes. This does not disable MCP or change its authentication mode. A platform
+frontend behind nginx can use the same `/auth/`, `/admin/` and `/v1/` routes.
 
 ## Building
 
@@ -127,7 +131,6 @@ and JWT verification live outside its presentation layer.
 
 The MCP image builds in three stages: Node frontend, Rust binary, runtime.
 Only the executable reaches runtime; installers still deliver one executable.
-Mount both the vault and `/home/kaeru/.config/kaeru` persistently in containers.
 The local systemd/launchd installer configures the UI to view the owner’s vault
 with `KAERU_MCP_VIZ_INITIATIVES=*` and `KAERU_MCP_VIZ_INCLUDE_LOCAL=1`. Explicit
 API scope, visibility and validation rules still apply in either auth mode.
@@ -145,3 +148,36 @@ npm run test:browser
 
 `KAERU_MCP_TEST_BINARY` and `KAERU_BROWSER_PATH` select existing test executables.
 `KAERU_SCREENSHOT_DIR` retains screenshots. Tests never use the live daemon.
+
+## Containers
+
+Build from the workspace root, then persist the vault **and** authentication
+configuration. This example first initializes a protected account without
+opening the vault/listener, then starts an owner-access UI bound to host loopback:
+
+```sh
+docker build -f docker/Dockerfile.mcp -t kaeru-mcp .
+docker run --rm -it \
+  -v kaeru-config:/home/kaeru/.config/kaeru \
+  kaeru-mcp --auth enabled
+
+docker run --name kaeru-mcp \
+  -p 127.0.0.1:9876:9876 \
+  -v kaeru-data:/home/kaeru/.local/share/kaeru \
+  -v kaeru-config:/home/kaeru/.config/kaeru \
+  -e KAERU_MCP_LISTEN_ADDRESS=0.0.0.0 \
+  -e KAERU_MCP_VIZ_INITIATIVES='*' \
+  -e KAERU_MCP_VIZ_INCLUDE_LOCAL=1 \
+  kaeru-mcp
+```
+
+For intentional local open mode, choose `--auth disabled` during initialization.
+For access through a public host, configure the MCP allowed Host authorities and
+HTTPS reverse proxy; preserve the browser-facing Host and optionally pin its
+HTTPS origin during account setup.
+
+The repository `docker-compose.yaml` demonstrates the local/cloud bridge. Its
+base definition persists the two vaults but does **not** persist MCP account
+configuration, select an auth mode, grant HTTP/UI owner scope or add routable
+MCP Host authorities. Supply those explicitly through your deployment/override;
+the local installer's account/scope setup does not run inside an image.

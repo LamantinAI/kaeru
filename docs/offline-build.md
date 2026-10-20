@@ -1,5 +1,9 @@
 # Building kaeru without network access
 
+Start from a published release checkout with an available vendor tag whose
+`Cargo.lock` matches exactly. Development checkouts may contain new dependencies
+not present in any published vendor tree.
+
 Some machines cannot reach crates.io: an air-gapped environment, a locked-down
 corporate network, a customer site. This is how to build kaeru there.
 
@@ -8,8 +12,9 @@ once; carry the directory across; build.
 
 ```sh
 git clone https://github.com/LamantinAI/kaeru.git && cd kaeru
-git checkout v0.7.3
-./contrib/offline/fetch-vendor.sh          # ~600 MB, needs network
+# Set KAERU_VERSION to the published release tag you need.
+git checkout "$KAERU_VERSION"
+./contrib/offline/fetch-vendor.sh          # matching published vendor tag; needs network
 # …carry the whole directory to the offline machine…
 cargo build --release --offline -p kaeru-mcp
 ```
@@ -28,7 +33,7 @@ almost nobody building kaeru needs it. Fetching it is a deliberate act by the
 few who do.
 
 Tagged, rather than a directory per release, so that fetching one release costs
-one release. `git clone --depth 1 --branch v0.7.3` downloads that tree and
+one release. `git clone --depth 1 --branch <matching-release-tag>` downloads that tree and
 nothing else; a directory layout would hand every builder the entire history of
 every release forever.
 
@@ -47,6 +52,12 @@ source.
 
 ## What you still need on the build machine
 
+Cargo embeds the checked-in `kaeru-mcp/ui-dist/`, so an unchanged frontend
+needs no npm or Node.js during an offline Rust build. To change the UI, prepare
+its Node dependencies/build separately before transfer; the Rust vendor tree
+does not contain npm packages. The Dockerfile’s frontend stage runs `npm ci`
+and is not made offline by the Cargo vendor configuration.
+
 Rust alone is **not enough**, and this is a property of kaeru rather than of
 building offline: cozo compiles RocksDB from C++ sources, and zstd and lz4 from
 C. Offline just means you meet those requirements without a package manager to
@@ -54,7 +65,7 @@ help.
 
 | | why | check |
 |---|---|---|
-| `rustc` / `cargo` 1.95+ | edition 2024 | `rustc -vV` |
+| `rustc` / `cargo` 1.95+ | Project toolchain baseline | `rustc -vV` |
 | A C++ toolchain | RocksDB, zstd, lz4 | `cc --version` |
 | `libclang` | `zstd-sys` generates bindings with bindgen | `clang --version`, or set `LIBCLANG_PATH` |
 
@@ -98,8 +109,7 @@ Part of cutting a release, after the tag exists and from a clean checkout of
 it:
 
 ```sh
-git checkout v0.7.3
-./contrib/offline/publish-vendor.sh v0.7.3
+./contrib/offline/publish-vendor.sh "$(git describe --tags --exact-match)"
 ```
 
 The script refuses to run against a dirty tree or a mismatched version,

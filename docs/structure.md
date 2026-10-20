@@ -17,7 +17,7 @@ after the local commit and report their own failures.
 | Concern | Start here |
 | --- | --- |
 | Names, input shapes and descriptions | `kaeru-core/src/api/surface.rs` |
-| Result types and host capabilities | `kaeru-core/src/api/types.rs` |
+| Result types and host capabilities | `kaeru-core/src/models/response.rs`, `records.rs`, `access.rs` |
 | Validation, dispatch and replay | `kaeru-core/src/api/mod.rs` |
 | Scope, visibility and reference resolution | `kaeru-core/src/api/access.rs` |
 | Context, search, paging and history | `kaeru-core/src/api/read/` |
@@ -25,6 +25,7 @@ after the local commit and report their own failures.
 | Transaction ownership and rollback | `kaeru-core/src/store/database.rs` |
 | Identity transfer and preserved references | `kaeru-core/src/mutate/identity.rs` |
 | Stored schema and forward migrations | `kaeru-core/src/store.rs`, `kaeru-core/src/migrate.rs` |
+| Portable knowledge export/import | `kaeru-core/src/amg/`, `kaeru-core/src/models/amg.rs`, `kaeru-core/src/config/amg.rs` |
 | Domain storage primitives | `kaeru-core/src/graph/`, `mutate/`, `recall/` |
 
 The domain primitives remain available to core and cloud code. The retired MCP
@@ -39,6 +40,7 @@ and Rig tool modules are removed; they are not a compatibility API.
 | `kaeru-mcp/src/cloud.rs` | The nine existing cloud bridge operations. |
 | `kaeru-mcp/src/api/` | Named HTTP routes, principal and egress policy. |
 | `kaeru-mcp/src/ui/` | Embedded assets, browser routes and thin account screens. |
+| `kaeru-mcp/src/cli/` | Offline AMG and local authentication setup commands. |
 | `kaeru-mcp/src/auth/` | JWT/password verification and atomic local account persistence. |
 | `kaeru-mcp/ui-dist/` | Generated, verified static frontend bundled by Cargo. |
 | `kaeru-rig/src/tools.rs` | Distinct `kaeru_<operation>` tools over the shared catalogue. |
@@ -64,6 +66,7 @@ Unit tests beside domain code cover individual storage and adapter behaviors.
 | `atomic_commands.rs` | Command rollback and transactional behavior. |
 | `canonical_api.rs` | Shared definitions, validation and canonical results. |
 | `identity_and_history.rs` | Content preservation, identity transfer and historical access. |
+| `amg.rs` | Scoped export, atomic conflict/force import, semantic metadata and recorded history. |
 | `vault_migration.rs` | Opening older disk vaults without losing recorded data. |
 
 MCP tests include transport authorization and parity with Rig. Rig tests exercise

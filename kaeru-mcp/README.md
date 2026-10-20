@@ -1,289 +1,197 @@
 # kaeru-mcp
 
-Long-lived MCP service that exposes the kaeru curator API over HTTP.
-**One daemon per machine** owns the substrate; any number of agent
-sessions (Claude Code, Cursor, Continue, …) connect concurrently.
+One long-lived process owns an embedded Kaeru vault and serves MCP, the named
+HTTP memory API and the embedded visualizer. Multiple clients share that owner;
+separate vaults can run on separate ports. No Rust/Node.js runtime is needed
+for an installed binary.
 
-This is **not** a stdio MCP server you spawn from each agent session.
-The substrate is single-writer (RocksDB under Cozo), so each subprocess
-would race for the lock — the second one to start fails. Service-mode
-solves that by putting one writer in front of the vault and letting
-many readers/writers connect over HTTP.
+## Install and run
 
-## Clients that only speak stdio
+From the workspace root:
 
-The daemon is the point: one process owns the vault, and every session
-connects to it. But most MCP clients only know how to spawn a server and talk
-to it over stdio, which left them unable to reach kaeru at all.
-
-`kaeru-mcp --stdio` is a relay for exactly that. It forwards a client's session
-to the daemon — starting the daemon first if nothing is answering — so the
-client gets the stdio server it expects and the vault still has one writer.
-
-```bash
-claude mcp add kaeru -- kaeru-mcp --stdio
+```sh
+cargo install --path kaeru-mcp --locked
+kaeru-mcp
 ```
 
-It relays frames rather than interpreting them, so a method added upstream
-passes through without the relay needing to learn it. Logs go to stderr,
-because stdout carries the protocol.
+Source builds need Rust 1.95+, a C/C++ toolchain and libclang. Cargo embeds the
+checked-in `ui-dist/`; frontend changes need an explicit rebuild from
+`kaeru-viz/`. See [Quick Start](../QUICK_START.md) for prebuilt releases.
 
-### As a bundle
+The local [installer](../contrib/install/install.sh) generates a systemd user
+unit or launchd agent, configures optional authentication and starts the service.
+It does not copy pre-existing service templates. Managed locations are:
 
-`contrib/install/package-release.sh` also builds a `.mcpb` per platform — an
-MCP Bundle, which is a zip carrying the binary and a manifest. A client that
-installs one needs no Rust toolchain and no separate download; the manifest
-runs the binary with `--stdio`, never bare.
+- Linux: `~/.config/systemd/user/kaeru-mcp.service`.
+- macOS: `~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist`.
 
-Bare would start a second daemon over whichever one already owns the vault,
-and the loser fails on the RocksDB lock. That is why the bundle exists as a
-packaging of the relay rather than of the server.
-
-The same script writes `dist/server.json` for the
-[MCP Registry](https://registry.modelcontextprotocol.io), with a download URL
-and SHA-256 per bundle:
-
-```bash
-mcp-publisher login github && mcp-publisher publish dist/server.json
-```
-
-## Build & install
-
-```bash
-cargo install --path kaeru-mcp
-```
-
-The binary lands at `~/.cargo/bin/kaeru-mcp`.
-
-## Run as a service
-
-### Linux (systemd, user-mode)
-
-```bash
-mkdir -p ~/.config/systemd/user
-cp contrib/systemd/kaeru-mcp.service ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable --now kaeru-mcp
-```
-
-Check status / logs:
-
-```bash
+```sh
 systemctl --user status kaeru-mcp
 journalctl --user -u kaeru-mcp -f
+# After changing a binary or service environment:
+systemctl --user restart kaeru-mcp
 ```
 
-Override env vars via `systemctl --user edit kaeru-mcp` (creates a
-drop-in `override.conf`).
+On macOS use launchd for `ai.lamantin.kaeru-mcp`; logs are written to
+`~/Library/Logs/kaeru-mcp.log`. A source-only installation can run in the
+foreground or use an operator-managed service.
 
-### macOS (launchd)
+## Endpoints
 
-```bash
-cp contrib/launchd/ai.lamantin.kaeru-mcp.plist ~/Library/LaunchAgents/
-# Edit the file: replace REPLACE_ME with your username (3 spots).
-launchctl load ~/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist
+The default listener is `http://127.0.0.1:9876`.
+
+| Path | Purpose |
+| --- | --- |
+| `/mcp` | Streamable HTTP MCP. |
+| `/sse` and `/messages` | Legacy HTTP+SSE MCP for clients needing that transport. |
+| `/v1/<operation>` | Named memory API: POST the same JSON arguments as its MCP tool. |
+| `/ui/` | Embedded live graph visualizer. |
+| `/ui/login`, `/ui/admin` | Browser account screens when authentication is enabled. |
+| `/auth/*`, `/admin/*` | Browser session and account endpoints. |
+
+The UI is enabled by default and also enables the named HTTP API. Its memory
+scope defaults to empty; enable access explicitly for manual runs:
+
+```sh
+KAERU_MCP_VIZ_INITIATIVES='*' KAERU_MCP_VIZ_INCLUDE_LOCAL=1 kaeru-mcp
 ```
 
-Logs land in `~/Library/Logs/kaeru-mcp.log`.
+Installer-managed local services set that owner scope. HTTP/UI scope is an
+operator ceiling; request arguments cannot widen it. MCP sessions use the local
+owner API rather than inheriting this HTTP/UI ceiling. See
+[access and sessions](../docs/instance-ui.md#access-and-sessions).
 
-### Quick foreground run (for testing)
+`KAERU_MCP_UI_ENABLE=0` hides pages. The HTTP API remains enabled if a protected
+browser account exists or `KAERU_MCP_VIZ_ENABLE=1` is set. Hiding the UI does
+not disable account authentication endpoints or turn off MCP.
 
-```bash
-kaeru-mcp
-# stops on Ctrl-C
-```
+## Clients
 
-By default it listens on `http://127.0.0.1:9876` and exposes two MCP
-transports on the same port:
+Point streamable-HTTP clients at `/mcp`. For example:
 
-- `http://127.0.0.1:9876/mcp` — **streamable HTTP** (current MCP spec, used
-  by Claude Code and most clients).
-- `http://127.0.0.1:9876/sse` + `http://127.0.0.1:9876/messages` — **legacy
-  HTTP+SSE** (2024-11-05 spec). Kept for clients that haven't migrated to
-  streamable HTTP yet — currently Opencode 1.15.x
-  ([opencode-ai/opencode#8058](https://github.com/anomalyco/opencode/issues/8058)).
-  Point such clients at the `/sse` URL.
-
-## Configuration
-
-Two layers, both env-driven:
-
-**Daemon transport** (`KAERU_MCP_*` — see `src/settings.rs`):
-
-| Variable                     | Default       | Effect                                |
-|------------------------------|---------------|---------------------------------------|
-| `KAERU_MCP_LISTEN_ADDRESS`   | `127.0.0.1`   | Bind IPv4. `0.0.0.0` = LAN-exposed; enable authentication for hosted deployments. |
-| `KAERU_MCP_ALLOWED_HOSTS`    | *(empty)*     | Extra `Host` authorities to accept beyond loopback, comma-separated. **Required when binding to `0.0.0.0`** — see note below. |
-| `KAERU_MCP_LISTEN_PORT`      | `9876`        | TCP port.                             |
-| `KAERU_MCP_MOUNT_PATH`       | `/mcp`        | Streamable HTTP mount path (must start with `/`). |
-| `KAERU_MCP_SSE_PATH`         | `/sse`        | Legacy HTTP+SSE GET mount path.       |
-| `KAERU_MCP_MESSAGES_PATH`    | `/messages`   | Legacy HTTP+SSE POST mount path.      |
-| `KAERU_MCP_LOG_LEVEL`        | `info`        | `error` / `warn` / `info` / `debug` / `trace`. |
-| `KAERU_MCP_AUTH_TOKEN`       | *(empty)*     | Overrides the persisted MCP token when authentication is enabled. Explicit `--auth disabled` ignores old tokens. |
-
-Authentication is optional. Local installation defaults to open access and asks
-whether to enable it. Choose explicitly with `kaeru-mcp --auth enabled` or
-`kaeru-mcp --auth disabled`, then restart. Open mode loads `/ui/` without login
-and accepts MCP/memory API requests without credentials. Enabled mode requires
-browser login and a separate MCP bearer token; the token is stored in the private
-web configuration. See [installation and authentication](../docs/instance-ui.md).
-
-**Cloud bridge** (`KAERU_MCP_CLOUD_*` — sharing / recall via `kaeru-cloud`):
-
-| Variable                  | Default     | Effect                                |
-|---------------------------|-------------|---------------------------------------|
-| `KAERU_MCP_CLOUD_URL`     | *(empty)*   | Base URL of the shared `kaeru-cloud` service (e.g. `http://cloud-host:9877`). Empty = cloud tools (`share` / `pull` / …) disabled. |
-| `KAERU_MCP_CLOUD_TOKEN`   | *(empty)*   | Bearer token sent to the cloud; must match its `KAERU_CLOUD_API_TOKEN`. |
-| `KAERU_MCP_CLOUDS_FILE`   | *(see below)* | Override the path to the clouds TOML file. |
-
-**Multiple clouds** (optional). For a daemon that reaches several
-`kaeru-cloud` endpoints (e.g. a `family` and a `work` cloud), list them
-in a TOML file — default `$XDG_CONFIG_HOME/kaeru/clouds.toml` (fallback
-`$HOME/.config/kaeru/clouds.toml`), override via `KAERU_MCP_CLOUDS_FILE`:
-
-```toml
-default = "family"          # used when a tool omits `cloud`
-
-[clouds.family]
-url   = "https://home.example/"
-token = "fam-xxx"
-
-[clouds.work]
-url   = "https://team.corp/"
-token = "work-yyy"
-```
-
-The cloud tools (`share` / `pull` / `cloud_recall` / `link_cloud`) then
-take an optional `cloud: <name>` to pick an endpoint; soft links remember
-their cloud, and `cloud_links` resolves each against the right one. The
-single `KAERU_MCP_CLOUD_URL`/`_TOKEN` pair still works on its own and is
-folded in as the `default` cloud when set — no file needed for the
-single-cloud case.
-
-**Substrate / curator-API caps** (`KAERU_*` — see
-`kaeru-core/src/config.rs`): `KAERU_VAULT_PATH`,
-`KAERU_ACTIVE_WINDOW_SIZE`, `KAERU_RECENT_EPISODES_CAP`,
-`KAERU_AWAKE_DEFAULT_WINDOW_SECS`, `KAERU_SUMMARY_VIEW_CHILDREN_CAP`,
-`KAERU_BODY_EXCERPT_CHARS`, `KAERU_PROVENANCE_MAX_HOPS`,
-`KAERU_DEFAULT_MAX_HOPS`, `KAERU_MAX_HOPS_CAP`.
-
-Use `context(view="diagnostics")` for API diagnostics; configuration values are owned by the daemon environment and host.
-
-## Connecting an MCP client
-
-### Claude Code
-
-Once the daemon is running, register it as an HTTP-transport MCP
-server. Either via CLI:
-
-```bash
+```sh
 claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp
 ```
 
-…or directly in `~/.claude/claude_desktop_config.json` (or
-`~/.config/claude/claude_code_settings.json`, depending on platform):
+With authentication enabled, send `Authorization: Bearer <mcp_token>` using
+that client's header configuration. The browser username/password is not an
+MCP credential.
 
-```json
-{
-  "mcpServers": {
-    "kaeru": {
-      "transport": "http",
-      "url": "http://127.0.0.1:9876/mcp"
-    }
-  }
-}
+Stdio-only clients run:
+
+```sh
+kaeru-mcp --stdio
 ```
 
-After restart, Claude sees the curator-API tools (`context`, `search`,
-`read`, `note`, `claim`, `history`, …). Ordinary project calls require
-`initiative`; search takes an `initiatives` list.
+The relay connects to the daemon, starting it if necessary, without opening a
+second vault. It reads the same configured MCP token. Logs go to stderr; stdout
+carries protocol frames. Release `.mcpb` bundles also invoke this relay.
 
-#### Make kaeru your memory of record
+The [Opencode integration](../contrib/opencode/README.md) installs a legacy-SSE
+snippet and agent instructions. Other clients may connect directly over HTTP
+or through the stdio relay; use the format supported by their installed version.
+The [portable skill](../skills/kaeru-skill/README.md) supplies memory-use guidance.
+The optional Claude memory-of-record setup is documented in
+[Quick Start](../QUICK_START.md#claude-code).
 
-Claude Code ships its own built-in auto-memory (an auto-loaded
-`MEMORY.md` plus a file store under
-`~/.claude/projects/<project>/memory/`) that competes with kaeru — left
-alone, the agent keeps writing there and knowledge forks across two
-systems. This is an integration gap, not a kaeru bug: a store baked into
-the runtime's system prompt can't be out-competed by an MCP server's
-instructions alone. Close it from the config side — rewrite the
-auto-loaded `MEMORY.md` into a directive pointing at kaeru, migrate
-existing notes in via `cite`, and optionally add a `SessionStart` hook
-that reminds the agent to consult kaeru first. Step-by-step recipe (with
-the hook JSON) is in
-[`skills/kaeru-skill/SKILL.md`](../skills/kaeru-skill/SKILL.md) under
-**"Memory of record"**.
+## Configuration
 
-### Opencode
+### Listener and authentication
 
-Opencode 1.15.x speaks only the legacy HTTP+SSE transport (see
-[opencode-ai/opencode#8058](https://github.com/anomalyco/opencode/issues/8058)).
-Point its `mcp.kaeru.url` at `http://127.0.0.1:9876/sse` instead of
-`/mcp`. The `contrib/opencode/install-opencode.sh` installer ships a
-ready-made config snippet.
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `KAERU_MCP_LISTEN_ADDRESS` | `127.0.0.1` | IPv4 bind address. |
+| `KAERU_MCP_LISTEN_PORT` | `9876` | Listener port. |
+| `KAERU_MCP_ALLOWED_HOSTS` | Empty extra list | Additional authorities accepted by the streamable-HTTP Host guard; comma-separated. Loopback remains allowed. |
+| `KAERU_MCP_MOUNT_PATH` | `/mcp` | Streamable HTTP mount. |
+| `KAERU_MCP_SSE_PATH` | `/sse` | Legacy GET endpoint. |
+| `KAERU_MCP_MESSAGES_PATH` | `/messages` | Legacy POST endpoint. |
+| `KAERU_MCP_KEEP_ALIVE_SECS` | `0` | MCP idle reaping; zero disables it. |
+| `KAERU_MCP_LOG_LEVEL` | `info` | Tracing level. |
+| `KAERU_MCP_WEB_CONFIG_FILE` | Platform config path | Local account/authentication-mode file. |
+| `KAERU_MCP_AUTH_TOKEN` | Empty | Overrides the stored MCP token while authentication is enabled. |
 
-### Other MCP runtimes
+Authentication is optional. Stop the daemon, run `kaeru-mcp --auth enabled` or
+`kaeru-mcp --auth disabled`, then restart. Enabled mode creates a local account,
+JWT signing key and separate random MCP token in private `web.toml`. There are
+no active default credentials. `--auth-status` reports the chosen mode.
 
-Anything that speaks streamable HTTP MCP — Cursor, Continue, Goose,
-mcp-inspector, etc. Format is the same; point the runtime at `/mcp`.
-For clients still on legacy SSE, point them at `/sse`.
+Explicit `enabled=false` overrides stale tokens and cookies. Without an auth
+config, a nonempty environment token enables the legacy token-only mode; that
+mode does not create a browser account. See [account setup and recovery](../docs/instance-ui.md).
 
-For poking at it interactively, the official inspector handles HTTP:
+For a remote bind, enable authentication, configure `KAERU_MCP_ALLOWED_HOSTS`
+with the authority clients use, and terminate HTTPS at the reverse proxy. The
+Host guard is separate from authentication; a rejected Host can fail the MCP
+handshake even with a valid token.
 
-```bash
-npx @modelcontextprotocol/inspector --transport http http://127.0.0.1:9876/mcp
+### HTTP/UI and host capabilities
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `KAERU_MCP_UI_ENABLE` | Enabled | Serve bundled UI pages. |
+| `KAERU_MCP_VIZ_ENABLE` | Unset | Explicitly enable named HTTP routes when UI is hidden. |
+| `KAERU_MCP_VIZ_INITIATIVES` | Empty | HTTP/UI allowed initiatives; `*` explicitly allows all. |
+| `KAERU_MCP_VIZ_DENY` | Empty | Initiatives always denied to HTTP/UI. |
+| `KAERU_MCP_VIZ_INCLUDE_LOCAL` | False | Permit local as well as shared records to HTTP/UI. |
+| `KAERU_MCP_VIZ_ALLOW_ORIGIN` | Unset | Optional response CORS origin; does not bypass browser Origin/CSRF checks. |
+| `KAERU_MCP_ARTIFACT_ROOT` | Unset | Authorize source artifact reads and agent `export` destinations. |
+| `KAERU_MCP_HYGIENE_ENABLE` | Enabled | Background recall-layer maintenance; `0` disables it. |
+| `KAERU_MCP_UPDATE_CHECK` | Enabled | Optional daily release check; `0` disables it. |
+
+### Cloud bridge
+
+`KAERU_MCP_CLOUD_URL` and `KAERU_MCP_CLOUD_TOKEN` configure a single cloud.
+Without any cloud endpoints the tools remain discoverable but report that no
+cloud is configured. Multiple endpoints come from `clouds.toml`:
+
+```toml
+[clouds.family]
+url = "https://home.example"
+token = "replace-with-family-token"
+
+[clouds.work]
+url = "https://team.example"
+token = "replace-with-work-token"
 ```
 
-## Tool catalogue
+The file defaults to `$XDG_CONFIG_HOME/kaeru/clouds.toml`, otherwise
+`~/.config/kaeru/clouds.toml`; override with `KAERU_MCP_CLOUDS_FILE`.
+Configuration is read at daemon startup. **One cloud resolves implicitly;
+several require an explicit `cloud` argument.** A `default` key does not bypass
+that ambiguity check. Soft links retain their named cloud. The environment URL
+is folded into the registry without replacing an identically named file entry.
 
-The daemon exposes 35 named memory operations: 16 frequent, ten occasional local,
-and nine cloud operations. `tools/list` contains their actual input definitions;
-local operations also advertise output schemas. See
-[the shared API reference](../docs/curator-api.md).
+### Vault and read tracing
 
-The same JSON arguments work over `POST /v1/<operation>` when HTTP is enabled.
-Local results use API version 1, committed IDs, revisions, explicit partial
-outcomes and bounded-read continuation. Old tool names and HTTP aliases are
-removed. Use MCP `tools/list` to inspect the registered definitions.
-`KAERU_MCP_ARTIFACT_ROOT` authorizes source artifacts and export destinations.
+`KAERU_VAULT_PATH` selects the vault; platform defaults and upgrade guidance are
+in [Quick Start](../QUICK_START.md). Other substrate tunables are defined in
+`kaeru-core/src/config.rs`. Use `context(view="diagnostics")` for diagnostics.
+`KAERU_READ_TRACE_ENABLED=true` enables the optional
+[local read journal](../docs/architecture.md#local-read-delivery-journal), outside the vault.
 
-## Operational notes
+## Operator commands and knowledge transfer
 
-- **Single writer.** Only one `kaeru-mcp` should run per machine
-  per vault. If you start a second instance pointing at the same
-  vault path it will fail at startup with a RocksDB `LOCK` error —
-  this is the substrate refusing to corrupt itself, not a kaeru bug.
-- **Auth.** Optional bearer token via `KAERU_MCP_AUTH_TOKEN`. Token-less
-  on `127.0.0.1` is fine for personal use; when binding to `0.0.0.0`, set a
-  token (and `KAERU_MCP_ALLOWED_HOSTS`) — otherwise the port is open curator
-  access, and the daemon warns about it at startup. For exposure beyond a
-  trusted network, terminate TLS with a reverse proxy so the token isn't
-  sniffable.
-- **LAN exposure needs `KAERU_MCP_ALLOWED_HOSTS`.** rmcp's Streamable
-  HTTP transport carries a DNS-rebinding guard that validates the
-  inbound `Host` header against an allow-list defaulting to loopback
-  only (`localhost`, `127.0.0.1`, `::1`). So `KAERU_MCP_LISTEN_ADDRESS=0.0.0.0`
-  on its own is **not enough** — a client connecting via the machine's
-  routable address gets `403 Forbidden: Host header is not allowed`,
-  and Claude Code mislabels that failed handshake as
-  *"Needs authentication"*. List the authority clients use (host or
-  `host:port`) so the guard lets it through:
-  `KAERU_MCP_ALLOWED_HOSTS=192.0.2.10:9876,kaeru.lan`. Loopback stays
-  allowed automatically.
-- **Updates.** After `cargo install --path kaeru-mcp`, restart the
-  service so the new binary takes over: `systemctl --user restart
-  kaeru-mcp` / `launchctl unload+load`.
-- **Schema migrations.** kaeru-core's bootstrap is idempotent — new
-  indexes and FTS catalogues self-install on next start of the
-  daemon. No manual migration step.
-- **Concurrency model.** rmcp dispatches incoming tool calls onto
-  tokio tasks; sequential requests within one MCP session are well-
-  ordered. If a single client batch-fires many calls without waiting,
-  responses can come back out of order, and read-after-write within
-  the batch may race. Real agents wait for each response.
+`kaeru-mcp --help` lists daemon, stdio, authentication and AMG commands.
+`kaeru-mcp amg --help` lists offline inspect/export/import. Stop the process
+owning the selected vault before export/import; the lock is never bypassed.
 
-## Versioning
+```sh
+kaeru-mcp amg export --vault /path/to/vault --initiative project --output project.amg
+kaeru-mcp amg inspect project.amg
+kaeru-mcp amg import project.amg --vault /path/to/other-vault --dry-run
+```
 
-Rides the workspace version. The tool surface tracks `kaeru-core`'s
-curator API; new verbs there get exposed automatically on the next
-rebuild.
+See [AMG](../docs/amg.md) for force/conflict semantics and backup limits.
+Agent `export` is a separate JSON/Markdown artifact operation, not AMG.
+
+## Containers and releases
+
+The MCP image builds frontend → Rust binary → runtime in three stages. Only
+the embedded binary reaches runtime. Persist both the vault and configuration
+directory; an account file inside an ephemeral container will not survive
+replacement. See [container setup](../docs/instance-ui.md#containers).
+
+`contrib/install/package-release.sh` builds release archives/bundles and the MCP
+Registry manifest. Agent definitions come from the shared catalogue; update
+core schemas and parity checks when changing that contract.

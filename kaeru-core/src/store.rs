@@ -303,6 +303,8 @@ impl Store {
 /// `edge_initiative`) deliberately do not — initiative membership is
 /// append-only and read via prefix-scan.
 const SCHEMA_STATEMENTS: &[&str] = &[
+    ":create amg_origin {kind:String,key:String,version:Int=>origins:Json}",
+    ":create amg_import {id:String=>digest:String,metadata:Json,changes:Json,imported_at:Float default now()}",
     ":create api_operation { caller: String, request_id: String => tool: String, arguments_hash: String, result: Json, created_at: Float default now() }",
     ":create api_slot_revision { initiative: String, slot: String => revision: String }",
     ":create api_trail_summary { chain_id: String => fingerprints: Json, stale: Bool default false }",

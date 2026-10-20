@@ -1,6 +1,7 @@
 //! Shared memory exchange models. Execution and transports consume these contracts.
 
 mod access;
+pub mod amg;
 mod catalogue;
 mod cloud;
 mod mirror;

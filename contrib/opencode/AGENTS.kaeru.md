@@ -7,7 +7,8 @@ operation examples below. The connected schemas are authoritative.
 
 Kaeru holds scoped records and typed graph relationships across sessions.
 Use the tool schemas exposed by the connected server; the current API has 35
-operations. There is no memory CLI or query DSL.
+operations. Agent access has no query DSL; the offline `kaeru-mcp amg`
+operator CLI handles knowledge transfer, not agent recall.
 
 ## Recover useful context
 

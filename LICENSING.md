@@ -2,8 +2,8 @@
 
 kaeru is distributed under the **Business Source License 1.1 (BSL 1.1)** — see
 [`LICENSE`](LICENSE). This is a *source-available* license, not an open-source
-one, with a built-in expiry: **each released version becomes Apache 2.0 four
-years after it ships.**
+one, with a built-in conversion to Apache 2.0 on the configured Change Date
+or four years after a version’s first public distribution, whichever comes first.
 
 ## What you can do
 
@@ -26,8 +26,9 @@ license — lamantin-ai@yandex.ru.
 
 ## It becomes open source on a timer
 
-Four years after a given version is published, that version automatically
-converts to the **Apache License 2.0** (the "Change License"). BSL is
+On the Change Date or the fourth anniversary of a version’s first public
+distribution, whichever comes first, that version converts to **Apache License
+2.0** (the "Change License"). BSL is
 source-available now and fully open later — the restriction is on the newest
 code, not forever.
 
@@ -48,10 +49,10 @@ conversion and any commercial licensing. See `CLA.md` for how to sign.
 
 ## Dependencies
 
-Nothing in the dependency tree forces kaeru open. CozoDB — the substrate — is
-**MPL-2.0**, a file-level (weak) copyleft that permits inclusion in a larger
-work under a different license; kaeru consumes it unmodified. The remainder of
-the tree is MIT / Apache-2.0.
+Dependencies and bundled assets retain their respective licenses; the project’s
+BSL does not replace those terms. Kaeru consumes CozoDB, the **MPL-2.0**
+substrate, unmodified. Check the relevant dependency/asset license when
+redistributing a build.
 
 ## History
 

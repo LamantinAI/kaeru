@@ -1,9 +1,9 @@
 # kaeru-viz — a knowledge galaxy
 
-A 3D visualizer of a kaeru knowledge base, built for a conference talk. It turns
-the substrate into a galaxy where every project is a constellation of stars
-around its core, and **replays real reasoning chains** so an audience can see
-*how* an insight was reached — not just what was learned.
+The embedded 3D visualizer for a running Kaeru vault. Each initiative is a
+constellation around its core; saved reasoning trails can be replayed alongside
+the records they connect. The same frontend also provides optional login and
+local account settings.
 
 It consumes the shared named HTTP memory API. `initiatives` and
 `context(view="map")` select visible records; paged `read` supplies graph
@@ -54,7 +54,8 @@ uses the binary's bundle.
   spins the galaxy to invite the obvious parallel — a small universe of one
   mind's work.
 
-- **Time-lapse** — scrub or ▶ to watch the graph grow over the weeks.
+- **Time-lapse** — reveal current visible records by their creation time. This
+  is not a historical graph replay: it does not restore prior edits or deletions.
 - **Hover** a node (settle on it briefly) to highlight its neighbours and the
   links between them; **click** to pin that selection until you pick another or
   click empty space. Drag to orbit — auto-rotate stops while you hover or drag.

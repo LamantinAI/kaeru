@@ -140,11 +140,30 @@ Local responses use `api_version: 1`, independently of crate and MCP protocol
 versions. Old tool names and HTTP aliases have no compatibility dispatcher.
 The [code map](structure.md) shows the implementation boundaries.
 
+## Instance UI, authentication and portable knowledge
+
+The MCP process hosts the embedded `/ui/`, named `/v1/` operations and
+`/auth/`/`/admin/` routes on one listener. Optional browser authentication uses
+an Argon2id account and JWT cookie; MCP uses a separate bearer token. Explicit
+open mode omits login and accepts credential-free requests. HTTP/UI scope and
+visibility remain operator-owned in either mode; MCP uses its local owner
+capabilities. See [instance access](instance-ui.md).
+
+AMG is a separate offline operator interface over core snapshot/import logic.
+It captures the current graph in one transaction and writes a bounded
+length-delimited CBOR container with producer/schema/scope metadata. Import
+validates closure and merged destination invariants, then commits atomically.
+Normal conflicts abort; force appends local versions under existing IDs and
+retains prior destination node/edge history. Metadata before-images are stored
+in an import receipt. Source history, accounts, runtime state and cloud endpoint
+configuration are excluded. See [AMG](amg.md).
+
 ## Migrations and cloud
 
 Forward migrations run when a vault opens. Migration 0010 adds API bookkeeping;
 0011 restores missing legacy membership junctions and makes previously unscoped
 domain identities discoverable as `legacy-unscoped`, including retired identities.
+0012 adds version-bound AMG provenance and administrative import receipts.
 IDs, bodies and recorded validity remain intact. This preserves stored data,
 while clients must adopt the new API vocabulary.
 
@@ -156,8 +175,9 @@ Local reads do not claim to have searched a cloud.
 
 Remote supplements run after local commit, including capture/share, explicitly
 requested namespace propagation and edits between already shared endpoints.
-Accounts, a cloud-primary redesign and background synchronization are separate
-work.
+Local browser accounts/JWT sessions protect the MCP service’s UI and named
+HTTP routes; they are not cloud tenant accounts. Cloud-primary storage and
+background cloud synchronization remain separate work.
 
 ## What the tests establish
 

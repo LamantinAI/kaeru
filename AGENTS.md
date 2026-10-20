@@ -67,7 +67,7 @@ Telegram posts are in plain Russian — analogies over anglicisms.
 
 ## Project Summary
 
-`kaeru` is a cognitive memory layer for LLM agents — a typed property graph stored in CozoDB with recorded assertion/retraction history, a memory API as the operational layer, and a two-tier (cognitive / recollection) design grounded in the hippocampus / cortex split.
+`kaeru` is a cognitive memory layer for LLM agents — a typed property graph stored in CozoDB with recorded assertion/retraction history, a shared memory API, an embedded instance UI and AMG knowledge transfer, with a two-tier (cognitive / recollection) design grounded in the hippocampus / cortex split.
 
 The workspace targets Rust `1.95+` with edition `2024` and uses a shared dependency setup from the root `Cargo.toml`.
 
@@ -92,7 +92,7 @@ agent skill (SKILL.md frontmatter + body). It's source for distribution
 
 Before changing code, orient yourself by crate and responsibility:
 
-1. Identify the correct workspace member first — `kaeru-core`, `kaeru-mcp`, or `kaeru-cloud`.
+1. Identify the correct workspace member first — `kaeru-core`, `kaeru-mcp`, `kaeru-cloud` or `kaeru-rig`. UI source lives in `kaeru-viz`.
 2. Substrate, schema, primitives, curator API logic — `kaeru-core/`.
 3. MCP tool definitions and rmcp wiring — `kaeru-mcp/`. `KaeruServer` registers the shared catalogue through an explicit `ServerHandler`; local results carry identical JSON in structured content and text. Cloud-facing tools call into `kaeru-cloud` through `cloud_client.rs`.
 4. Cloud REST handlers and Axum wiring — `kaeru-cloud/`. Handlers in `api/router/`, bearer-token extractor in `api/extractors.rs`, error → HTTP mapping in `api/errors.rs`.
@@ -116,7 +116,10 @@ Use temporary directories and injected maintenance time in tests.
 ## Local Runbook
 
 - `cargo check --workspace` — quick type-check after changes that touch more than one crate.
-- `cargo test --workspace` — run tests across the workspace.
+- `cargo test --workspace --all-targets --locked` — run tests across the workspace.
+- `cargo fmt --all -- --check` — formatting gate.
+- UI changes: run `npm test`, `npm run build:embedded` and `npm run check:embedded` in `kaeru-viz/`. Browser checks use a temporary daemon via `npm run test:browser`; see `docs/instance-ui.md`.
+- Installer changes: `bash -n contrib/install/install.sh` and `python3 -m unittest discover -s contrib/install -p test_install.py`.
 - `cargo run --bin kaeru-mcp` — run the MCP server.
 
 The substrate stores its data under a platform-specific default path resolved at compile time (see `config::default_vault_path` for the cfg-gated branches): Linux `$XDG_DATA_HOME/kaeru` (fallback `$HOME/.local/share/kaeru`), macOS `$HOME/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`. Override via the `KAERU_VAULT_PATH` env var (auto-routed through `KaeruConfig::from_env`).
@@ -136,6 +139,7 @@ kaeru-core/src/
 ├── api/                    ← shared catalogue, authorization, reads and commands
 ├── session.rs              ← pin / unpin / active_window / awake
 ├── hygiene.rs              ← the automatic layer-tidying pass (due / collect / apply)
+├── amg/                    ← portable current-knowledge CBOR snapshots and atomic import
 ├── export.rs               ← Obsidian-friendly markdown snapshot
 ├── graph/                  ← schema layer
 │   ├── mod.rs
@@ -176,6 +180,9 @@ kaeru-core/src/
 ```
 kaeru-mcp/src/
 ├── main.rs                 ← tokio + tracing init; builds Store + CloudRegistry
+├── cli/                    ← offline AMG export/import and local auth setup
+├── auth/                   ← optional browser account/JWT and MCP authentication
+├── ui/                     ← embedded assets and browser access handlers
 ├── settings.rs             ← KaeruMcpConfig (KAERU_MCP_* env + clouds.toml file source)
 ├── server.rs               ← explicit ServerHandler and shared registrations
 ├── models/                 ← cloud adapter request DTOs
@@ -328,20 +335,13 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   reads before retraction within that transaction; external effects remain
   separate. Differential temporal tests live in `tests/store_reference.rs`;
   their independent oracle must not import Cozo or production core code.
-- **A capture can make its edge in the same call (#102).** `episode`, `jot`,
-  `cite` and `task` take `link_to` plus `weight`, and the edge is written
-  inside the capture. The nudge that asked for a link afterwards was measured
-  and lost: one live vault reached 23 nodes and 0 edges while it asked every
-  time. It arrives after the write, in the result of a call the agent has
-  finished thinking about, and acting on it costs a fresh decision — what to
-  link to, of what type, how strongly. Offering the edge inside the capture
-  spends that decision while both ends are still in mind, so an island costs
-  an omission rather than an extra call. Two rules hold: the capture NEVER
-  fails because of the edge (a mistyped name must not cost the thought), and
-  every refusal is named out loud, because an edge silently not made is
-  exactly how a vault goes flat. `weight` stays required — the reason it has
-  no default on `link` does not stop applying because the edge is made
-  earlier. `claim` keeps its own `about` instead; one way per verb.
+- **A capture can request a relation in the same call.** Canonical captures
+  use `related={to,type,weight}`. The local capture can succeed even when an
+  optional relation or cloud supplement fails; report `partial`, committed IDs
+  and failed steps instead of losing the capture or silently ignoring the edge.
+  Weight is explicit for a requested relation. Do not document retired agent
+  verbs (`jot`, `cite`, `link`) as current tool calls; internal primitives may
+  retain those names.
 - **A signal is only as good as where it lands (#99).** The daemon had
   checked its cloud's version since forever and written the mismatch to
   `tracing::warn!` — a daemon log, which nobody reads, so the check had never
@@ -414,7 +414,7 @@ where an initiative may go is the only thing that catches that.
 - **`POST /api/v1/nodes` is an upsert.** Re-posting the same id asserts a new
   version under it, so correcting a shared node is `revise` then `share`
   again — not a second node beside the first. There is deliberately no `PUT`.
-- **`DELETE /api/v1/nodes/{id}` retracts, bi-temporally.** The node leaves
+- **`DELETE /api/v1/nodes/{id}` retracts with recorded history.** The node leaves
   every read at NOW and the initiative listings; a read at a past moment still
   returns it. `unshare` is the agent-facing verb: it retracts the cloud copy
   and marks the local node `local` again. The local half runs even when the
@@ -437,7 +437,7 @@ where an initiative may go is the only thing that catches that.
   by retracting an endpoint node, so `unlink` had nowhere to send itself and
   the next `pull` restored the edge — a retraction any pull can undo is not a
   retraction.
-- **`link` / `unlink` / `reweight` mirror to the cloud** when BOTH endpoints
+- **Canonical `relate` edits mirror to the cloud** when BOTH endpoints
   are already shared. The local write happens first and never depends on the
   network; the result line says whether the mirror succeeded. With several
   clouds configured and none named the edit still lands and the result says
@@ -491,5 +491,24 @@ the set-scope-then-operate sequence (`kaeru-core/src/store.rs`).
 ## Out Of Scope
 
 - Vector embeddings — **not implemented**. Recall is structural + Cozo FTS; Cozo supports HNSW but kaeru wires none of it (no embeddings / vector index in the tree). A vector fallback for cold queries is possible future work, not a current feature.
-- Server / network mode — `kaeru` runs in-process. gRPC server-mode is a future concern, not part of the current architecture.
-- Replacing PKM tools — `kaeru` is for **agent** memory; humans interact through CLI + derived markdown export, not a competing UI layer.
+- A network storage backend — Cozo/RocksDB remains embedded. MCP, HTTP and the cloud service expose network APIs; a remote PostgreSQL/gRPC substrate is not implemented.
+- Replacing PKM tools — `kaeru` is for **agent** memory. Humans can inspect it through the embedded UI and JSON/Markdown exports; the offline CLI handles AMG transfer and local account setup.
+
+## Current operator documentation
+
+Start at `docs/README.md`; use `docs/curator-api.md` for the 35 agent operations,
+`docs/instance-ui.md` for optional authentication and HTTP/UI scope, and
+`docs/amg.md` for the offline transfer format. API version 1, AMG schema 1 and
+database migration numbers are independent. `export(destination=...)` produces
+a JSON/Markdown view under the authorized artifact root; `kaeru-mcp amg` moves
+current knowledge. Neither replaces a cold full-vault backup of source history.
+
+AMG conflicts abort unless explicit force accepts new current assertions.
+Preserve local node/edge history, destination sharing policy and semantic
+closure; force is not permission to bypass validation. Export/import must not
+open a vault held by a daemon. Do not add AMG commands to the agent catalogue
+without an explicit contract change.
+
+The repository is BSL 1.1 with its Additional Use Grant; see `LICENSE` and
+`LICENSING.md`. Do not label current code MIT or promise unimplemented vector,
+cloud-tenant or cryptographic-signature features.
