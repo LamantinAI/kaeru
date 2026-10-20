@@ -1,124 +1,68 @@
 # Code structure
 
-A map of the workspace and where each concern lives. `kaeru-core` is the source
-of truth for shared types; the adapter crates consume it and never duplicate
-types or issue raw Cozo queries.
+The four Rust crates share dependencies through the workspace manifest. Core
+owns local memory semantics. MCP and Rig expose those semantics to clients;
+cloud provides the existing shared-memory REST service. The browser visualizer
+and portable skill are distributed separately from Cargo builds.
 
-## Workspace
+## Follow one call
 
-```
-kaeru/
-├── Cargo.toml            ← workspace root; shared deps under [workspace.dependencies],
-│                           single [workspace.package] version inherited by all crates
-├── kaeru-core/           ← library: substrate, schema, curator primitives
-├── kaeru-mcp/            ← binary `kaeru-mcp`: MCP server (the agent's surface)
-├── kaeru-cloud/          ← binary `kaeru-cloud`: shared cloud tier (Axum REST)
-├── kaeru-rig/            ← library: rig framework adapter (embedded, no cloud HTTP)
-├── kaeru-viz/            ← (non-crate) browser knowledge-graph visualizer (Vite + three.js)
-└── skills/kaeru-skill/   ← (non-crate) portable agent skill for distribution
-```
+A local call starts at an adapter, validates against the catalogue in
+`kaeru-core::api`, resolves authorized references, then reads the graph or runs
+a command. The adapter returns the shared result. Optional network effects run
+after the local commit and report their own failures.
 
-Targets Rust edition 2024. `kaeru-viz` and `skills/` are not built by Cargo.
+| Concern | Start here |
+| --- | --- |
+| Names, input shapes and descriptions | `kaeru-core/src/api/surface.rs` |
+| Result types and host capabilities | `kaeru-core/src/api/types.rs` |
+| Validation, dispatch and replay | `kaeru-core/src/api/mod.rs` |
+| Scope, visibility and reference resolution | `kaeru-core/src/api/access.rs` |
+| Context, search, paging and history | `kaeru-core/src/api/read/` |
+| Capture, updates and administration | `kaeru-core/src/api/write/` |
+| Transaction ownership and rollback | `kaeru-core/src/store/database.rs` |
+| Identity transfer and preserved references | `kaeru-core/src/mutate/identity.rs` |
+| Stored schema and forward migrations | `kaeru-core/src/store.rs`, `kaeru-core/src/migrate.rs` |
+| Domain storage primitives | `kaeru-core/src/graph/`, `mutate/`, `recall/` |
 
-## kaeru-core — the library
+The domain primitives remain available to core and cloud code. The retired MCP
+and Rig tool modules are removed; they are not a compatibility API.
 
-The one place graph logic lives. Read/write always goes through these
-primitives.
+## Adapters and clients
 
-```
-kaeru-core/src/
-├── config.rs             ← KaeruConfig (env-driven, KAERU_* overlay)
-├── store.rs              ← Store: in-memory + on-disk constructors; use_initiative / scoped (scope guard)
-├── session.rs            ← awake, pin / unpin, active_window  (re-entry bundle: layered + cortex)
-├── export.rs             ← Obsidian-friendly markdown snapshot
-├── export_json.rs        ← whole-graph JSON export (feeds `GET /v1/export`)
-├── migrate.rs            ← forward-only migration_journal
-├── guard.rs              ← deterministic pre-share secret guard
-├── graph/                ← SCHEMA layer
-│   ├── node.rs           ← NodeId, NodeType, Tier, Layer, EpisodeKind, Significance, Visibility …
-│   ├── edge.rs           ← EdgeType (+ FromStr)
-│   ├── temporal.rs       ← at, history, parse_validity, validity_seconds
-│   └── audit.rs          ← write_audit (private to mutations)
-├── recall/               ← READ side
-│   ├── by_name.rs        ← recall_id_by_name (+ _global), node_brief_by_id, read_node_full
-│   ├── layered.rs        ← recall_by_layer / _in_tier  (the layer + tier split awake uses)
-│   ├── path.rs           ← shortest_path, chains_of, read_chain, chain_membership, chains_in_scope
-│   ├── open_work.rs      ← open_tasks (overdue-aware) + open_claims  (awake's read-back)
-│   ├── board.rs          ← status registry + bucketed board view
-│   ├── reflect.rs        ← reflect → ReflectionReport (the maintenance work-list)
-│   ├── lint.rs           ← orphans + unresolved reviews
-│   ├── overview.rs       ← terminal-readable subgraph map
-│   ├── fts.rs            ← fuzzy_recall via Cozo FTS
-│   ├── between.rs, walk.rs, recent.rs, tagged.rs, recollect.rs,
-│   ├── summary_view.rs, under_review.rs, initiatives.rs
-│   └── mod.rs            ← NodeBrief / NodeFull + parse_brief
-└── mutate/               ← WRITE side (each writes an audit_event)
-    ├── episode.rs        ← write_episode, jot
-    ├── cite.rs           ← Reference node (URL in properties)
-    ├── edge.rs           ← link / unlink / set_edge_weight
-    ├── chain.rs          ← create_chain, regenerate_chain, extend_chain (+ dedup)
-    ├── initiative.rs     ← rename_initiative, delete_initiative, attach_node
-    ├── hypothesis.rs     ← formulate / run_experiment / update_status
-    ├── review.rs         ← mark_resolved / mark_under_review
-    ├── synthesise.rs     ← synthesise (converge seeds → durable insight)
-    ├── consolidate.rs    ← consolidate_out / consolidate_in (tier promotion)
-    ├── sharing.rs        ← visibility, share_policy, and which clouds an initiative may reach
-    ├── board.rs          ← set_status + the board's status registry
-    ├── supersedes.rs, metabolism.rs (forget / improve), layer.rs, task.rs
-    └── mod.rs            ← shared helpers (now_validity_seconds, attach_node_to_initiative, …)
-```
+| Component | Responsibility |
+| --- | --- |
+| `kaeru-mcp/src/server.rs` | MCP registration, discovery and server instructions. |
+| `kaeru-mcp/src/canonical.rs` | Local dispatch and asynchronous supplements. |
+| `kaeru-mcp/src/cloud.rs` | The nine existing cloud bridge operations. |
+| `kaeru-mcp/src/api/` | Named HTTP routes, principal and egress policy. |
+| `kaeru-rig/src/tools.rs` | Distinct `kaeru_<operation>` tools over the shared catalogue. |
+| `kaeru-rig/src/cloud/` | Embedded asynchronous cloud bridge. |
+| `kaeru-cloud/src/api/` | Standalone cloud REST handlers. |
+| `kaeru-viz/src/api.js` | Browser transport and continuation handling. |
+| `skills/kaeru-skill/` | Portable instructions for agents using memory. |
+| `contrib/hooks/kaeru-first/` | Optional hook that checks memory before asking a user. |
 
-Module-organisation rule of thumb: a flat file becomes a `mod.rs`-with-submodules
-directory once it passes ~300–400 lines or accumulates more than three cohesive
-primitives. Shared cross-submodule types live in the parent `mod.rs`.
+Adapters construct host capabilities and handle transport or network concerns.
+Local validation, result types and mutations belong in core, so adding a second
+transport does not create a second implementation of memory behavior.
 
-## kaeru-mcp — the daemon
+## Where to review the guarantees
 
-Each curator verb is one `#[tool]` method on `KaeruServer`; output is
-`Content::text(...)`. Cloud-facing tools call `kaeru-cloud` via `cloud_client.rs`.
+The new integration tests call the public API and check complete workflows.
+Unit tests beside domain code cover individual storage and adapter behaviors.
+`tests/invariants.rs` predates the API redesign and remains in place.
 
-```
-kaeru-mcp/src/
-├── main.rs               ← tokio + tracing; builds Store + CloudRegistry; Accept-normalizing layer
-├── settings.rs           ← KaeruMcpConfig (KAERU_MCP_* env + clouds.toml)
-├── server.rs             ← KaeruServer + #[tool_router]; one #[tool] per verb + the agent instructions
-├── params.rs             ← Parameters<T> structs the tools deserialize
-├── utils.rs              ← output builders + input parsing, and the hint family:
-│                           the deepen-lane pointers, the read-side nudges, arc_closed_hint
-├── cloud_client.rs       ← async reqwest client + CloudRegistry (named multi-cloud;
-│                           `resolve` refuses to guess when several are configured)
-├── api/                  ← the HTTP surface — a route is a verb
-│   ├── egress.rs         ← the ceiling + node visibility: nothing leaves without both
-│   ├── principal.rs      ← who is asking (one variant today, deliberately)
-│   └── v1/               ← at, board, chain, export
-└── tools/                ← one module per verb group: capture, chain, session, lookup,
-                             cloud, initiative, hypothesis, lint (lint + reflect), review, …
-```
+| Test file in `kaeru-core/tests/` | What it checks |
+| --- | --- |
+| `api_workflows.rs` | Board/deadline semantics, review evidence, scoped reads, paging and delivery. |
+| `atomic_commands.rs` | Command rollback and transactional behavior. |
+| `canonical_api.rs` | Shared definitions, validation and canonical results. |
+| `identity_and_history.rs` | Content preservation, identity transfer and historical access. |
+| `vault_migration.rs` | Opening older disk vaults without losing recorded data. |
 
-## kaeru-cloud — the shared tier
-
-```
-kaeru-cloud/src/
-├── main.rs               ← thin entrypoint (config + tracing → run)
-├── lib.rs                ← run(): build state, bind, serve
-├── config.rs             ← KaeruCloudConfig (KAERU_CLOUD_* env)
-└── api/                  ← state.rs, extractors.rs (bearer), errors.rs (IntoResponse), router/
-```
-
-TLS is terminated by a reverse proxy — the service speaks plain HTTP. It wraps
-the same `kaeru-core`; no separate persistence path.
-
-## kaeru-rig — the framework adapter
-
-`lib.rs` defines a `KaeruMemory` handle over an embedded `Arc<Store>` and the
-`mem_tool!` macro that generates each verb as a `rig::tool::Tool`. Verb bodies
-are split across `capture.rs`, `chains.rs`, `lookup.rs`, `manage.rs` (session /
-initiative / diagnostics), `reason.rs`, `evolve.rs`. Every call runs inside
-`Store::scoped(<memory initiative>)` on a `spawn_blocking` pool.
-
-## Error model
-
-No `anyhow`. `kaeru-core` defines an `Error` thiserror enum (`Substrate`,
-`SchemaBootstrap`, `Invalid`, `NotFound`, `Io`, `Config`) and `Result<T>`.
-Substrate errors funnel through `From<cozo::Error>`; adapters surface
-`kaeru-core::Result` directly without re-wrapping.
+MCP tests include transport authorization and parity with Rig. Rig tests exercise
+embedded calls and cloud supplements. Browser transport tests are in
+`kaeru-viz/test/`; hook tests are beside the hook implementation. Passing these
+checks establishes implementation behavior, not whether an agent remembers to
+consult memory. That requires a separate quality benchmark.

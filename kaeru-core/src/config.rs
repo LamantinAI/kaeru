@@ -1,6 +1,6 @@
 //! Runtime configuration for `kaeru-core`.
 //!
-//! `KaeruConfig` collects every tunable cap, default, and path the
+//! `KaeruConfig` collects the runtime-tunable caps and paths the
 //! curator API reads at runtime. Defaults are calibrated for an LLM
 //! agent's working set (5–15 items "under microscope") and platform
 //! conventions; overrides come from `KAERU_*` environment variables
@@ -8,7 +8,7 @@
 //! and passing it to [`crate::Store::open_with_config`].
 //!
 //! Sources are merged through the `config` crate: built-in defaults
-//! first, environment variables on top. Adapter crates (`kaeru-cli`,
+//! first, environment variables on top. Adapter crates (`kaeru-rig`,
 //! `kaeru-mcp`, …) can layer their own file sources on top by chaining
 //! more `add_source` calls before `try_deserialize`.
 //!
@@ -23,6 +23,13 @@ use config::{Config, Environment};
 use serde::{Deserialize, Serialize};
 
 use crate::errors::Result;
+
+/// Shared contract and transport defaults.
+pub mod api;
+pub mod cloud;
+pub mod read_trace;
+pub mod search;
+pub use api::API_VERSION;
 
 /// Tunables read by curator-API primitives. Every field has a default
 /// suitable for typical agent sessions; overriding a field changes the
@@ -110,6 +117,15 @@ pub struct KaeruConfig {
     /// "stale after N days" trigger never fires for an initiative nobody
     /// opens — it is only ever read when that initiative is touched.
     pub hygiene_sweep_interval_secs: u64,
+    /// Opt-in metadata-only journal outside the vault; failure never fails reads.
+    pub read_trace_enabled: bool,
+    pub read_trace_dir: PathBuf,
+    pub read_trace_raw_ttl_secs: u64,
+    pub read_trace_retention_secs: u64,
+    pub read_trace_queue_capacity: usize,
+    pub read_trace_segment_bytes: u64,
+    pub read_trace_segment_secs: u64,
+    pub read_trace_maintenance_interval_secs: u64,
 }
 
 impl KaeruConfig {
@@ -139,6 +155,14 @@ impl KaeruConfig {
             hygiene_core_review_age_secs: 30 * 24 * 60 * 60,
             hygiene_promote_in_degree: 5,
             hygiene_sweep_interval_secs: 6 * 60 * 60,
+            read_trace_enabled: false,
+            read_trace_dir: read_trace::default_directory(),
+            read_trace_raw_ttl_secs: read_trace::RAW_TTL_SECS,
+            read_trace_retention_secs: read_trace::RETENTION_SECS,
+            read_trace_queue_capacity: read_trace::QUEUE_CAPACITY,
+            read_trace_segment_bytes: read_trace::SEGMENT_BYTES,
+            read_trace_segment_secs: read_trace::SEGMENT_SECS,
+            read_trace_maintenance_interval_secs: read_trace::MAINTENANCE_SECS,
         }
     }
 

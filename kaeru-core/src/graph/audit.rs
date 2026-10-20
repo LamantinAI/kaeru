@@ -8,11 +8,12 @@
 use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cozo::{DataValue, DbInstance, JsonData, ScriptMutability};
-use serde_json::json;
+use cozo::{DataValue, JsonData, ScriptMutability};
+use serde_json::{Value, json};
 
 use crate::errors::Result;
 use crate::graph::{NodeId, new_node_id};
+use crate::store::Database;
 
 fn now_validity_seconds() -> u64 {
     SystemTime::now()
@@ -24,16 +25,27 @@ fn now_validity_seconds() -> u64 {
 /// Writes an `audit_event` node for a curator operation.
 /// Called by every mutation primitive. Returns the audit node id.
 pub(crate) fn write_audit(
-    db: &DbInstance,
+    db: &Database,
     op: &str,
     actor: &str,
     affected_refs: &[String],
+) -> Result<NodeId> {
+    write_audit_details(db, op, actor, affected_refs, Value::Null)
+}
+
+pub(crate) fn write_audit_details(
+    db: &Database,
+    op: &str,
+    actor: &str,
+    affected_refs: &[String],
+    details: Value,
 ) -> Result<NodeId> {
     let id = new_node_id();
     let payload = json!({
         "op": op,
         "actor": actor,
         "affected_refs": affected_refs,
+        "details": details,
     });
 
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();

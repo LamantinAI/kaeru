@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 
 // In dev, proxy the daemon's HTTP surface so the rooms are always fresh:
-// `/v1` is the API (a route per curator verb) and `/graph.json` is the legacy
-// alias for `/v1/export`, kept while older snapshots and clients catch up.
+// `/v1` is the shared named memory API. A graph.json file is an offline asset,
+// served by Vite rather than proxied to a removed daemon alias.
 // For the talk, `npm run build` bundles public/graph.json (the baked snapshot)
 // so the app works with no daemon at all — the API calls simply fail and each
 // room falls back to what the snapshot can tell it.
@@ -21,7 +21,6 @@ export default defineConfig({
   server: {
     proxy: {
       '/v1': daemon(),
-      '/graph.json': daemon(),
     },
   },
   // keep a single three instance shared by the app and three/addons

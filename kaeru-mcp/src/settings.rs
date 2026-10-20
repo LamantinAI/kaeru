@@ -12,6 +12,11 @@ use std::path::PathBuf;
 use config::{Config, ConfigError, Environment, File, FileFormat};
 use serde::Deserialize;
 
+/// Product identity advertised during MCP initialization.
+pub const MCP_SERVER_NAME: &str = "kaeru";
+pub const MCP_SERVER_TITLE: &str = "kaeru memory";
+pub const MCP_SERVER_WEBSITE_URL: &str = "https://lamantin-ai.com/products/kaeru/";
+
 /// One named cloud endpoint: a `kaeru-cloud` base URL plus its bearer token.
 /// Deserialized from a `[clouds.<name>]` section of the clouds TOML file.
 #[derive(Clone, Debug, Deserialize)]

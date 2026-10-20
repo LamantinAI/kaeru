@@ -17,8 +17,8 @@
 use chrono::Utc;
 
 use super::{
-    ReassertRow, merge_tags, node_version_seconds, now_validity_seconds, read_node_now,
-    reassert_node_now, retract_node_at,
+    ReassertRow, merge_tags, node_version_seconds, read_node_now, reassert_node_now,
+    retract_node_at,
 };
 use crate::errors::{Error, Result};
 use crate::graph::NodeId;
@@ -34,47 +34,49 @@ use crate::store::Store;
 ///
 /// Returns `true` when a stamp was actually written.
 pub fn stamp_reminder_seen(store: &Store, node_id: &NodeId) -> Result<bool> {
-    let Some(current) = read_node_now(store, node_id)? else {
-        // Delivered from a snapshot and gone since — nothing to stamp, and
-        // nothing worth failing a re-entry over.
-        return Ok(false);
-    };
-    if current.tags.iter().any(|t| t.starts_with("seen:")) {
-        return Ok(false);
-    }
+    store.atomic(|store| {
+        let Some(current) = read_node_now(store, node_id)? else {
+            // Delivered from a snapshot and gone since — nothing to stamp, and
+            // nothing worth failing a re-entry over.
+            return Ok(false);
+        };
+        if current.tags.iter().any(|t| t.starts_with("seen:")) {
+            return Ok(false);
+        }
 
-    let today = Utc::now().format("%Y-%m-%d").to_string();
-    // Only the `seen:` family is replaced. `after:` and `for:` are the
-    // author's statement and stay verbatim; the read rule stops matching on
-    // its own once the window closes, so nothing here needs to remove them.
-    let tags = merge_tags(&current.tags, &["seen:"], vec![format!("seen:{today}")]);
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        // Only the `seen:` family is replaced. `after:` and `for:` are the
+        // author's statement and stay verbatim; the read rule stops matching on
+        // its own once the window closes, so nothing here needs to remove them.
+        let tags = merge_tags(&current.tags, &["seen:"], vec![format!("seen:{today}")]);
 
-    // Re-assert first, retract second, same timestamp — the ordering
-    // invariant every RMW rewrite in this module shares.
-    let secs = node_version_seconds(store, node_id)?;
-    reassert_node_now(
-        store,
-        node_id,
-        ReassertRow {
-            secs,
-            type_: &current.type_,
-            tier: &current.tier,
-            name: &current.name,
-            body: current.body.as_deref(),
-            tags,
-            visibility: &current.visibility,
-            layer: &current.layer,
-        },
-    )?;
-    retract_node_at(store, node_id, secs)?;
+        // Re-assert first, retract second, same timestamp — the ordering
+        // invariant every RMW rewrite in this module shares.
+        let secs = node_version_seconds(store, node_id)?;
+        reassert_node_now(
+            store,
+            node_id,
+            ReassertRow {
+                secs,
+                type_: &current.type_,
+                tier: &current.tier,
+                name: &current.name,
+                body: current.body.as_deref(),
+                tags,
+                visibility: &current.visibility,
+                layer: &current.layer,
+            },
+        )?;
+        retract_node_at(store, node_id, secs)?;
 
-    write_audit(
-        store.db_ref(),
-        "reminder_seen",
-        "system",
-        std::slice::from_ref(node_id),
-    )?;
-    Ok(true)
+        write_audit(
+            store.db_ref(),
+            "reminder_seen",
+            "system",
+            std::slice::from_ref(node_id),
+        )?;
+        Ok(true)
+    })
 }
 
 /// Marks a node as not relevant until `after`, then insistent for
@@ -96,49 +98,51 @@ pub fn stamp_reminder_seen(store: &Store, node_id: &NodeId) -> Result<bool> {
 /// A date in the past is accepted: it means "due now", which is a legitimate
 /// thing to say and the only sensible reading of it.
 pub fn set_reminder(store: &Store, node_id: &NodeId, after: &str, window_days: i64) -> Result<()> {
-    let after = after.trim();
-    if chrono::NaiveDate::parse_from_str(after, "%Y-%m-%d").is_err() {
-        return Err(Error::Invalid(format!(
-            "reminder date must be YYYY-MM-DD, got `{after}`"
-        )));
-    }
-    if window_days <= 0 {
-        return Err(Error::Invalid(format!(
-            "reminder window must be at least one day, got {window_days} — it is how long the \
-             reminder keeps appearing once it surfaces, and there is no default on purpose"
-        )));
-    }
+    store.atomic(|store| {
+        let after = after.trim();
+        if chrono::NaiveDate::parse_from_str(after, "%Y-%m-%d").is_err() {
+            return Err(Error::Invalid(format!(
+                "reminder date must be YYYY-MM-DD, got `{after}`"
+            )));
+        }
+        if window_days <= 0 {
+            return Err(Error::Invalid(format!(
+                "reminder window must be at least one day, got {window_days} — it is how long the \
+                 reminder keeps appearing once it surfaces, and there is no default on purpose"
+            )));
+        }
 
-    let current = read_node_now(store, node_id)?
-        .ok_or_else(|| Error::NotFound(format!("node {node_id} not found at NOW")))?;
-    let tags = merge_tags(
-        &current.tags,
-        &["after:", "for:", "seen:"],
-        vec![format!("after:{after}"), format!("for:{window_days}d")],
-    );
+        let current = read_node_now(store, node_id)?
+            .ok_or_else(|| Error::NotFound(format!("node {node_id} not found at NOW")))?;
+        let tags = merge_tags(
+            &current.tags,
+            &["after:", "for:", "seen:"],
+            vec![format!("after:{after}"), format!("for:{window_days}d")],
+        );
 
-    let secs = now_validity_seconds();
-    reassert_node_now(
-        store,
-        node_id,
-        ReassertRow {
-            secs,
-            type_: &current.type_,
-            tier: &current.tier,
-            name: &current.name,
-            body: current.body.as_deref(),
-            tags,
-            visibility: &current.visibility,
-            layer: &current.layer,
-        },
-    )?;
-    retract_node_at(store, node_id, secs)?;
+        let secs = node_version_seconds(store, node_id)?;
+        reassert_node_now(
+            store,
+            node_id,
+            ReassertRow {
+                secs,
+                type_: &current.type_,
+                tier: &current.tier,
+                name: &current.name,
+                body: current.body.as_deref(),
+                tags,
+                visibility: &current.visibility,
+                layer: &current.layer,
+            },
+        )?;
+        retract_node_at(store, node_id, secs)?;
 
-    write_audit(
-        store.db_ref(),
-        "set_reminder",
-        "system",
-        std::slice::from_ref(node_id),
-    )?;
-    Ok(())
+        write_audit(
+            store.db_ref(),
+            "set_reminder",
+            "system",
+            std::slice::from_ref(node_id),
+        )?;
+        Ok(())
+    })
 }

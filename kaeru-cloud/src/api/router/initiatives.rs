@@ -11,20 +11,22 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use kaeru_core::{
-    Error, Store, count_nodes_in_initiative, delete_initiative, edges_in_initiative,
-    list_initiatives, nodes_in_initiative, rename_initiative,
-};
-use serde::{Deserialize, Serialize};
-use utoipa::{IntoParams, ToSchema};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::docs::ErrorBody;
 use crate::api::extractors::Authenticated;
 use crate::api::router::edges::EdgeView;
 use crate::api::state::AppState;
 use crate::errors::ApiError;
+use crate::models::ErrorBody;
+pub use crate::models::{
+    DeleteResp, InitiativeBrief, NodeBriefView, PageQuery, RenameReq, RenameResp,
+};
+use kaeru_core::config::cloud::{CLOUD_DEFAULT_PAGE_SIZE, CLOUD_MAX_PAGE_SIZE};
+use kaeru_core::{
+    Error, Store, count_nodes_in_initiative, delete_initiative, edges_in_initiative,
+    list_initiatives, nodes_in_initiative, rename_initiative,
+};
 
 pub const INITIATIVES_TAG: &str = "initiatives";
 
@@ -35,14 +37,6 @@ pub fn initiatives_router() -> OpenApiRouter<AppState> {
         .routes(routes!(list_edges))
         .routes(routes!(rename))
         .routes(routes!(remove))
-}
-
-/// One row of the initiative listing: the name plus a live (at NOW,
-/// audit-events excluded) node count.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct InitiativeBrief {
-    pub name: String,
-    pub nodes: usize,
 }
 
 /// Lists every initiative the cloud holds, with live node counts. Names
@@ -70,23 +64,6 @@ async fn list_all(
         views.push(InitiativeBrief { name, nodes });
     }
     Ok(Json(views))
-}
-
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct RenameReq {
-    pub new: String,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RenameResp {
-    pub nodes: usize,
-    pub edges: usize,
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct DeleteResp {
-    pub unscoped: usize,
-    pub forgotten: usize,
 }
 
 /// Renames an initiative across the whole shared store — team-wide.
@@ -143,50 +120,6 @@ async fn remove(
     }))
 }
 
-/// Compact node view for discovery listings.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct NodeBriefView {
-    pub id: String,
-    pub node_type: String,
-    pub name: String,
-    pub body_excerpt: Option<String>,
-}
-
-/// Default and ceiling for one page of `GET …/nodes`.
-///
-/// The listing was unbounded, and on a real initiative that meant 532 nodes —
-/// 188 KB, 1778 lines — arriving in one response that did not fit in the
-/// caller's context and had to be written to a file before any of it could be
-/// read (#67). The failure mode was not a truncated answer but an unusable
-/// one: the full cost was paid, then the result discarded.
-///
-/// Every other list-shaped read in kaeru is bounded; this is the one most
-/// likely to meet a corpus nobody in the session wrote.
-const DEFAULT_PAGE: usize = 50;
-const MAX_PAGE: usize = 500;
-
-/// `?limit=&offset=` for a node listing. Both optional; out-of-range values
-/// clamp rather than error, since a caller asking for more than the ceiling
-/// wants as much as it can have, not a rejection.
-#[derive(Debug, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-pub struct PageQuery {
-    /// Page size. Default 50, ceiling 500; out-of-range values clamp.
-    #[serde(default)]
-    limit: Option<usize>,
-    /// How many to skip, for the next page.
-    #[serde(default)]
-    offset: Option<usize>,
-    /// Case-insensitive substring over name and excerpt.
-    ///
-    /// The cloud had listing and get-by-id and no way to *look* for anything,
-    /// so an agent whose whole reflex is `search` could not reach the second
-    /// tier with it at all — it had to page through an initiative or already
-    /// know an id (#57).
-    #[serde(default)]
-    q: Option<String>,
-}
-
 #[utoipa::path(
     get,
     path = "/{name}/nodes",
@@ -204,7 +137,10 @@ async fn list_nodes(
     Path(name): Path<String>,
     Query(page): Query<PageQuery>,
 ) -> Result<Json<Vec<NodeBriefView>>, ApiError> {
-    let limit = page.limit.unwrap_or(DEFAULT_PAGE).clamp(1, MAX_PAGE);
+    let limit = page
+        .limit
+        .unwrap_or(CLOUD_DEFAULT_PAGE_SIZE)
+        .clamp(1, CLOUD_MAX_PAGE_SIZE);
     let offset = page.offset.unwrap_or(0);
     let needle = page.q.as_deref().map(str::to_lowercase);
     let briefs = nodes_in_initiative(&store, &name)?;

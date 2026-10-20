@@ -169,8 +169,10 @@ pub fn node_brief_by_id(store: &Store, id: &NodeId) -> Result<Option<NodeBrief>>
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
 
+    // Bind the primary key BEFORE the temporal relation. Otherwise Cozo scans
+    // every live node (and body) before applying the id filter.
     let script = r#"
-        ?[id, type, name, body, validity] := *node{id, type, name, body, validity @ 'NOW'}, id = $id
+        ?[id, type, name, body, validity] := id = $id, *node{id, type, name, body, validity @ 'NOW'}
     "#;
     let rows = store
         .db_ref()
@@ -194,8 +196,8 @@ pub fn read_node_full(store: &Store, id: &NodeId) -> Result<Option<NodeFull>> {
 
     let script = r#"
         ?[type, tier, name, body, tags, visibility, layer, properties] :=
-            *node{id, type, tier, name, body, tags, visibility, layer, properties @ 'NOW'},
-            id = $id
+            id = $id,
+            *node{id, type, tier, name, body, tags, visibility, layer, properties @ 'NOW'}
     "#;
     let rows = store
         .db_ref()

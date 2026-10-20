@@ -31,7 +31,7 @@ did not (see `rank_hits`). Relevance is semantic, and the hook cannot see it.
 
 So the hook does the part it can do and leaves the judgement to the agent. It
 skips what is procedural. It passes when the agent already read memory on the
-same terms — relevance, not recency. Otherwise it runs one unscoped prefix
+same terms — relevance, not recency. Otherwise it discovers initiatives and runs one scoped prefix
 `search` itself and blocks once with the top hits, names first: the agent
 glances at three excerpts and either reads one or asks. The block costs a
 turn, not a round of tool calls. Nothing found, or the daemon down — pass.
@@ -92,16 +92,8 @@ from pathlib import Path
 
 # kaeru verbs that CONSULT memory. `initiatives` is left out on purpose: it
 # lists scopes, it does not read what is in them.
-READ_VERBS = frozenset(
-    {
-        "at", "awake", "between", "board", "board_status", "cloud_initiatives",
-        "cloud_links", "cloud_recall", "drill", "history", "ideas", "lint",
-        "neighbours", "outcomes", "overview", "path", "recall", "recent",
-        "reflect", "search", "slots", "surface", "tagged", "trace", "why",
-    }
-)
-# Verbs that read ONE node in full — what "actually reading a hit" means.
-NODE_READ_VERBS = frozenset({"at", "drill", "neighbours", "why", "trace", "history"})
+READ_VERBS = frozenset({"context", "search", "read", "history", "reflect", "cloud_recall", "cloud_links"})
+NODE_READ_VERBS = frozenset({"read", "history"})
 
 KAERU_TOOL = re.compile(r"^mcp__(?:plugin_[^_]+_)?kaeru__(?P<verb>[a-z_]+)$")
 
@@ -113,28 +105,24 @@ SHOWN_HITS = 3
 
 RECIPE = (
     "Before you ask the user, check kaeru — the answer may already be in memory.\n"
-    "1. `search` WITHOUT `initiative`: initiatives fragment, and a scoped search "
-    "misses a node that lives in a sibling scope.\n"
-    "2. Put a prefix wildcard on each entity in your question (`certif*`, "
-    "`deploy*`), and search in the language the notes were written in.\n"
-    "3. If the question is \"what next\", that is `awake` + `board`, not a "
-    "question for the user.\n"
-    "4. `at <name>` on any hit to read it in full.\n"
-    "If nothing turns up, ask — and say in one line what you searched, so the "
-    "user knows memory was tried first."
+    "1. Discover relevant scopes with `initiatives`, then pass those names in "
+    "`search(initiatives=[...], text=..., prefix=true)`.\n"
+    "2. Search in the language the notes were written in. Text is lexical; "
+    "prefix=true handles word inflections.\n"
+    "3. For unfinished work use `context(initiative=...)`; view=board shows tasks.\n"
+    "4. Use `read(initiative=..., node=<returned ID>)` on a hit, and follow "
+    "continuation if needed. If nothing turns up, ask and briefly say what you searched."
 )
-
 CAPTURE = (
-    "The user just answered a question you asked. By construction that answer "
-    "was not in kaeru — capture it now: `episode` (or `cite` for a settled "
-    "fact) with the `initiative`, and `link` it to what it is about. Rules "
-    "spoken in the dialogue and never captured are the most frequent class of "
-    "interruption in the usage audits."
+    "The user answered a question: capture it now with `note` "
+    "(kind=constraint for a standing rule), or `reference(source={text: ...})` "
+    "for an exact settled source. Pass the established initiative and relate "
+    "important records explicitly."
 )
 
 CAPTURE_MISS = (
     "The user says the answer to your last question was already in memory. "
-    "Before anything else: `search` for it WITHOUT `initiative`, `at` the hit, "
+    "Before anything else: `search` in explicit `initiatives`, then `read` the hit, "
     "and use it. Then capture where it lives under the initiative you are "
     "working in, so the next agent finds it without being told."
 )
@@ -144,13 +132,13 @@ def hits_message(hits: list[tuple[str, str]], terms: list[str]) -> str:
     shown = hits[:SHOWN_HITS]
     lines = [
         "Before you ask the user — kaeru has nodes that may bear on this.",
-        f"Searched `{' OR '.join(t + '*' for t in terms)}` without `initiative`; "
+        f"Searched `{' '.join(terms)}` with prefix=true across discovered initiatives; "
         f"top {len(shown)} of {len(hits)}:",
     ]
     for name, excerpt in shown:
         lines.append(f"  - `{name}`" + (f" — {excerpt}" if excerpt else ""))
     lines.append(
-        "If one of them answers your question, `at <name>` and use it. If none "
+        "If one of them answers your question, `read` the returned ID and use it. If none "
         "does, ask — and say in one line that memory was checked. The hook cannot "
         "judge relevance; you can."
     )
@@ -162,7 +150,7 @@ def unread_message(names: list[str]) -> str:
     more = f" and {len(names) - SHOWN_HITS} more" if len(names) > SHOWN_HITS else ""
     return (
         f"Your last `search` returned {len(names)} hit(s) and you read none of "
-        f"them: {shown}{more}. `at` one before you ask the user — a search you "
+        f"them: {shown}{more}. `read` one before you ask the user — a search you "
         "do not read is not a search."
     )
 
@@ -614,15 +602,19 @@ class Kaeru:
             except ValueError:
                 continue
             if isinstance(d, dict) and "result" in d:
+                if d["result"].get("isError"):
+                    raise ValueError("memory operation failed")
+                if "structuredContent" in d["result"]:
+                    return json.dumps(d["result"]["structuredContent"], ensure_ascii=False)
                 content = d["result"].get("content") or []
                 return "".join(c.get("text", "") for c in content if isinstance(c, dict))
         return ""
 
     def search(self, terms: list[str], limit: int) -> list[tuple[str, str]] | None:
-        """Unscoped prefix search. None means the daemon could not be asked."""
+        """Prefix search across discovered scopes; None if the daemon is unreachable."""
         if not terms:
             return []
-        return self.query(" OR ".join(f"{t}*" for t in terms), limit)
+        return self.query(" ".join(terms), limit)
 
     def query(self, query: str, limit: int) -> list[tuple[str, str]] | None:
         sid = None
@@ -633,35 +625,40 @@ class Kaeru:
                            "clientInfo": {"name": "kaeru-first", "version": "2"}},
             })
             self._request("POST", {"jsonrpc": "2.0", "method": "notifications/initialized"}, sid)
+            scopes = []
+            arguments = {}
+            rpc_id = 2
+            while True:
+                _, raw = self._request("POST", {"jsonrpc":"2.0", "id":rpc_id, "method":"tools/call", "params":{"name":"initiatives", "arguments":arguments}}, sid)
+                listing = json.loads(self._result_text(raw))
+                scopes.extend(listing.get("data", {}).get("initiatives", []))
+                continuation = listing.get("continuation")
+                if not continuation:
+                    break
+                arguments = continuation["next_arguments"]
+                rpc_id += 1
+            if not scopes:
+                return []
             _, raw = self._request("POST", {
-                "jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                "params": {"name": "search", "arguments": {"query": query, "limit": limit}},
+                "jsonrpc": "2.0", "id": rpc_id+1, "method": "tools/call",
+                "params": {"name": "search", "arguments": {"initiatives":scopes,"text":query,"prefix":True,"match":"any","limit":limit}},
             }, sid)
+            return parse_hits(self._result_text(raw))
         except (urllib.error.URLError, OSError, ValueError):
             return None
         finally:
             self._close(sid)   # whatever happened above — success, error, timeout
-        return parse_hits(self._result_text(raw))
-
-
-HIT_LINE = re.compile(r"^\s{2}- (?P<name>.+?) \((?P<type>[a-z_]+)\) — ")
 
 
 def parse_hits(text: str) -> list[tuple[str, str]]:
-    """`matches (N):` blocks → [(name, excerpt)]. A miss or anything odd → []."""
-    hits: list[tuple[str, str]] = []
-    lines = text.splitlines()
-    for i, line in enumerate(lines):
-        m = HIT_LINE.match(line)
-        if not m:
-            continue
-        excerpt = ""
-        if i + 1 < len(lines) and lines[i + 1].startswith("    ") and not HIT_LINE.match(lines[i + 1]):
-            excerpt = lines[i + 1].strip()
-            if len(excerpt) > 140:
-                excerpt = excerpt[:137].rstrip() + "…"
-        hits.append((m.group("name"), excerpt))
-    return hits
+    """Canonical search JSON → [(name, excerpt)], never parse prose formatting."""
+    try:
+        value = json.loads(text)
+    except (ValueError, TypeError):
+        return []
+    if not isinstance(value, dict) or value.get("state") == "rejected":
+        return []
+    return [(str(node.get("name", "")), str(node.get("body") or "")[:140]) for node in value.get("data", {}).get("hits", []) if isinstance(node,dict)]
 
 
 def stem(term: str) -> str:
@@ -821,18 +818,23 @@ def on_post_tool_use(event: dict, state: dict, session: str) -> dict | None:
         return None
     verb = match.group("verb")
     inp = event.get("tool_input") if isinstance(event.get("tool_input"), dict) else {}
-    consulted = " ".join(str(inp.get(k, "")) for k in ("query", "name", "a", "b", "from", "to", "tag") if inp.get(k))
-    record = {"t": time.time(), "verb": verb, "terms": terms_of(consulted), "name": str(inp.get("name") or "")[:120]}
-    if verb == "search":
-        resp = event.get("tool_response")
-        text = ""
-        if isinstance(resp, str):
-            text = resp
-        elif isinstance(resp, dict):
-            text = resp.get("text") or "".join(c.get("text", "") for c in resp.get("content", []) if isinstance(c, dict))
-        elif isinstance(resp, list):
-            text = "".join(c.get("text", "") for c in resp if isinstance(c, dict))
-        record["hits"] = [h[0] for h in parse_hits(text)][:10]
+    consulted = " ".join(str(inp.get(k, "")) for k in ("text", "node", "from", "to") if inp.get(k))
+    resp = event.get("tool_response")
+    text = ""
+    if isinstance(resp,str): text = resp
+    elif isinstance(resp,dict):
+        if "structuredContent" in resp: text=json.dumps(resp["structuredContent"])
+        elif "data" in resp: text=json.dumps(resp)
+        else: text=resp.get("text") or "".join(c.get("text", "") for c in resp.get("content", []) if isinstance(c,dict))
+    elif isinstance(resp,list): text="".join(c.get("text", "") for c in resp if isinstance(c,dict))
+    try: payload=json.loads(text)
+    except (ValueError,TypeError): payload={}
+    if not isinstance(payload,dict):payload={}
+    reference=inp.get("node", "")
+    name=(reference.get("name") or reference.get("id") or "") if isinstance(reference,dict) else reference
+    name=payload.get("data",{}).get("node",{}).get("name") or name
+    record = {"t": time.time(), "verb": verb, "terms": terms_of(consulted), "name": str(name)}
+    if verb == "search": record["hits"] = [h[0] for h in parse_hits(text)][:10]
     state.setdefault("reads", []).append(record)
     state["last_read"] = record["t"]
     if verb in NODE_READ_VERBS and record["name"]:

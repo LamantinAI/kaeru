@@ -1,3 +1,4 @@
+import { memory } from './api.js'
 // The board — the galaxy's third view.
 //
 // The galaxy answers *where* a thought sits, the reader *what it says*, and the
@@ -5,10 +6,10 @@
 // describes: one board per initiative, a card's column is the `status:<key>`
 // tag on the task itself, columns come from the initiative's registry.
 //
-// Read-only, deliberately. Moving a card is `set_status`, a write the API does
-// not expose yet — so the board shows the command instead of performing it.
+// Read-only, deliberately. Moving a card is `task_update`; the visualization shows a command
+// for the user to apply explicitly.
 //
-// The columns, though, are the initiative's own: `/v1/board` is the `board`
+// The columns, though, are the initiative's own: `/v1/context(view=board)` is the `board`
 // verb over HTTP, and it carries the registry that the whole-graph export
 // cannot (the registry lives in the Board node's `properties`, which the
 // export does not select). Without the daemon — a baked snapshot — we fall
@@ -24,14 +25,14 @@
 import { bodiesFor } from './bodies.js'
 
 const BUILT_IN = [
-  { key: 'open', label: 'Open' },
-  { key: 'in-progress', label: 'In Progress' },
-  { key: 'done', label: 'Done' },
+  { key: 'open', label: 'Open', terminal: false },
+  { key: 'in-progress', label: 'In Progress', terminal: false },
+  { key: 'done', label: 'Done', terminal: true },
 ]
 const DAY = 86400
 
 // ── the registry ──────────────────────────────────────────────────────────
-// `/v1/board` is the `board` verb over HTTP, and it carries the one thing the
+// `/v1/context(view=board)` is the `board` verb over HTTP, and it carries the one thing the
 // whole-graph export cannot: the initiative's own column registry, which lives
 // in the Board node's `properties`. The export selects name, tags, body and
 // the rest — not properties — so before this endpoint existed the browser had
@@ -46,16 +47,9 @@ async function registryFor(initiative) {
   if (registries.has(initiative)) return registries.get(initiative)
   let cols = null
   try {
-    // `columns=true`: the cards are already here from the export, and asking
-    // for them again — once per initiative for the union view — was 130 KB to
-    // learn a handful of column names.
-    const r = await fetch(`/v1/board?initiative=${encodeURIComponent(initiative)}&columns=true`)
-    if (r.ok) {
-      const b = await r.json()
-      if (Array.isArray(b.columns) && b.columns.length) {
-        cols = b.columns.map((c) => ({ key: c.key, label: c.label }))
-      }
-    }
+    const response = await memory.call('context', { initiative, view: 'board', budget_chars: 64000 })
+    const board = response.data.sections.find((section) => section.name === 'board')
+    if (board?.details.columns?.length) cols = board.details.columns
   } catch (_) { /* no daemon reachable — the built-in vocabulary stands */ }
   registries.set(initiative, cols)
   return cols
@@ -102,7 +96,7 @@ export function createBoard(data, { onOpenNode }) {
   })
 
   // The registry in force. Starts as the built-in vocabulary and is replaced
-  // by the initiative's own as soon as `/v1/board` answers.
+  // by the initiative's own as soon as `/v1/context(view=board)` answers.
   let columns = BUILT_IN
 
   // A status the registry doesn't know falls into the first column rather than
@@ -111,10 +105,11 @@ export function createBoard(data, { onOpenNode }) {
   // built, and a card that resolved early would be stuck in the wrong column.
   const keyOf = (c) => (columns.some((x) => x.key === c.raw) ? c.raw : columns[0].key)
 
-  // Which column means "finished". `done` by name when the registry keeps it,
-  // otherwise the last column — a registry orders its statuses, and the end of
-  // that order is where work stops being owed.
-  const doneKey = () => (columns.some((x) => x.key === 'done') ? 'done' : columns[columns.length - 1].key)
+  // Completion follows explicit flags in each card's own registry.
+  const terminal = (key) => columns.some((column) => column.key === key && column.terminal)
+  const cardColumns = (c) => registries.get(c.init) || BUILT_IN
+  const isTerminal = (c) => cardColumns(c).some((column) => column.key === c.raw && column.terminal)
+  const completionStatus = (c) => cardColumns(c).find((column) => column.terminal)?.key || 'done'
 
   // Across every initiative at once there is no single registry, so the
   // columns are the union of them all — deduped by key, terminal column last.
@@ -122,13 +117,7 @@ export function createBoard(data, { onOpenNode }) {
   // string: `waiting` is `waiting` whoever defined it.
   async function registryForScope(scope) {
     if (scope !== ALL) return (await registryFor(scope)) || BUILT_IN
-    // Ask one before asking fifteen. A daemon without the API answers every
-    // one of them the same way, and the only thing sixteen identical failures
-    // buy over one is sixteen red lines in the console.
-    const [first, ...rest] = OWNERS.map(([name]) => name)
-    if (first === undefined) return BUILT_IN
-    const head = await registryFor(first)
-    const found = head ? [head, ...(await Promise.all(rest.map(registryFor)))] : []
+    const found = await Promise.all(OWNERS.map(([name]) => registryFor(name)))
     const seen = new Map()
     for (const cols of [BUILT_IN, ...found.filter(Boolean)]) {
       for (const c of cols) if (!seen.has(c.key)) seen.set(c.key, c)
@@ -168,13 +157,13 @@ export function createBoard(data, { onOpenNode }) {
 
   // `status:` and `due:` are the only tags a person sets, and both are already
   // on the board as columns and badges. `topic:` is derived word-frequency —
-  // its busiest values here are "блок", "новый", "документ" — so a topic picker
+  // common words can dominate those tags, so a topic picker
   // would mostly offer noise that free text finds better anyway.
   const SIEVES = [
     { key: 'overdue', label: 'past due', f: (c) => c.overdue },
     { key: 'island', label: 'no provenance', f: (c) => c.island },
     { key: 'old', label: 'over a month', f: (c) => c.age > 30 },
-    { key: 'owed', label: 'not done', f: (c) => keyOf(c) !== doneKey() },
+    { key: 'owed', label: 'not done', f: (c) => !isTerminal(c) },
   ]
   const inScope = () => (init === ALL ? CARDS : CARDS.filter((c) => c.init === init))
   const passes = (c) =>
@@ -239,7 +228,7 @@ export function createBoard(data, { onOpenNode }) {
     }
     return `<p class="none">Nothing has ever been in ${col.label}. The board reads;
       the vault writes — a card gets here from the chat:</p>
-      <code class="cmd">set_status &lt;task&gt; ${esc(col.key)}</code>`
+      <code class="cmd">task_update(task=&lt;uuid&gt;, status=${esc(col.key)})</code>`
   }
 
   function drawColumns() {
@@ -248,7 +237,7 @@ export function createBoard(data, { onOpenNode }) {
     $('bcols').innerHTML = columns.map((col) => {
       const rows = mine.filter((c) => keyOf(c) === col.key)
         // rot orders what is still owed; a finished card is just newest-first
-        .sort((a, b) => (col.key === doneKey() ? (b.age == null) - (a.age == null) || a.age - b.age : b.rot - a.rot))
+        .sort((a, b) => (terminal(col.key) ? (b.age == null) - (a.age == null) || a.age - b.age : b.rot - a.rot))
       return `<section class="col" aria-labelledby="col-${col.key}">
         <header class="colhead"><h2 id="col-${col.key}">${col.label}</h2><span class="n">${rows.length}</span></header>
         <div class="stack">${rows.length ? rows.map(card).join('') : emptyCol(col)}</div>
@@ -258,9 +247,8 @@ export function createBoard(data, { onOpenNode }) {
       $('bcols').innerHTML = `<p class="nohits">No cards match ${esc(describeFilters())}.
         <button type="button" class="btn" id="bClear2">Clear filters</button></p>`
     }
-    const done = doneKey()
-    const owed = mine.filter((c) => keyOf(c) !== done).length
-    const over = mine.filter((c) => c.overdue && keyOf(c) !== done).length
+    const owed = mine.filter((c) => !isTerminal(c)).length
+    const over = mine.filter((c) => c.overdue && !isTerminal(c)).length
     const shown = filtering() ? `${mine.length} of ${scoped.length} cards · ` : ''
     $('bcount').textContent = mine.length
       ? `${shown}${owed} owed${over ? `, ${over} past due` : ''} · sorted by rot — deadline, then age, then isolation`
@@ -312,8 +300,8 @@ export function createBoard(data, { onOpenNode }) {
       </div>
       <div id="bdacts">
         <button type="button" class="btn" data-open="${esc(c.id)}">Open in reader</button>
-        <button type="button" class="btn cp" data-copy="set_status ${esc(c.name)} in-progress">Copy “set_status”</button>
-        <button type="button" class="btn cp" data-copy="done ${esc(c.name)}">Copy “done”</button>
+        <button type="button" class="btn cp" data-copy="task_update(initiative=${esc(c.init)}, task=${esc(c.id)}, status=in-progress)">Copy “task_update”</button>
+        <button type="button" class="btn cp" data-copy="task_update(initiative=${esc(c.init)}, task=${esc(c.id)}, status=${esc(completionStatus(c))})">Copy completion</button>
       </div>`
   }
   function closeDetail() {
@@ -377,7 +365,7 @@ export function createBoard(data, { onOpenNode }) {
 
   const pickInit = $('bInit')
   buildSieves()
-  const owedAll = CARDS.filter((c) => keyOf(c) !== doneKey()).length
+  const owedAll = CARDS.filter((c) => !isTerminal(c)).length
   pickInit.innerHTML = `<option value="${ALL}">all initiatives (${owedAll} open)</option>` +
     OWNERS.map(([k, n]) => `<option value="${esc(k)}">${esc(k)} (${n} open)</option>`).join('')
   pickInit.addEventListener('change', () => {

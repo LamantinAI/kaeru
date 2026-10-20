@@ -1,137 +1,261 @@
-# The curator API
+# Memory API
 
-The agent-facing surface: ~70 verbs, grouped by what they do. The taxonomy is
-meant to map to how an agent already reasons — capture what you notice, link it,
-test claims, settle what holds, recall structurally, tidy up — rather than expose
-raw graph operations. Every verb takes an optional `initiative` scope.
+Kaeru exposes 35 named operations: 16 frequent operations, ten local maintenance
+operations, and nine cloud operations. MCP, named HTTP routes and Rig consume
+one catalogue and the same local dispatcher in `kaeru-core::api`.
+There is no query DSL or generic execute tool. Old tool names and HTTP aliases
+are removed. Existing vaults migrate on open; their recorded history remains. Older records
+without initiative membership become discoverable under `legacy-unscoped`,
+including retained identities. This changes current membership metadata only.
 
-Names below are the MCP tool names; the `rig` adapter exposes the same set as
-`kaeru_*` tools.
+## Frequent operations
 
-## Re-entry & session
+| Operation | Purpose |
+| --- | --- |
+| `context` | Restore rules, current slots, open work, reminders and saved reasoning. `view` selects work, map, board or diagnostics. |
+| `search` | Literal lexical text and explicit filters across named initiatives. |
+| `read` | Full record, currentness, conflicts and saved reasoning. Optional relations, provenance and directed path. |
+| `note` | Observation, decision, constraint, plan or outcome. |
+| `reference` | Exact supplied source text, an authorized artifact, or a URL citation without fetching. |
+| `task` | Open work with an optional ISO deadline. |
+| `task_update` | Status or deadline; `due: null` clears it. Status changes preserve deadlines. |
+| `claim` | A hypothesis, optionally with its already reached status and evidence. |
+| `verdict` | Decide supported/refuted/inconclusive, optionally recording the completed check atomically; `record_check` leaves status alone. |
+| `revise` | Edit the same identity; immutable source bytes require replacement. |
+| `replace` | Explicit successor and retirement, preserving lineage and reporting dependents. |
+| `relate` | Connect, disconnect or reweight a typed directed edge. Weight is required for connect/set_weight. |
+| `review` | Open a doubt, answer an open record, or selectively close review flags. Counterevidence remains. |
+| `trail` | Save an ordered route with an authored summary; refresh or extend an existing route. |
+| `pin` | Set or clear a persistent attention pin. |
+| `reflect` | Inspect integrity, unfinished work, staleness, scope and sharing proposals without applying semantic changes. |
 
-The ritual at the start of a session: process state, then epistemic state.
+## Occasional local operations
 
-| Verb | Does |
-|---|---|
-| `initiatives` | List every project the substrate knows. |
-| `awake` | Restore a project's context: layered operational working set (`core→hot→warm`), the archival **cortex** slice, session pins, recent episodes, open reviews, plus the read-back of unfinished work — open tasks (overdue first), claims awaiting a verdict, and the saved trails. |
-| `overview` | A readable map of what the project's memory knows (subgraph). |
-| `recent` | Episodes asserted within a recent window. |
-| `pin` / `unpin` | Persist / release a node in the active-window set across restarts. |
-| `config` | Read effective daemon configuration — vault path, the configured clouds and which is default, and every cap. |
+| Operation | Purpose |
+| --- | --- |
+| `lifecycle` | Change operational/archival tier while preserving content and references; report any identity change. |
+| `synthesise` | Create a synthesis with explicit sources and provenance. |
+| `forget` | Retract a record and its edges; keep recorded history. |
+| `history` | Versions, metadata audit descriptors and accessible lineage for one identity. |
+| `retention` | Set a recall layer, page through hygiene proposals and reasons, or explicitly run a pass with a durable log. |
+| `initiatives` | Discover permitted project names. |
+| `initiative_manage` | Rename, merge, delete, attach membership or change a current slot pointer. |
+| `board_config` | Configure columns, their order and explicit terminal flags. |
+| `policy` | Read or change sharing policy and allowed clouds. |
+| `export` | Write scoped graph JSON and Markdown into an authorized artifact root. |
 
-## Capture — match the verb to epistemic status
+## Cloud operations
 
-Not by length; by what the content *is*.
+`clouds`, `share`, `unshare`, `cloud_initiatives`, `cloud_recall`, `pull`,
+`link_cloud`, `cloud_links`, `sync_review` retain their existing network contracts.
+They are optional in embedded Rig deployments. Local reads do not search the
+cloud. With several configured clouds, an operation must name its destination.
 
-| Verb | For |
-|---|---|
-| `jot` | A fleeting note, no name needed (auto-named). Operational. |
-| `episode` | An observation tied to current work, may evolve. Operational. |
-| `cite` | A settled document kept verbatim — specs, ADRs, persona/entity records, glossaries, external sources (URL optional). Straight to archival. |
-| `task` / `done` | Actionable todos with a `due`; close with `done`. |
-| `claim` | A hypothesis to test (see the hypothesis cycle). Operational. |
+## A small workflow
 
-All capture verbs take `layer` (default `warm`) and `visibility: shared` (capture-and-share in one call).
+An initiative is a project scope. These examples use `billing`, which is an
+example project name. They are tool arguments; send the same object to the
+matching HTTP route, or to the Rig tool with the `kaeru_` prefix.
 
-## Link & chain — turn nodes into structure
+First recover what matters now with `context`:
 
-| Verb | Does |
-|---|---|
-| `link` / `unlink` | Create / retract a typed edge (`derived_from`, `contradicts`, `causal`, `refers_to`, `part_of`, `blocks`, `targets`, …); `weight` / `strong=true` sets connection strength. |
-| `reweight` | Change an existing edge's weight. |
-| `path` | Preview the strongest weighted path between two nodes (no save). |
-| `chain` | Save that path as a recallable trail, with an agent-authored `summary`. Idempotent (dedups identical trails). |
-| `why` | The saved reasoning leading to a node — a chain's ordered steps, or the chain a node belongs to. Replaces the former `chains` + `read_chain`. |
-| `rechain` | Regenerate a chain between its endpoints (picks up graph changes) or extend it to a new node. |
+```json
+{"initiative": "billing"}
+```
 
-## Recall & lookup — structural first
+This returns standing rules, current records, open work, reminders and saved
+reasoning. `context` also offers `work`, `map`, `board` and `diagnostics` views.
+Use `search` to find something outside that initial context:
 
-| Verb | Does |
-|---|---|
-| `recall` | Exact name → id. |
-| `search` | Full-text fuzzy fallback when the exact name is forgotten. |
-| `drill` | A node plus its drill-down children (excerpts). |
-| `trace` | Follow provenance (`derived_from`) back to sources. |
-| `between` | The edges linking two nodes, both directions. |
-| `tagged` | Read by tag, exact match. `topic:` tags are a node's most-mentioned words (a chosen name counts triple, compounds are also tagged by their parts). A miss returns the near tags that exist in scope rather than a bare empty list. |
-| `at` | Read a node **in full** (whole body + every field), at NOW or as-of a past `when:`. |
-| `history` | The assertion / retraction timeline of a node. |
-| `surface` | Pull archived `cold` / `frozen` layers that `awake` withholds. |
-| `ideas` / `outcomes` | List archival ideas / settled outcomes (cortex reads). |
+```json
+{"initiatives": ["billing"], "text": "rounding", "prefix": true}
+```
 
-## Hypothesis cycle
+Search is lexical. `prefix: true` helps find word inflections; the text is not a
+query language. Search hits can be excerpts. Read a returned ID for full content,
+its currentness, material conflicts and saved reasoning:
 
-| Verb | Does |
-|---|---|
-| `claim` | Record a hypothesis. With `--verdict` (+ optional `--by`) it lands settled in one call — the usual case, since you reach memory after the check has run. Without one it stays `open` and keeps surfacing in `awake`. |
-| `evidence` | Record what was actually checked: `--method` writes it up as an experiment node, `--node` registers one you already captured. Past tense. |
-| `confirm` / `refute` / `inconclusive` | Mark it supported / refuted / undecided. `--by` (the evidence) is optional — a verdict with no citation still beats one buried in the body. |
+```json
+{"initiative": "billing", "node": {"id": "<returned-id>"}}
+```
 
-## Evolve knowledge — when it changes shape
+Search hits already carry `currentness`: `superseded`, `contested`, `refuted`
+or `current`. A superseded hit names accessible replacements in `successors`;
+by default, search includes those records even when they do not match the
+literal text. An ordinary `read` includes material counterevidence in
+`conflicts`. These fields describe only records the caller may access.
 
-| Verb | Does |
-|---|---|
-| `synthesise` | Converge several operational seeds into one durable insight. |
-| `settle` | Promote a node that stopped changing into the archival tier (`derived_from` preserved). `settle <name>` alone is enough — name, body and manual tags carry over, the type is derived. |
-| `unsettle` | Bring an archival node back to operational for rework (mirror of settle; same in-place defaults). |
-| `supersede` | Replace a node with a new version (bi-temporal retraction of the old). |
-| `revise` | Amend a node's content. |
-| `flag` / `resolve` | Raise / clear an `under_review` (a `contradicts` edge). |
-| `layer` | Re-file a node's memory layer after creation. |
-| `forget` / `improve` | Retract a node (bi-temporal, recoverable) / refine it. |
+To inspect all accessible links, in both directions and with their edge types,
+read the selected record with `"include": ["relations"]`:
 
-## Initiatives
+```json
+{"initiative": "billing", "node": {"id": "<returned-id>"}, "include": ["relations"]}
+```
 
-| Verb | Does |
-|---|---|
-| `rename_initiative` | Move a whole project to a new name (fails if the name is taken). |
-| `delete_initiative` | Drop scoping; forget nodes exclusive to it (recoverable via `at`). |
-| `attach` | Give a node a second home in another initiative — additive multi-membership, the repair for fragmentation. |
+To save a decision, call `note`:
 
-Local by default; `cloud="<name>"` on rename/delete also applies it in that cloud, team-wide. The cloud is never defaulted for these two — they affect everyone and the cloud has no undo.
+```json
+{
+  "initiative": "billing",
+  "kind": "decision",
+  "name": "rounding-policy",
+  "body": "Round only the final invoice total."
+}
+```
 
-## Sharing — the team cloud
+Keep the returned ID and revision for later calls. Use `task` for work to do,
+`claim` for a hypothesis, and `reference` for a source whose supplied text must
+remain exact. `note` also represents observations, constraints, plans and outcomes.
+A URL citation records the URL without fetching its content.
 
-Explicit, gated (initiative policy + secret guard); nothing leaves automatically.
+## Choose the operation by what changed
 
-| Verb | Does |
-|---|---|
-| `policy` | Read / set an initiative's sharing gate: `policy` says WHETHER it may leave (`private` / `team` / `ask`), `clouds` says WHERE TO (a list restricting it to named clouds; empty = any). |
-| `share` | Push a node to the shared cloud (runs the two gates). Re-sharing a corrected node updates the cloud copy in place — the push is an upsert under the same id. |
-| `unshare` | Withdraw a node from a cloud: retracts the cloud copy (bi-temporally — history survives) and marks it `local` again. `share`'s inverse. |
-| `cloud_recall` | Search or list what the team has shared — `query` matches names and excerpts, the tier a local `search` cannot reach. Paged (25 by default), reporting the true total and the next call. |
-| `cloud_initiatives` | What one cloud holds: initiatives and their shared-node counts. A cloud initiative is independent of the local one with the same name. |
-| `pull` | Bring a shared node into the local graph. |
-| `link_cloud` / `cloud_links` | Reference a cloud node from a local one without copying, resolved on demand. |
-| `clouds` | What this daemon can reach: names, endpoints, which is default. |
-| `sync_review` | Batch-split still-local nodes into propose-share vs keep-local. |
+| Situation | Operation and effect |
+| --- | --- |
+| Correct wording or extend the same record | `revise` appends a content version under the same ID. |
+| A different fact replaces the old one | `replace` creates a successor, links new to old with `supersedes`, retires the predecessor and reports dependents. |
+| Work has settled into durable knowledge | `lifecycle` changes the tier, preserves content and reports any successor ID. |
+| Another record is now the current handoff | Assign `options.slot` on capture, or use `initiative_manage` to assign an existing record. |
+| Keep something in attention | `pin` sets a persistent pin. |
+| Save how a conclusion was reached | `trail` stores an ordered route and an authored summary. |
 
-A single daemon can target several named clouds via `clouds.toml`; cloud verbs take a `cloud:` argument.
+A slot selects one current record for a purpose, such as `handoff`. Changing its
+holder does not refute, retire or move the previous holder. Slots have their own
+revision and optional `expected_slot_revision`. Pins are independent of slots.
 
-**With one cloud configured it is optional** — there is nothing to disambiguate. **With several it is required**: an unnamed call is refused rather than routed to the default, and the refusal lists the choices. The default was invisible in both directions — a read answered by one cloud while the nodes lived in another looked exactly like an empty answer, and the same silence sat under `delete_initiative`. A refusal costs one retry; a cloud write cannot be undone in the wrong place.
+For a hypothesis whose check is already complete, `claim` can include
+`initial_status` and evidence in the same call. For an existing claim, use
+`verdict` with an explicit `supported`, `refuted` or `inconclusive` status:
 
-Every cloud result and error names the cloud it touched, and an empty `cloud_recall` distinguishes "this initiative is empty here" from "this cloud has never heard of it".
+```json
+{
+  "initiative": "billing",
+  "hypothesis": {"id": "<claim-id>"},
+  "status": "supported",
+  "evidence": {"method": "Checked all rounding boundary cases; totals matched."}
+}
+```
 
-`clouds.toml` is read once, at daemon startup. An edited file does not take effect until the process restarts — a client-side reconnect does not respawn it.
+Evidence can also reference an existing node. The less common
+`verdict(action="record_check")` records a completed check without changing the
+claim's status; it accepts no `status` argument. No separate evidence tool or
+mandatory claim/check/verdict sequence is required.
 
-## Maintenance & export
+## Scope and validation
 
-| Verb | Does |
-|---|---|
-| `lint` | Orphan nodes (no edges) + unresolved reviews — the raw hygiene list. |
-| `reflect` | The computed maintenance work-list: orphans to link, overdue tasks, claims whose text already answers them, stale chains to `rechain`, settled work to promote into cortex, and shared/cloud items escalated to the user. Call it when a piece of work ends, and before a session stops. |
-| `export` | Snapshot an initiative to an Obsidian-friendly markdown vault. |
-| `import` | The bulk-load playbook, read first: scope by initiative, pick the verb by epistemic status, stamp the layer at creation, link after capturing. |
-| `hygiene` | What the automatic layer pass would move next, and whether one is due. Read-only unless `force`. |
+Ordinary project calls require `initiative`; search requires an `initiatives`
+list. Exact names resolve inside that scope. Duplicate names require an ID;
+the API does not silently choose the newest record. Newly generated IDs are
+UUIDs, and custom IDs from older vaults remain accepted.
 
-## Roles and the board
+An ID does not bypass transport authorization or reveal a record in a forbidden
+scope. Operations that accept foreign endpoints can use an explicit scoped
+reference. The trusted local owner can also recover an orphaned retired identity
+by its known ID when it has no current memberships. Restricted viewers do not
+receive this recovery exception.
 
-| Verb | Does |
-|---|---|
-| `slot` / `slots` / `unslot` | A role an initiative holds exactly one live node for — `handoff`, `entrypoint`, `queue`. Taking a slot archives the previous holder to `cold` and links `supersedes`, so a project cannot end up with three current handoffs. Nothing is deleted. |
-| `board` | The initiative's tasks bucketed into its status columns, empty ones included. `when` rewinds columns and cards together. |
-| `set_status` | Move a task to another column. Validated against the registry — a typo must not spawn a phantom column. |
-| `board_status` | Edit the registry itself: add, relabel, reorder or remove a status. |
-| `close_review` | Close an open review on a node, optionally recording how it was settled. The counterpart to `flag`. |
+Unknown fields are rejected. Dates use `YYYY-MM-DD`; historical reads use an
+RFC3339 `recorded_at` with an explicit offset. Handlers apply the documented
+schema defaults. Administrative namespace operations require reconciliation
+before merging competing slot holders or two board registries.
+
+## Read the result before retrying
+
+The 26 local operations return a shared JSON envelope. This illustrative `note`
+result includes all mutation collections; IDs and revisions are placeholders:
+
+```json
+{
+  "api_version": 1,
+  "operation": "note",
+  "state": "applied",
+  "request_id": null,
+  "replayed": false,
+  "data": {
+    "primary": {"id": "<returned-id>", "revision": "<opaque-revision>"},
+    "created": [{"id": "<returned-id>", "revision": "<opaque-revision>"}],
+    "affected": [],
+    "changes": [],
+    "evidence": [],
+    "failed_steps": [],
+    "slots": [],
+    "artifacts": []
+  },
+  "issues": []
+}
+```
+
+| State | Meaning |
+| --- | --- |
+| `ok` | A read succeeded. Inspect its coverage for omissions. |
+| `applied` | The operation changed state. Returned identities describe the committed outcome. |
+| `unchanged` | The requested state already held. |
+| `partial` | Some effects succeeded and another step failed. Inspect committed IDs and `failed_steps`. |
+| `rejected` | The command was refused without a semantic commit. Inspect `issues`. |
+
+For example, optional linking or sharing can fail after a successful local
+capture. Retrying the whole capture without a stable key could duplicate it.
+A host-supplied `request_id` binds the caller, operation and normalized arguments
+for a 24-hour replay window. Reuse it to recover an uncertain outcome.
+`replayed: true` describes the original result. Reusing the key with different
+arguments is rejected. Use `expected_revision` for supported updates when a
+concurrent edit should cause a conflict rather than overwrite it.
+
+MCP structured content and text contain the same JSON. Local tools advertise
+output schemas. Rig names tools `kaeru_<operation>`; HTTP uses
+`POST /v1/<operation>` with the same arguments. API version 1 is independent of
+the crate version and the MCP protocol version.
+
+## Complete content and incomplete coverage
+
+Reads have a response budget. `coverage` reports omissions; `body_range` shows
+which part of a body is present. When `continuation` exists, call the same
+operation with `continuation.next_arguments` unchanged. Repeat until there is
+no continuation. Source pages reconstruct the supplied UTF-8 text exactly.
+
+Cursors belong to the caller, arguments, policy and store generation. They
+expire after 15 minutes, and writes invalidate them. A stale cursor requires
+restarting the read. Snapshots are limited to 8 MiB each and 16 concurrent reads
+per store; larger sources remain available through authorized export.
+
+Truncated standing rules explicitly report incomplete coverage. A reminder is
+marked as seen only when fully delivered. Saved reasoning summaries are bounded
+and report truncation or staleness; expanding a trail does not certify an outdated
+explanation. Local reads do not imply that a cloud was searched.
+
+## History and existing vaults
+
+Use `history` to list recorded versions and available lineage. Long bodies in
+that listing are excerpts with ranges. Use `read` with the selected
+`recorded_at` to inspect a full historical version, following its continuation:
+
+```json
+{
+  "initiative": "billing",
+  "node": {"id": "<returned-id>"},
+  "recorded_at": "2026-10-10T12:00:00Z"
+}
+```
+
+Type, tier, name, body and tags retain substrate versions. Layer, visibility,
+properties and junction memberships are current metadata. Historical reads label
+that distinction; an audit entry can identify a metadata change without retaining
+its old value. There is one recorded-time axis, with no independent valid-time
+axis for when a fact was true in the world. Replacement and forgetting preserve
+history; forgetting is a retraction, not physical erasure.
+
+Existing vaults migrate on open. Migration 0010 adds API bookkeeping. Migration
+0011 restores missing legacy membership junctions and assigns previously
+unscoped domain identities to `legacy-unscoped`, including retired identities.
+It preserves IDs, bodies and stored validity. Old tool names and HTTP aliases
+have no compatibility dispatcher; update clients before using this API.
+
+Intrinsic graph commands use one Cozo transaction for nodes, edges, memberships,
+audit and replay. Storage failures, domain failures and panics roll it back.
+Network supplements run after local commit. Filesystem exports and entire
+hygiene passes are separate effects; their results do not promise rollback of
+an external file, remote write or whole pass.
+
+For the implementation, start with [the code map](structure.md). The shared
+catalogue is in `kaeru-core/src/api/surface.rs`, and output types are in
+`kaeru-core/src/api/types.rs`. MCP `tools/list` returns the active tool definitions.

@@ -96,55 +96,59 @@ pub fn occupy_slot(
     slot: &str,
     node_id: &NodeId,
 ) -> Result<SlotOutcome> {
-    let previous = slot_holder(store, initiative, slot)?;
+    store.atomic(|store| {
+        let previous = slot_holder(store, initiative, slot)?;
 
-    let displaced = match previous {
-        Some(ref prev) if prev != node_id => {
-            super::edge::link(store, node_id, prev, EdgeType::Supersedes)?;
-            super::layer::set_layer(store, prev, Layer::Cold)?;
-            Some(prev.clone())
-        }
-        _ => None,
-    };
+        let displaced = match previous {
+            Some(ref prev) if prev != node_id => {
+                super::edge::link(store, node_id, prev, EdgeType::Supersedes)?;
+                super::layer::set_layer(store, prev, Layer::Cold)?;
+                Some(prev.clone())
+            }
+            _ => None,
+        };
 
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("init".to_string(), DataValue::Str(initiative.into()));
-    params.insert("slot".to_string(), DataValue::Str(slot.into()));
-    params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
-    let script = r#"
-        ?[initiative, slot, node_id] <- [[$init, $slot, $nid]]
-        :put slot_occupant {initiative, slot => node_id}
-    "#;
-    store
-        .db_ref()
-        .run_script(script, params, ScriptMutability::Mutable)?;
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("init".to_string(), DataValue::Str(initiative.into()));
+        params.insert("slot".to_string(), DataValue::Str(slot.into()));
+        params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
+        let script = r#"
+            ?[initiative, slot, node_id] <- [[$init, $slot, $nid]]
+            :put slot_occupant {initiative, slot => node_id}
+        "#;
+        store
+            .db_ref()
+            .run_script(script, params, ScriptMutability::Mutable)?;
 
-    write_audit(store.db_ref(), "occupy_slot", "system", &[node_id.clone()])?;
+        write_audit(store.db_ref(), "occupy_slot", "system", &[node_id.clone()])?;
 
-    Ok(SlotOutcome {
-        slot: slot.to_string(),
-        previous: displaced,
+        Ok(SlotOutcome {
+            slot: slot.to_string(),
+            previous: displaced,
+        })
     })
 }
 
 /// Frees `slot` without touching whichever node held it. Used when a role
 /// stops being meaningful for an initiative; the ex-holder keeps its layer.
 pub fn release_slot(store: &Store, initiative: &str, slot: &str) -> Result<Option<NodeId>> {
-    let previous = slot_holder(store, initiative, slot)?;
-    if previous.is_none() {
-        return Ok(None);
-    }
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("init".to_string(), DataValue::Str(initiative.into()));
-    params.insert("slot".to_string(), DataValue::Str(slot.into()));
-    let script = r#"
-        ?[initiative, slot] <- [[$init, $slot]]
-        :rm slot_occupant {initiative, slot}
-    "#;
-    store
-        .db_ref()
-        .run_script(script, params, ScriptMutability::Mutable)?;
-    Ok(previous)
+    store.atomic(|store| {
+        let previous = slot_holder(store, initiative, slot)?;
+        if previous.is_none() {
+            return Ok(None);
+        }
+        let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
+        params.insert("init".to_string(), DataValue::Str(initiative.into()));
+        params.insert("slot".to_string(), DataValue::Str(slot.into()));
+        let script = r#"
+            ?[initiative, slot] <- [[$init, $slot]]
+            :rm slot_occupant {initiative, slot}
+        "#;
+        store
+            .db_ref()
+            .run_script(script, params, ScriptMutability::Mutable)?;
+        Ok(previous)
+    })
 }
 
 #[cfg(test)]

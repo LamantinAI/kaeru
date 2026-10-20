@@ -23,6 +23,7 @@ pub mod consolidate;
 pub mod edge;
 pub mod episode;
 pub mod hypothesis;
+mod identity;
 pub mod ingest;
 pub mod initiative;
 pub mod layer;
@@ -80,7 +81,7 @@ pub(crate) fn now_validity_seconds() -> u64 {
 /// The timestamp a new version of **this key** must carry so that two writes
 /// to it inside one second stay in the order they were issued (#96).
 ///
-/// `Validity` is floored to whole seconds, and at equal timestamps the
+/// Kaeru allocates recorded versions in whole seconds; at equal timestamps the
 /// substrate resolves the *assertion*, not the later write. That is exactly
 /// what an RMW pair wants — one operation writing both rows — and exactly
 /// what two separate operations do not: a `link` corrected by an immediate
@@ -177,7 +178,7 @@ const NAME_WEIGHT: usize = 3;
 /// would smuggle the position bias back in through the front door.
 ///
 /// A hyphenated or underscored compound yields its parts as well as itself:
-/// `figma-макет` scores `figma-макет`, `figma` and `макет`. Tags are matched
+/// `design-mockup` scores `design-mockup`, `design` and `mockup`. Tags are matched
 /// exactly by `tagged`, so without this the word inside a compound is
 /// unreachable — which is exactly how a Figma-centric initiative ended up
 /// with no `topic:figma` on anything.
@@ -499,8 +500,8 @@ pub(crate) struct ReassertRow<'a> {
 /// nothing, the `:put` writes zero rows, and the node simply vanishes.
 /// Callers therefore re-assert first and retract second, passing the SAME
 /// whole-second timestamp to both writes — at equal timestamps the
-/// substrate resolves the assertion, so write order within the second
-/// doesn't matter.
+/// substrate resolves the assertion. This tie-break determines the selected
+/// row; call order still matters for the copy-forward read described above.
 pub(crate) fn reassert_node_now(store: &Store, id: &NodeId, row: ReassertRow<'_>) -> Result<()> {
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
@@ -799,26 +800,6 @@ pub(crate) fn attach_edge_to_initiative(
 
 /// Returns dst ids of `derived_from` edges where `src_id` is the source
 /// at NOW. Used by [`consolidate`] to replicate provenance edges across
-/// the tier boundary.
-pub(crate) fn read_derived_from_targets(store: &Store, src_id: &NodeId) -> Result<Vec<NodeId>> {
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("src".to_string(), DataValue::Str(src_id.clone().into()));
-    let script = r#"
-        ?[dst] := *edge{src, dst, edge_type @ 'NOW'},
-                  src = $src,
-                  edge_type = 'derived_from'
-    "#;
-    let rows = store
-        .db_ref()
-        .run_script(script, params, ScriptMutability::Immutable)?;
-    let targets: Vec<NodeId> = rows
-        .rows
-        .iter()
-        .filter_map(|r| r.first().and_then(|v| v.get_str()).map(String::from))
-        .collect();
-    Ok(targets)
-}
-
 /// Refuses a `core` write with no active initiative.
 ///
 /// `core` is the one layer injected uncapped into every session, and that

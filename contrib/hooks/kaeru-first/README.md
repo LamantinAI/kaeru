@@ -96,23 +96,22 @@ text — so there this is the whole mechanism.
    stopwords. Memory has no
    answer to these, and blocking a *"push?"* to force a search is worse than
    not asking. 14% of real asks.
-2. **A relevant read → pass.** A recent read (`search`, `at`, `neighbours`,
-   `awake`, …) whose terms overlap the question's. The agent already looked.
+2. **A relevant read → pass.** A recent read (`search`, `read`, `context`, …) whose terms overlap the question's. The agent already looked.
    A read about something else does not count — recency is not relevance.
 3. **Hits the agent never read → deny.** The last `search` returned names and
    this session has read none of them — at any point: a node read two hours
    ago is still in context, and asking for it again would be nagging. A search you do not read is not
    a search; the message names what was skipped.
-4. **Show the hits → deny once.** One unscoped `search` of the question's
-   terms as `OR`-ed prefixes — entities first (a Latin or digit-bearing token,
+4. **Show the hits → deny once.** A scoped `search` across discovered initiatives using the question's
+   terms with `prefix=true` and `match="any"` — entities first (a Latin or digit-bearing token,
    a hyphenated name, a word capitalised mid-sentence), then by length. Hits
    are **ranked, not judged**: a name match first. The message shows the top
    three with their excerpts and says so plainly — *the hook cannot judge
    relevance; you can.* No hits at all → pass. Daemon unreachable → pass; a
    search the agent could not run either is not worth blocking for.
 
-**What counts as a read:** `search`, `at`, `drill`, `awake`, `recall`,
-`neighbours`, `why`, `board` and the other verbs that consult memory.
+**What counts as a read:** `search`, `read`, `context`, `history`, `reflect`,
+`cloud_recall` and `cloud_links`.
 **Does not:** writes, and `initiatives` — it lists scopes without reading
 them.
 

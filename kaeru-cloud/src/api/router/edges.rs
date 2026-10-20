@@ -22,48 +22,20 @@ use std::sync::Arc;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use kaeru_core::{EdgeType, Store, unlink, upsert_edge};
-use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::api::docs::ErrorBody;
 use crate::api::extractors::Authenticated;
 use crate::api::state::AppState;
 use crate::errors::ApiError;
+use crate::models::ErrorBody;
+pub use crate::models::{EdgeIngestReq, EdgeRetractReq, EdgeView};
+use kaeru_core::{EdgeType, Store, unlink, upsert_edge};
 
 pub const EDGES_TAG: &str = "edges";
 
 pub fn edges_router() -> OpenApiRouter<AppState> {
     OpenApiRouter::new().routes(routes!(ingest_edge, retract_edge))
-}
-
-/// An edge pushed up from a local vault. `src` / `dst` are the (preserved)
-/// node UUIDv7s — both must already be shared so the edge resolves.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct EdgeIngestReq {
-    pub src: String,
-    pub dst: String,
-    pub edge_type: String,
-    /// Connection strength in `[0, 1]`. Carried so the cloud preserves it
-    /// across share / pull; re-posting an edge with a new weight is also the
-    /// cloud-side edit handle. Defaults to `1.0` when omitted.
-    #[serde(default = "default_weight")]
-    #[schema(default = 1.0, minimum = 0.0, maximum = 1.0)]
-    pub weight: f64,
-}
-
-fn default_weight() -> f64 {
-    1.0
-}
-
-#[derive(Debug, Serialize, ToSchema)]
-pub struct EdgeView {
-    pub src: String,
-    pub dst: String,
-    pub edge_type: String,
-    pub weight: f64,
 }
 
 #[utoipa::path(
@@ -102,16 +74,6 @@ async fn ingest_edge(
             weight: req.weight.clamp(0.0, 1.0),
         }),
     ))
-}
-
-/// Which edge to retract. The triple is the edge's identity — the `edge`
-/// relation is keyed by `{src, dst, edge_type, validity}`, so nothing else is
-/// needed to name one.
-#[derive(Debug, Deserialize, ToSchema)]
-pub struct EdgeRetractReq {
-    pub src: String,
-    pub dst: String,
-    pub edge_type: String,
 }
 
 /// `DELETE /api/v1/edges` — retract one edge, bi-temporally.

@@ -119,7 +119,7 @@ cat <<EOF
 
 Restart your opencode session. The agent will see:
 
-  - kaeru MCP tools (kaeru_awake, kaeru_drill, kaeru_jot, …)
+  - kaeru MCP tools (kaeru_context, kaeru_read, kaeru_note, …)
   - The AGENTS.kaeru.md guidance loaded into every system prompt
   - Slash commands /kaeru, /lesson, /recall
 

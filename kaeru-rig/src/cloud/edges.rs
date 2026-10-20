@@ -8,19 +8,11 @@
 //! says so, because silence leaves local and cloud differing with nothing to
 //! show it.
 
-use kaeru_core::{EdgeType, Visibility};
+use kaeru_core::api::EdgeChange;
+use kaeru_core::{EdgeType, Visibility, get_share_policy, get_visibility, permits_cloud};
 use serde_json::{Value, json};
 
 use crate::KaeruMemory;
-
-/// What happened to the edge locally.
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum EdgeChange {
-    /// Created or reweighted — the cloud's `POST /edges` is an upsert.
-    Upsert(f64),
-    /// Retracted — `DELETE /edges`.
-    Retract,
-}
 
 /// Mirrors an edge change when **both** endpoints are already shared.
 ///
@@ -38,11 +30,14 @@ pub(crate) async fn propagate_edge(
     // Everything cheap and local first: an edge with a local endpoint is not
     // the cloud's to hold, and there is nothing to resolve for it.
     let init = initiative?;
+    if mem.cloud_registry().is_empty() {
+        return None;
+    }
     let (a, b) = (src.to_string(), dst.to_string());
     let both_shared = mem
         .blocking(move |s| {
-            let a_vis = kaeru_core::get_visibility(s, &a).ok()?;
-            let b_vis = kaeru_core::get_visibility(s, &b).ok()?;
+            let a_vis = get_visibility(s, &a).ok()?;
+            let b_vis = get_visibility(s, &b).ok()?;
             Some(a_vis == Visibility::Shared && b_vis == Visibility::Shared)
         })
         .await
@@ -54,7 +49,7 @@ pub(crate) async fn propagate_edge(
     // `resolve` refuses to guess between several configured clouds. Here that
     // must not fail the call — the local edit has already happened — so the
     // ambiguity is reported instead.
-    let cloud = match mem.clouds().resolve(cloud_name) {
+    let cloud = match mem.cloud_registry().resolve(cloud_name) {
         Ok(c) => c,
         Err(why) => {
             return Some(json!({
@@ -69,8 +64,8 @@ pub(crate) async fn propagate_edge(
     let (for_policy, cloud_for_policy) = (init.to_string(), cloud.name().to_string());
     let still_permitted = mem
         .blocking(move |s| {
-            let policy = kaeru_core::get_share_policy(s, &for_policy).ok()?;
-            let to_this = kaeru_core::permits_cloud(s, &for_policy, &cloud_for_policy).ok()?;
+            let policy = get_share_policy(s, &for_policy).ok()?;
+            let to_this = permits_cloud(s, &for_policy, &cloud_for_policy).ok()?;
             Some(policy.permits_share() && to_this)
         })
         .await

@@ -34,65 +34,69 @@ use crate::store::Store;
 /// The generalized `complete_task` (which is `set_status(.., "done")` minus the
 /// `due:` drop).
 pub fn set_status(store: &Store, initiative: &str, task_id: &NodeId, status: &str) -> Result<()> {
-    let statuses = effective_statuses(store, initiative)?;
-    if !statuses.iter().any(|s| s.key == status) {
-        let known: Vec<&str> = statuses.iter().map(|s| s.key.as_str()).collect();
-        return Err(Error::Invalid(format!(
-            "unknown status `{status}`; known on `{initiative}`: [{}]",
-            known.join(", ")
-        )));
-    }
+    store.atomic(|store| {
+        let statuses = effective_statuses(store, initiative)?;
+        if !statuses.iter().any(|s| s.key == status) {
+            let known: Vec<&str> = statuses.iter().map(|s| s.key.as_str()).collect();
+            return Err(Error::Invalid(format!(
+                "unknown status `{status}`; known on `{initiative}`: [{}]",
+                known.join(", ")
+            )));
+        }
 
-    let current = read_node_now(store, task_id)?
-        .ok_or_else(|| Error::NotFound(format!("task {task_id} not found at NOW")))?;
-    if current.type_ != "task" {
-        return Err(Error::Invalid(format!(
-            "{task_id} is not a task (type: {})",
-            current.type_
-        )));
-    }
+        let current = read_node_now(store, task_id)?
+            .ok_or_else(|| Error::NotFound(format!("task {task_id} not found at NOW")))?;
+        if current.type_ != "task" {
+            return Err(Error::Invalid(format!(
+                "{task_id} is not a task (type: {})",
+                current.type_
+            )));
+        }
 
-    let body_text = current.body.clone().unwrap_or_default();
-    let status_tag = format!("status:{status}");
-    let fresh = build_body_tags(&["kind:task", &status_tag], None, &body_text);
-    // Drop the re-derived families; KEEP `due:` (the deadline still stands,
-    // unlike `complete_task`) and any manual tags.
-    let tags = merge_tags(&current.tags, &["status:", "lang:", "topic:"], fresh);
+        let body_text = current.body.clone().unwrap_or_default();
+        let status_tag = format!("status:{status}");
+        let fresh = build_body_tags(&["kind:task", &status_tag], None, &body_text);
+        // Drop the re-derived families; KEEP `due:` (the deadline still stands,
+        // unlike `complete_task`) and any manual tags.
+        let tags = merge_tags(&current.tags, &["status:", "lang:", "topic:"], fresh);
 
-    let secs = node_version_seconds(store, task_id)?;
-    reassert_node_now(
-        store,
-        task_id,
-        ReassertRow {
-            secs,
-            type_: &current.type_,
-            tier: &current.tier,
-            name: &current.name,
-            body: Some(&body_text),
-            tags,
-            visibility: &current.visibility,
-            layer: &current.layer,
-        },
-    )?;
-    retract_node_at(store, task_id, secs)?;
+        let secs = node_version_seconds(store, task_id)?;
+        reassert_node_now(
+            store,
+            task_id,
+            ReassertRow {
+                secs,
+                type_: &current.type_,
+                tier: &current.tier,
+                name: &current.name,
+                body: Some(&body_text),
+                tags,
+                visibility: &current.visibility,
+                layer: &current.layer,
+            },
+        )?;
+        retract_node_at(store, task_id, secs)?;
 
-    write_audit(store.db_ref(), "set_status", "system", &[task_id.clone()])?;
-    Ok(())
+        write_audit(store.db_ref(), "set_status", "system", &[task_id.clone()])?;
+        Ok(())
+    })
 }
 
 /// Finds `initiative`'s `Board` node, creating it (seeded from
 /// [`DEFAULT_STATUSES`]) if it doesn't exist yet. Returns the board id.
 pub fn ensure_board(store: &Store, initiative: &str) -> Result<NodeId> {
-    if let Some(id) = board_node_id(store, initiative, None)? {
-        return Ok(id);
-    }
-    let id = new_node_id();
-    let statuses = default_statuses();
-    let secs = now_validity_seconds();
-    put_board(store, &id, initiative, &statuses, secs)?;
-    attach_node_to_initiative_named(store, &id, initiative)?;
-    write_audit(store.db_ref(), "ensure_board", "system", &[id.clone()])?;
-    Ok(id)
+    store.atomic(|store| {
+        if let Some(id) = board_node_id(store, initiative, None)? {
+            return Ok(id);
+        }
+        let id = new_node_id();
+        let statuses = default_statuses();
+        let secs = now_validity_seconds();
+        put_board(store, &id, initiative, &statuses, secs)?;
+        attach_node_to_initiative_named(store, &id, initiative)?;
+        write_audit(store.db_ref(), "ensure_board", "system", &[id.clone()])?;
+        Ok(id)
+    })
 }
 
 fn default_statuses() -> Vec<BoardStatus> {
@@ -101,6 +105,7 @@ fn default_statuses() -> Vec<BoardStatus> {
         .map(|(k, l)| BoardStatus {
             key: (*k).to_string(),
             label: (*l).to_string(),
+            terminal: *k == "done",
         })
         .collect()
 }
@@ -118,7 +123,7 @@ fn put_board(
 ) -> Result<()> {
     let arr: Vec<Value> = statuses
         .iter()
-        .map(|s| json!({ "key": s.key, "label": s.label }))
+        .map(|s| json!({ "key": s.key, "label": s.label, "terminal": s.terminal }))
         .collect();
     let payload = json!({ "statuses": arr });
 
@@ -177,15 +182,18 @@ pub fn add_status(
     key: &str,
     label: &str,
 ) -> Result<Vec<BoardStatus>> {
-    update_statuses(store, initiative, |st| {
-        if st.iter().any(|s| s.key == key) {
-            return Err(Error::Invalid(format!("status `{key}` already exists")));
-        }
-        st.push(BoardStatus {
-            key: key.to_string(),
-            label: label.to_string(),
-        });
-        Ok(())
+    store.atomic(|store| {
+        update_statuses(store, initiative, |st| {
+            if st.iter().any(|s| s.key == key) {
+                return Err(Error::Invalid(format!("status `{key}` already exists")));
+            }
+            st.push(BoardStatus {
+                key: key.to_string(),
+                label: label.to_string(),
+                terminal: false,
+            });
+            Ok(())
+        })
     })
 }
 
@@ -193,16 +201,45 @@ pub fn add_status(
 /// fall into the first column in `board_view` until re-statused. Refuses to
 /// remove the last column.
 pub fn remove_status(store: &Store, initiative: &str, key: &str) -> Result<Vec<BoardStatus>> {
-    update_statuses(store, initiative, |st| {
-        let before = st.len();
-        st.retain(|s| s.key != key);
-        if st.len() == before {
-            return Err(Error::NotFound(format!("no status `{key}`")));
-        }
-        if st.is_empty() {
-            return Err(Error::Invalid("cannot remove the last status".to_string()));
-        }
-        Ok(())
+    store.atomic(|store| {
+        update_statuses(store, initiative, |st| {
+            let before = st.len();
+            st.retain(|s| s.key != key);
+            if st.len() == before {
+                return Err(Error::NotFound(format!("no status `{key}`")));
+            }
+            if st.is_empty() {
+                return Err(Error::Invalid("cannot remove the last status".to_string()));
+            }
+            Ok(())
+        })
+    })
+}
+
+/// Change completion semantics without changing task tags or column order.
+pub fn set_terminal_status(
+    store: &Store,
+    initiative: &str,
+    key: &str,
+    terminal: bool,
+) -> Result<Vec<BoardStatus>> {
+    store.atomic(|store| {
+        update_statuses(store, initiative, |statuses| {
+            if key == "open" && terminal {
+                return Err(Error::Invalid(
+                    "the initial open column cannot be terminal".into(),
+                ));
+            }
+            let column = statuses
+                .iter_mut()
+                .find(|s| s.key == key)
+                .ok_or_else(|| Error::NotFound(format!("no status {key}")))?;
+            column.terminal = terminal;
+            if !statuses.iter().any(|s| s.terminal) {
+                return Err(Error::Invalid("a board must have a terminal column".into()));
+            }
+            Ok(())
+        })
     })
 }
 
@@ -213,13 +250,15 @@ pub fn relabel_status(
     key: &str,
     label: &str,
 ) -> Result<Vec<BoardStatus>> {
-    update_statuses(store, initiative, |st| {
-        let s = st
-            .iter_mut()
-            .find(|s| s.key == key)
-            .ok_or_else(|| Error::NotFound(format!("no status `{key}`")))?;
-        s.label = label.to_string();
-        Ok(())
+    store.atomic(|store| {
+        update_statuses(store, initiative, |st| {
+            let s = st
+                .iter_mut()
+                .find(|s| s.key == key)
+                .ok_or_else(|| Error::NotFound(format!("no status `{key}`")))?;
+            s.label = label.to_string();
+            Ok(())
+        })
     })
 }
 
@@ -229,16 +268,18 @@ pub fn reorder_statuses(
     initiative: &str,
     order: &[String],
 ) -> Result<Vec<BoardStatus>> {
-    update_statuses(store, initiative, |st| {
-        let have: BTreeSet<&str> = st.iter().map(|s| s.key.as_str()).collect();
-        let want: BTreeSet<&str> = order.iter().map(String::as_str).collect();
-        if have != want {
-            return Err(Error::Invalid(
-                "reorder must list exactly the existing status keys".to_string(),
-            ));
-        }
-        st.sort_by_key(|s| order.iter().position(|k| k == &s.key).unwrap_or(usize::MAX));
-        Ok(())
+    store.atomic(|store| {
+        update_statuses(store, initiative, |st| {
+            let have: BTreeSet<&str> = st.iter().map(|s| s.key.as_str()).collect();
+            let want: BTreeSet<&str> = order.iter().map(String::as_str).collect();
+            if have != want {
+                return Err(Error::Invalid(
+                    "reorder must list exactly the existing status keys".to_string(),
+                ));
+            }
+            st.sort_by_key(|s| order.iter().position(|k| k == &s.key).unwrap_or(usize::MAX));
+            Ok(())
+        })
     })
 }
 

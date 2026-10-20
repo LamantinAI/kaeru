@@ -1,3 +1,4 @@
+import { memory, registerGraph } from './api.js'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { createReader } from './reader.js'
@@ -65,13 +66,10 @@ const resolvedTheme = () => (themePref === 'auto' ? (mql.matches ? 'light' : 'da
 let TH = THEMES[resolvedTheme()]
 
 // ── data ──────────────────────────────────────────────────────────────────
-// `/v1/export` is the verb; `/graph.json` is the alias it replaced, tried next
-// so a visualizer that updates ahead of its daemon still starts; the relative
-// path is the baked snapshot, which has no daemon at all.
+// Prefer the authorized live API; an offline graph is a separate static file.
 async function loadGraph() {
-  for (const url of ['/v1/export', '/graph.json', './graph.json']) {
-    try { const r = await fetch(url); if (r.ok) return await r.json() } catch (_) {}
-  }
+  try { return await memory.graph() } catch (_) { /* offline snapshot */ }
+  try { const response = await fetch('./graph.json'); if (response.ok) return await response.json() } catch (_) {}
   return null
 }
 function fail(msg) {
@@ -82,6 +80,7 @@ function fail(msg) {
   throw new Error('kaeru-viz: ' + msg)  // halt module init — the message above already shows
 }
 const data = await loadGraph()
+if (data) registerGraph(data)
 if (!data || !Array.isArray(data.nodes) || data.nodes.length === 0) {
   fail('graph data unavailable — is the kaeru daemon running, or a snapshot baked?')
 }

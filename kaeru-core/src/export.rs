@@ -20,22 +20,8 @@ use cozo::{DataValue, ScriptMutability};
 
 use crate::errors::Result;
 use crate::graph::temporal::parse_validity;
+pub use crate::models::ExportSummary;
 use crate::store::Store;
-
-/// Summary of a successful [`export_vault`] run.
-#[derive(Debug, Clone)]
-pub struct ExportSummary {
-    /// The initiative the export was scoped to, or `None` for a
-    /// cross-initiative dump.
-    pub initiative: Option<String>,
-    /// Root directory the markdown files were written under.
-    pub root: PathBuf,
-    /// Number of node markdown files written.
-    pub nodes_exported: usize,
-    /// Number of edges materialised as wikilinks (counted from the
-    /// outgoing side; incoming refs use the same edge rows).
-    pub edges_exported: usize,
-}
 
 /// Snapshots the substrate at NOW into `output_dir` as a directory tree
 /// of markdown files. Existing files in `output_dir` are overwritten.

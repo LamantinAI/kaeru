@@ -13,63 +13,18 @@
 //! pass via [`crate::guard::scan_public`] that drops the body and replaces the
 //! name of any node whose content trips the secret/credential scanner.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
-use cozo::{DataValue, Validity};
-use serde::Serialize;
+use cozo::{DataValue, ScriptMutability, Validity};
+use serde_json::Value;
 
 use crate::errors::Result;
 use crate::guard;
+pub use crate::models::{
+    ChainExport, EdgeExport, ExportOpts, GraphExport, GraphMeta, InitiativeStat, NodeExport,
+    ProjectLink,
+};
 use crate::store::Store;
-
-/// Options controlling scope and sanitization of the export.
-///
-/// The allow-list is the authoritative ceiling. `restrict_initiatives` can only
-/// **narrow within** it (intersection) — it can never widen the set — so an
-/// untrusted request param cannot bypass the operator's configured scope.
-#[derive(Debug, Clone, Default)]
-pub struct ExportOpts {
-    /// When `Some`, only nodes attached to a matching initiative are exported
-    /// (`*` suffix = prefix glob, e.g. `"hi3516*"`). `Some(empty)` exports
-    /// nothing; `None` = every initiative (trusted callers only).
-    pub allow_initiatives: Option<Vec<String>>,
-    /// Optional *additional* filter ANDed with `allow_initiatives` — a node's
-    /// initiative must match this too. Used to narrow within the allow ceiling
-    /// (e.g. a per-request `?initiatives=`); it can never expand the set.
-    pub restrict_initiatives: Option<Vec<String>>,
-    /// Initiatives to exclude even if they match the allow list.
-    pub deny_initiatives: Vec<String>,
-    /// Export only `visibility = shared` nodes (the local/shared contract:
-    /// `local` nodes never leave the machine). Off = include `local` too.
-    pub shared_only: bool,
-    /// Include the **full** body (else a short excerpt). Redaction still applies.
-    pub include_bodies: bool,
-    /// Run the public secret/credential guard and redact flagged nodes.
-    pub redact: bool,
-}
-
-/// The full graph, ready to `serde_json::to_string`.
-#[derive(Debug, Clone, Serialize)]
-pub struct GraphExport {
-    pub meta: GraphMeta,
-    pub initiatives: Vec<InitiativeStat>,
-    pub nodes: Vec<NodeExport>,
-    pub edges: Vec<EdgeExport>,
-    pub chains: Vec<ChainExport>,
-    /// Derived project-to-project affinity from shared `topic:` tags (the
-    /// relationships exist in content but were never captured as edges).
-    pub project_links: Vec<ProjectLink>,
-}
-
-/// A derived relatedness link between two initiatives, weight normalized to
-/// `0..1` (strongest = 1). Computed from shared `topic:` tags, inverse-frequency
-/// weighted so specific topics dominate over generic words.
-#[derive(Debug, Clone, Serialize)]
-pub struct ProjectLink {
-    pub a: String,
-    pub b: String,
-    pub weight: f64,
-}
 
 /// Generic auto-derived topics that carry no cross-project signal.
 const TOPIC_STOP: &[&str] = &[
@@ -141,63 +96,6 @@ fn project_affinity(nodes: &[NodeExport]) -> Vec<ProjectLink> {
             weight: w / maxw,
         })
         .collect()
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct GraphMeta {
-    pub node_count: usize,
-    pub edge_count: usize,
-    pub initiative_count: usize,
-    pub chain_count: usize,
-    pub redacted_count: usize,
-    /// Earliest / latest node creation second (for the time-lapse axis).
-    pub earliest_secs: Option<f64>,
-    pub latest_secs: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct InitiativeStat {
-    pub name: String,
-    pub node_count: usize,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct NodeExport {
-    pub id: String,
-    pub name: String,
-    #[serde(rename = "type")]
-    pub node_type: String,
-    pub tier: String,
-    pub layer: String,
-    pub visibility: String,
-    pub tags: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub body: Option<String>,
-    pub initiatives: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_secs: Option<f64>,
-    pub degree: usize,
-    pub redacted: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct EdgeExport {
-    pub src: String,
-    pub dst: String,
-    #[serde(rename = "type")]
-    pub edge_type: String,
-    pub weight: f64,
-    pub dst_store: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_secs: Option<f64>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct ChainExport {
-    pub id: String,
-    pub name: String,
-    /// Member node ids in trail order (filtered to exported nodes).
-    pub members: Vec<String>,
 }
 
 /// Assembles the whole (scoped) graph into [`GraphExport`].
@@ -272,14 +170,23 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
     }
     let mut raws: Vec<Raw> = Vec::new();
     let mut included: HashSet<String> = HashSet::new();
-    for row in store
-        .run_read(
-            "?[id, type, tier, name, body, tags, visibility, layer] := \
-             *node{id, type, tier, name, body, tags, visibility, layer @ 'NOW'}, \
-             type != 'audit_event'",
-        )?
+    let candidates = store
+        .run_read("?[id,visibility] := *node{id,visibility,type @ 'NOW'},type!='audit_event'")?
         .rows
-    {
+        .into_iter()
+        .filter_map(|r| {
+            let id = str_at(&r, 0)?;
+            let visibility = str_at(&r, 1)?;
+            if opts.shared_only && visibility != "shared"
+                || allowed_inits(node_inits.get(&id), opts).is_empty()
+            {
+                return None;
+            }
+            Some(DataValue::List(vec![DataValue::Str(id.into())]))
+        })
+        .collect::<Vec<_>>();
+    let rows=store.db_ref().run_script("allowed[id] <- $ids\n ?[id,type,tier,name,body,tags,visibility,layer,properties] := allowed[id],*node{id,type,tier,name,body,tags,visibility,layer,properties @ 'NOW'}",BTreeMap::from([("ids".into(),DataValue::List(candidates))]),ScriptMutability::Immutable)?;
+    for row in rows.rows {
         let Some(id) = str_at(&row, 0) else { continue };
         let visibility = str_at(&row, 6).unwrap_or_else(|| "local".into());
         // Honour the local/shared contract: by default `local` nodes (which
@@ -296,7 +203,19 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
             node_type: str_at(&row, 1).unwrap_or_default(),
             tier: str_at(&row, 2).unwrap_or_default(),
             name: str_at(&row, 3).unwrap_or_default(),
-            body: str_at(&row, 4),
+            body: if opts.include_bodies {
+                match row.get(8) {
+                    Some(DataValue::Json(p)) => {
+                        p.0.pointer("/source/original")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .or_else(|| str_at(&row, 4))
+                    }
+                    _ => str_at(&row, 4),
+                }
+            } else {
+                str_at(&row, 4)
+            },
             tags: list_at(&row, 5),
             visibility,
             layer: str_at(&row, 7).unwrap_or_else(|| "warm".into()),
@@ -382,7 +301,17 @@ pub fn export_graph_json(store: &Store, opts: &ExportOpts) -> Result<GraphExport
                 tier: r.tier,
                 layer: r.layer,
                 visibility: r.visibility,
-                tags: r.tags,
+                tags: r
+                    .tags
+                    .into_iter()
+                    .map(|tag| {
+                        if opts.redact && !guard::scan_public(&tag).is_empty() {
+                            "[redacted]".into()
+                        } else {
+                            tag
+                        }
+                    })
+                    .collect(),
                 body,
                 initiatives: r.inits,
                 redacted: flagged,
@@ -464,7 +393,7 @@ fn allowed_inits(inits: Option<&Vec<String>>, opts: &ExportOpts) -> Vec<String> 
 }
 
 /// Exact match, or prefix match when `pattern` ends with `*`.
-fn pat_match(name: &str, pattern: &str) -> bool {
+pub(crate) fn pat_match(name: &str, pattern: &str) -> bool {
     match pattern.strip_suffix('*') {
         Some(prefix) => name.starts_with(prefix),
         None => name == pattern,

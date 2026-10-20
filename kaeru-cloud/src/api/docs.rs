@@ -18,17 +18,18 @@
 //! the API, and the schema is only useful to a caller before it has a token
 //! working.
 
-use kaeru_core::{EdgeType, Layer, NodeType, Tier};
 use serde_json::Value;
+use utoipa::OpenApi;
 use utoipa::openapi::schema::Schema;
 use utoipa::openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme};
 use utoipa::openapi::{OpenApi as OpenApiDocument, RefOr};
-use utoipa::{OpenApi, ToSchema};
 
 use crate::api::router::edges::EDGES_TAG;
 use crate::api::router::health::HEALTH_TAG;
 use crate::api::router::initiatives::INITIATIVES_TAG;
 use crate::api::router::nodes::NODES_TAG;
+pub use crate::models::ErrorBody;
+use kaeru_core::{EdgeType, Layer, NodeType, Tier};
 
 /// Name of the security scheme every authenticated operation references as
 /// `security(("bearer" = []))` — the macro takes a literal, so the two must be
@@ -51,17 +52,6 @@ pub const BEARER: &str = "bearer";
     )
 )]
 pub struct CloudApiDoc;
-
-/// The body of every error response — 400, 401, 404 and 500 alike.
-///
-/// A 500 never carries internal detail: substrate failures are logged and
-/// flattened to `"internal error"`.
-#[derive(ToSchema)]
-#[allow(dead_code)] // describes a body the handlers build with `json!`
-pub struct ErrorBody {
-    /// Human-readable reason. For a 400 it says what to change.
-    pub error: String,
-}
 
 /// Fields whose accepted values are a closed vocabulary owned by kaeru-core.
 ///

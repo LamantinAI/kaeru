@@ -1,11 +1,11 @@
 # kaeru-skill
 
 A portable agent skill that teaches an LLM how to *use* kaeru: which verb
-carries which kind of knowledge, the rituals at both ends of a session, and
+carries which kind of knowledge, project continuity, and
 the habits that turn a pile of notes into a graph worth reading.
 
 There is no CLI — kaeru is the `kaeru-mcp` daemon, and the skill is written
-in the form the verbs are actually called: `awake(initiative="x")`. An
+in the form the verbs are actually called: `context(initiative="x")`. An
 MCP-aware runtime discovers the verbs themselves through `tools/list`; what
 this skill adds is the *when and why*, which no tool schema can carry.
 
@@ -71,7 +71,7 @@ themselves through `tools/list`, and the daemon ships a compact ontology in
 its server instructions — so the tools work without this skill.
 
 What the skill still adds is judgement the tool list can't carry: which verb
-matches which epistemic state, the rituals at both ends of a session, the
+matches which epistemic state, project continuity, the
 habit of linking and chaining after a capture. The daemon's own instructions
 are capped at 2048 characters by the client — the skill is where the rest of
 the reasoning lives. Install it if you want that discipline taught
@@ -88,8 +88,8 @@ field — every commit on `main` is the current canonical version.
 
 An agent that only sees the tool list knows *what exists*, not *when to
 reach for what*. The skill supplies the re-entry ritual
-(`initiatives → awake → overview`), its counterpart at the other end (the
-terminal verbs, then `settle` / `synthesise`, then `reflect`), the verb
+(`initiatives → context`), its counterpart at the other end (the
+terminal verbs, then `lifecycle` / `synthesise`, then `reflect`), the verb
 mental model (capture / inquire / reason / evolve / time-travel), and the
 `initiative` discipline up front.
 

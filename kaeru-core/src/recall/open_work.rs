@@ -8,8 +8,8 @@
 //! primitives pull them into the re-entry bundle instead.
 //!
 //! "Open" is defined against the initiative's own status registry (see
-//! [`board`](super::board)): the registry's **last** column is the terminal
-//! one (`done` in the built-in default), everything before it is still open.
+//! [`board`](super::board)): the registry marks terminal columns explicitly (`done` in the built-in
+//! default); the other columns remain open.
 //! A task whose `status:` tag matches no column counts as open too — the same
 //! fallback the board view uses, so drift surfaces rather than disappears.
 //!
@@ -71,12 +71,17 @@ pub fn open_tasks(store: &Store) -> Result<Vec<OpenTask>> {
             .map(|(k, l)| BoardStatus {
                 key: (*k).to_string(),
                 label: (*l).to_string(),
+                terminal: *k == "done",
             })
             .collect(),
     };
     // The registry's last column is the terminal one; `effective_statuses`
     // never returns an empty vocabulary, so this always names a real column.
-    let terminal = statuses.last().map(|s| s.key.clone()).unwrap_or_default();
+    let terminal: Vec<_> = statuses
+        .iter()
+        .filter(|s| s.terminal)
+        .map(|s| s.key.as_str())
+        .collect();
     let excerpt_chars = store.config().body_excerpt_chars;
     let today = today_iso();
 
@@ -114,7 +119,7 @@ pub fn open_tasks(store: &Store) -> Result<Vec<OpenTask>> {
             .to_string();
         // Terminal column only — an unknown status is drift, not completion,
         // so it fails this check and stays visible.
-        if status == terminal {
+        if terminal.contains(&status.as_str()) {
             continue;
         }
         let due = tags
@@ -269,27 +274,9 @@ pub fn due_reminders(store: &Store) -> Result<Vec<DueReminder>> {
             Some(DataValue::List(items)) => items.iter().filter_map(|x| x.get_str()).collect(),
             _ => Vec::new(),
         };
-        let Some(after) = tags.iter().find_map(|t| t.strip_prefix("after:")) else {
+        let Some((after, window_days, seen)) = reminder_schedule(&tags, &today) else {
             continue;
         };
-        // Not yet its moment. Lexicographic compare is chronological for ISO
-        // dates, the same trick `overdue` uses.
-        if after > today.as_str() {
-            continue;
-        }
-        // No window, no reminder: `for:` is required on purpose, so a capture
-        // that names a date without saying how long to insist is incomplete
-        // rather than defaulted.
-        let Some(window_days) = tags.iter().find_map(|t| parse_window(t)) else {
-            continue;
-        };
-        let seen = tags.iter().find_map(|t| t.strip_prefix("seen:"));
-        // Seen already: due only while the window is still open.
-        if let Some(seen_on) = seen
-            && !window_open(seen_on, window_days, &today)
-        {
-            continue;
-        }
         out.push(DueReminder {
             id: row
                 .first()
@@ -314,6 +301,24 @@ pub fn due_reminders(store: &Store) -> Result<Vec<DueReminder>> {
 
     out.sort_by(|a, b| a.after.cmp(&b.after));
     Ok(out)
+}
+
+/// Derive delivery eligibility without reading a record's content. API
+/// adapters call this only after admitting its identity and visibility.
+pub(crate) fn reminder_schedule<'a>(
+    tags: &[&'a str],
+    today: &str,
+) -> Option<(&'a str, i64, Option<&'a str>)> {
+    let after = tags.iter().find_map(|t| t.strip_prefix("after:"))?;
+    if after > today {
+        return None;
+    }
+    let window_days = tags.iter().find_map(|t| parse_window(t))?;
+    let seen = tags.iter().find_map(|t| t.strip_prefix("seen:"));
+    if seen.is_some_and(|s| !window_open(s, window_days, today)) {
+        return None;
+    }
+    Some((after, window_days, seen))
 }
 
 /// `for:<N>d` → N. Also accepts a bare `for:<N>`, since the `d` is the only

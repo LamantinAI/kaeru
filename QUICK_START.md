@@ -100,8 +100,7 @@ claude mcp add --transport http \
   kaeru http://<host>:9876/mcp
 ```
 
-Restart Claude Code. The agent should see MCP tools such as `awake`, `drill`,
-`at`, `jot`, `cite`, `claim`, `task`, `surface`, `export`, and `overview`.
+Restart Claude Code. The agent should see MCP tools such as `context`, `search`, `read`, `note`, `reference`, `claim`, `verdict`, and `task`.
 
 For best results, make kaeru the only durable memory store. Either install with:
 
@@ -114,7 +113,7 @@ or configure the same idea manually in Claude settings:
 
 - set `autoMemoryEnabled` to `false`;
 - add a session-start reminder telling the agent: source of truth is kaeru,
-  start with `initiatives` -> `awake` -> `overview`, and write durable facts back
+  start with `initiatives` -> `context`, and write durable facts back
   to kaeru.
 
 The installer implementation is in `contrib/install/install.sh`.
@@ -175,63 +174,29 @@ single-operator daemon. It travels in plaintext over `http://`, so if the
 daemon is reachable beyond a trusted network, terminate TLS in front of it
 (reverse proxy) so the bearer token cannot be sniffed.
 
-## 3. Re-Entry Ritual
-
-Do this at the start of every agent session:
+## 3. Recover project context
 
 ```text
-initiatives
-awake(initiative: "<project>")
-overview(initiative: "<project>")
+initiatives()
+context(initiative="<established project>")
+search(initiatives=["<project>"], text="entity", prefix=true)
+read(initiative="<project>", node="<returned uuid>")
 ```
 
-After that, keep passing `initiative` on meaningful calls. Without it, reads are
-cross-initiative and writes become untagged.
+Project calls require initiative. Capture observations/decisions with `note`,
+exact source documents with `reference(source={"text":"..."})`, and work with
+`task`. `verdict` can record the check and status together. See
+[the 35-operation reference](docs/curator-api.md) for the full contract.
+Follow continuation arguments and inspect coverage; excerpts are not full records.
 
-Common moves:
+## 4. Tiers and recall layers
 
-- `jot` / `episode` for working observations;
-- `cite` for settled facts, specs, references, persona records, and decisions;
-- `claim` -> `test` -> `confirm` / `refute` for hypotheses;
-- `task` / `done` for actionable todos;
-- `search`, `drill`, `trace`, `between`, `tagged` for recall; `at <name>` to read a
-  node IN FULL (whole body + every field — `drill` / `search` only show excerpts);
-  `surface` to pull archived `cold` / `frozen` layers that `awake` doesn't load;
-- `synthesise`, `settle`, `reopen`, `supersede` when knowledge changes shape;
-- `chain` / `chains` / `read_chain` to save and recall a reasoning trail — the
-  ordered path from observation to decision; `rechain` refreshes one after the
-  graph changes (endpoints re-linked, weights shifted);
-- `attach` to give a node a second home in another initiative when it was
-  captured under the wrong one — repair, not a move (same id, edges, history);
-- `reflect` for a periodic tidy pass: it reports what to link, which chains went
-  stale, what's ready to settle into long-term memory, and what touches the
-  shared cloud (that last part is your call, not the agent's);
-- `policy`, `share`, `cloud_recall`, `pull`, `sync_review` for team sharing (see §6);
-- `rename_initiative` / `delete_initiative` to reorganise or drop a project — local
-  by default, `cloud=true` to apply it team-wide.
-
-## 4. Memory Layers
-
-Current kaeru memory has two orthogonal axes:
-
-- **Tier:** `operational` is working memory: observations, drafts, hypotheses,
-  open questions, and tasks. `archival` is settled memory: references, ideas,
-  outcomes, summaries, persona/entity records.
-- **Layer:** `core`, `hot`, `warm`, `cold`, `frozen` describe how aggressively
-  an item should be surfaced to future agents. Stamp it **at creation** —
-  `episode`/`jot`/`cite`/`task`/`claim` all take an optional `layer` (default
-  `warm`) — so a node is born with its priority. Keep truly central material
-  (`core`) small and explicit, and let stale material cool down. `awake` loads
-  the operational working set `core → hot → warm`, and separately surfaces the
-  **cortex** — the archival, settled knowledge of the project — so durable facts
-  re-enter every session instead of waiting for an explicit recall. Put standing,
-  generally-true facts there; keep `layer: core` for the few that must always
-  load. Reach `cold` / `frozen` on demand with `surface`.
-
-When capturing, choose the verb by epistemic status, not by length. If the fact
-is already settled, use `cite`; if it is still unfolding, use `episode` or
-`claim`. After capturing, search for related nodes and link them, otherwise the
-new node is easy to lose.
+Operational versus archival tier describes whether knowledge is in flight or
+settled. `lifecycle` changes tier explicitly. Recall layers are independent:
+core, hot, warm, cold and frozen. Capture `options.layer` selects a layer;
+`retention(action="set_layer", ...)` changes it. Context restores standing rules
+and unfinished work; search filters reach retained material on demand. Slots
+are current pointers, not supersession or role changes.
 
 ## 5. Schema Changes & Rebuilding A Vault
 
@@ -263,7 +228,7 @@ insurance, and the markdown is a clean fallback if anything looks off.
    systemctl --user restart kaeru-mcp        # or restart your manual process
    ```
 
-3. **Verify:** `awake` / `overview` per initiative — counts should match what
+3. **Verify:** `context` / `context(view="map")` per initiative — counts should match what
    you had. Migrations auto-applied; nothing else to do.
 
 4. **Rollback (only if needed):** your pre-upgrade markdown export is the
@@ -295,11 +260,11 @@ Repeat for each initiative. The export contains `README.md`, `INDEX.md`,
 ```text
 For each exported kaeru initiative under /tmp/kaeru-export:
 - read README.md, INDEX.md, LOG.md, and the node pages;
-- recreate durable settled material with cite/synthesise/settle under the same initiative;
-- recreate only still-relevant open work as task, claim, or episode;
+- recreate durable settled material with reference/synthesise/lifecycle under the same initiative;
+- recreate only still-relevant open work as task, claim, or note;
 - preserve important relationships with link;
 - keep routine stale observations out unless they are needed for provenance;
-- finish each initiative with awake, overview, and lint, then fix obvious orphaned important nodes.
+- inspect each initiative with context, map and reflect, then fix obvious orphaned important nodes.
 ```
 
 Do not re-import everything mechanically. The goal is to let the agent classify
@@ -373,8 +338,8 @@ Sharing is explicit and gated; nothing leaves automatically.
 2. Share a node: `share(name: "<node>", initiative: "<proj>")`. Two gates run —
    the initiative policy, and a secret guard that blocks API keys / tokens /
    private keys. The local node is marked `shared` only after the cloud accepts it.
-3. Or capture-and-share in one call: `episode(..., visibility: "shared", initiative: "<proj>")`
-   — also `jot` and `cite`.
+3. Or capture-and-share in one call: `note(..., sharing: {visibility: "shared"}, initiative: "<proj>")`
+   — also `reference`.
 4. Batch review: `sync_review(initiative: "<proj>")` splits still-local nodes into
    PROPOSE SHARE (guard-clean) vs KEEP LOCAL (guard-flagged). Review once, then
    `share` the approved ones.

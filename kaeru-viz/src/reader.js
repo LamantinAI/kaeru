@@ -83,22 +83,11 @@ export function createReader(data, { fmtDateTime }) {
     for (const id in full) if (N[id] && N[id].body !== full[id]) { N[id].body = full[id]; grew = true }
     return grew
   }
-  // A whole trail in one request: `/v1/chain` is the `read_chain` verb, and it
-  // answers with the members in order, bodies untruncated. Asking per node
-  // costs a request per step; asking per trail costs one. Resolves false when
-  // there is no daemon to ask, and the caller falls back to per-node.
-  //
-  // Only bodies are taken from it. Everything else about a node — type, tier,
-  // layer — is already here from the galaxy's export, and two sources for one
-  // field is one source too many.
+  // Hydrate just the visible trail through the same paged record reader.
   async function hydrateChain(id) {
-    try {
-      const r = await fetch(`/v1/chain?id=${encodeURIComponent(id)}`)
-      if (!r.ok) return false
-      const c = await r.json()
-      for (const s of c.steps || []) if (N[s.id] && s.body) N[s.id].body = s.body
-      return true
-    } catch (_) { return false }
+    const chain = data.chains.find((entry) => entry.id === id)
+    if (!chain) return false
+    return loadBodies(chain.members || [])
   }
 
   // Which nodes a trail will show: its members, and — when the way in was a

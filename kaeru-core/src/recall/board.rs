@@ -13,6 +13,7 @@
 use std::collections::BTreeMap;
 
 use cozo::{DataValue, JsonData, ScriptMutability};
+use serde_json::Value;
 
 use super::truncate_excerpt;
 use crate::errors::Result;
@@ -35,6 +36,8 @@ pub const DEFAULT_STATUSES: [(&str, &str); 3] = [
 pub struct BoardStatus {
     pub key: String,
     pub label: String,
+    /// Explicit completion semantics, independent of visual column order.
+    pub terminal: bool,
 }
 
 /// A task as it appears on the board — lighter than `NodeBrief`, with the
@@ -63,6 +66,7 @@ pub struct BoardTask {
 pub struct BoardColumn {
     pub key: String,
     pub label: String,
+    pub terminal: bool,
     pub tasks: Vec<BoardTask>,
 }
 
@@ -139,14 +143,23 @@ pub(crate) fn read_board_statuses(
         .and_then(|s| s.as_array())
         .map(|arr| {
             arr.iter()
-                .filter_map(|e| {
+                .enumerate()
+                .filter_map(|(position, e)| {
                     let key = e.get("key").and_then(|x| x.as_str())?.to_string();
                     let label = e
                         .get("label")
                         .and_then(|x| x.as_str())
                         .map(String::from)
                         .unwrap_or_else(|| key.clone());
-                    Some(BoardStatus { key, label })
+                    let terminal = e
+                        .get("terminal")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(position + 1 == arr.len());
+                    Some(BoardStatus {
+                        key,
+                        label,
+                        terminal,
+                    })
                 })
                 .collect()
         })
@@ -179,6 +192,7 @@ pub fn effective_statuses_at(
         .map(|(k, l)| BoardStatus {
             key: (*k).to_string(),
             label: (*l).to_string(),
+            terminal: *k == "done",
         })
         .collect())
 }
@@ -222,6 +236,7 @@ pub fn board_view_at(store: &Store, initiative: &str, at: Option<f64>) -> Result
         .map(|s| BoardColumn {
             key: s.key.clone(),
             label: s.label.clone(),
+            terminal: s.terminal,
             tasks: Vec::new(),
         })
         .collect();

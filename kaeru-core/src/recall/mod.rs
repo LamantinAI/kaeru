@@ -13,6 +13,7 @@ use crate::graph::temporal::validity_seconds;
 pub mod between;
 pub mod board;
 pub mod by_name;
+pub mod cloud_import;
 pub mod fts;
 pub mod initiatives;
 pub mod layered;
@@ -41,6 +42,7 @@ pub use by_name::{
     count_by_type, local_nodes_for_review, node_brief_by_id, read_node_full, recall_id_by_name,
     recall_id_by_name_at, recall_id_by_name_ever, recall_id_by_name_global, suggest_node_name,
 };
+pub(crate) use fts::literal_ids;
 pub use fts::{FUZZY_RECALL_LIMIT_CAP, fuzzy_recall, prefix_widening};
 pub use initiatives::{
     count_nodes_in_initiative, edges_in_initiative, list_initiatives, near_duplicate_initiatives,
@@ -153,3 +155,5 @@ pub(crate) fn truncate_excerpt(s: &str, max_chars: usize) -> String {
         format!("{head}…")
     }
 }
+
+pub use cloud_import::{existing_node_ids, restore_cloud_edges, restore_cloud_edges_cancellable};

@@ -14,6 +14,7 @@
 pub mod api;
 pub mod config;
 pub mod errors;
+pub mod models;
 
 use std::sync::Arc;
 

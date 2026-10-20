@@ -14,9 +14,9 @@ needs to be running before opencode can connect.
 | --- | --- | --- |
 | `AGENTS.kaeru.md` | `~/.config/opencode/AGENTS.kaeru.md` | Behaviour rules — verb taxonomy, cardinal rules, cadence habits. Loaded into the system prompt via `instructions`. |
 | `opencode.kaeru.json` | merged into `~/.config/opencode/opencode.json` | Two-key additive snippet: `mcp.kaeru` (points at the daemon's `/sse` endpoint — opencode 1.15.x only speaks legacy HTTP+SSE, see [opencode-ai/opencode#8058](https://github.com/anomalyco/opencode/issues/8058); kaeru-mcp serves both transports on the same port) + `instructions` (includes the AGENTS file). No providers, no API keys. |
-| `commands/kaeru.md`  | `~/.config/opencode/commands/kaeru.md`  | `/kaeru`  — re-entry ritual (`initiatives` → `awake` → `overview`). |
-| `commands/lesson.md` | `~/.config/opencode/commands/lesson.md` | `/lesson` — capture a settled lesson via `cite`. |
-| `commands/recall.md` | `~/.config/opencode/commands/recall.md` | `/recall` — fuzzy lookup, drill the top hit. |
+| `commands/kaeru.md`  | `~/.config/opencode/commands/kaeru.md`  | `/kaeru`  — re-entry ritual (`initiatives` → `context`). |
+| `commands/lesson.md` | `~/.config/opencode/commands/lesson.md` | `/lesson` — capture a settled lesson via `note` or `reference`. |
+| `commands/recall.md` | `~/.config/opencode/commands/recall.md` | `/recall` — lexical lookup, read the top hit. |
 | `install-opencode.sh` | runs from the repo | One-shot installer. |
 
 ## Install
@@ -48,7 +48,7 @@ something non-standard.
 
 Restart opencode. The agent should now have:
 
-- MCP tools named `kaeru_awake`, `kaeru_drill`, `kaeru_jot`, … (≈ 36
+- MCP tools named `kaeru_context`, `kaeru_read`, `kaeru_note`, … (≈ 36
   verbs total).
 - The full kaeru behaviour rules in every session's system prompt.
 - `/kaeru`, `/lesson`, `/recall` as native slash commands.
@@ -56,8 +56,8 @@ Restart opencode. The agent should now have:
 Smoke test in a kaeru project directory:
 
 ```
-/kaeru                     # should fire initiatives → awake → overview
-/recall daemon             # search + drill the top hit
+/kaeru                     # should fire initiatives → context
+/recall daemon             # search + read the top hit
 /lesson "kaeru is wired into opencode now"
 ```
 

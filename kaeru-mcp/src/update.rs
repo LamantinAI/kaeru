@@ -288,6 +288,7 @@ pub fn spawn(notice: UpdateNotice, cancel: CancellationToken) {
 
 /// Takes the pending line, if there is one — delivered once, like the
 /// hygiene headline it rides beside.
+#[cfg(test)]
 pub fn take(notice: &UpdateNotice) -> Option<String> {
     notice.lock().ok().and_then(|mut slot| slot.take())
 }

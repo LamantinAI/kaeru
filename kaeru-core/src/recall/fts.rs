@@ -8,22 +8,25 @@
 //! the larger of the per-index scores.
 
 use std::borrow::Cow;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 
 use cozo::{DataValue, ScriptMutability};
 
-use super::{NodeBrief, parse_brief};
+use super::{NodeBrief, node_brief_by_id};
+use crate::config::api::API_SEARCH_CANDIDATE_LIMIT;
+use crate::config::search::FTS_SCAN_LIMIT;
 use crate::errors::{Error, Result};
+use crate::models::SearchCandidates;
 use crate::store::Store;
 
-/// Maximum results [`fuzzy_recall`] may return per call. Mirrors the
-/// pattern used elsewhere — bound the working set so the agent's
-/// attention budget stays small.
-pub const FUZZY_RECALL_LIMIT_CAP: usize = 50;
+pub use crate::config::search::FUZZY_RECALL_LIMIT_CAP;
 
 /// Searches the substrate for nodes whose `name` or `body` matches
 /// `query`. Returns at most `limit` briefs ordered by descending FTS
 /// score. `limit` is clamped to [`FUZZY_RECALL_LIMIT_CAP`].
+/// Candidate scanning is bounded independently by [`FTS_SCAN_LIMIT`]; fewer
+/// briefs than `limit` does not prove exhaustion. The canonical `search` API
+/// additionally reports candidate/scan truncation in its coverage metadata.
 ///
 /// `query` is the Cozo FTS expression — single tokens, `AND` / `OR` /
 /// `NOT`, or quoted phrases. See Cozo docs for the full grammar. A trailing
@@ -261,78 +264,173 @@ fn run_fts(store: &Store, query: &str, limit: usize) -> Result<Vec<NodeBrief>> {
     if limit == 0 {
         return Ok(Vec::new());
     }
-    let excerpt_chars = store.config().body_excerpt_chars;
-
-    let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
-    params.insert("q".to_string(), DataValue::Str(query.into()));
-
-    // The FTS atom requires a literal `k` and `query` parameters; we
-    // inline `k` into the script and pass `q` as a Datalog parameter so
-    // user input never reaches the script source.
-    //
-    // Initiative-scoped: an extra `*node_initiative` join trims hits.
-    // Cross-initiative: just a NOW anchor on the base relation.
-    let script = match store.current_initiative() {
-        Some(init) => {
-            params.insert("init".to_string(), DataValue::Str(init.into()));
-            format!(
-                r#"
-                hits[id, score] := ~node:fts_name{{id | query: $q, k: {limit}, bind_score: score}}
-                hits[id, score] := ~node:fts_body{{id | query: $q, k: {limit}, bind_score: score}}
-
-                ?[id, type, name, body, score, validity] :=
-                    hits[id, score],
-                    *node{{id, type, name, body, validity @ 'NOW'}},
-                    *node_initiative{{initiative, node_id: id}},
-                    initiative = $init
-                :order -score, validity
-                "#
-            )
+    let candidates = literal_ids(store, query, limit)?;
+    let mut briefs = Vec::with_capacity(candidates.ids.len());
+    for id in candidates.ids {
+        if let Some(brief) = node_brief_by_id(store, &id)? {
+            briefs.push(brief);
         }
-        None => format!(
-            r#"
-            hits[id, score] := ~node:fts_name{{id | query: $q, k: {limit}, bind_score: score}}
-            hits[id, score] := ~node:fts_body{{id | query: $q, k: {limit}, bind_score: score}}
+    }
+    Ok(briefs)
+}
 
-            ?[id, type, name, body, score, validity] :=
-                hits[id, score],
-                *node{{id, type, name, body, validity @ 'NOW'}}
-            :order -score, validity
-            "#
-        ),
+/// Bounded lexical candidates shared by canonical search and fuzzy recall.
+/// Canonical search constructs an escaped expression; fuzzy recall accepts
+/// the legacy FTS grammar. Both retain the same scoped ranking and scan bounds.
+pub(crate) fn literal_ids(store: &Store, query: &str, capacity: usize) -> Result<SearchCandidates> {
+    literal_ids_with_scan_limit(
+        store,
+        query,
+        capacity.min(API_SEARCH_CANDIDATE_LIMIT),
+        FTS_SCAN_LIMIT,
+    )
+}
+
+fn literal_ids_with_scan_limit(
+    store: &Store,
+    query: &str,
+    capacity: usize,
+    scan_limit: usize,
+) -> Result<SearchCandidates> {
+    let mut params = BTreeMap::from([("q".into(), DataValue::Str(query.into()))]);
+    let scope = if let Some(scope) = store.current_initiative() {
+        params.insert("scope".into(), DataValue::Str(scope.into()));
+        ", *node_initiative{initiative,node_id:id},initiative=$scope"
+    } else {
+        ""
     };
+    // Cozo applies FTS k globally before a relational scope join. Count each
+    // raw index stream (including historical rows) before that join: even a
+    // zero-hit scope must retain the signal that unseen matches may remain.
+    // The sentinel avoids marking an exactly exhausted stream as incomplete.
+    let scan_k = scan_limit + 1;
+    let script = format!(
+        r#"
+        name_hits[id,score,validity] :=
+            ~node:fts_name{{id,validity | query:$q,k:{scan_k},bind_score:score}}
+        body_hits[id,score,validity] :=
+            ~node:fts_body{{id,validity | query:$q,k:{scan_k},bind_score:score}}
+        name_count[count(id)] := name_hits[id,_,_]
+        body_count[count(id)] := body_hits[id,_,_]
+        hits[id,score] := name_hits[id,score,_]
+        hits[id,score] := body_hits[id,score,_]
+        scoped[id,max(score),validity] := hits[id,score],*node{{id,validity @ 'NOW'}}{scope}
 
+        ?[kind,id,score,validity] := scoped[id,score,validity],kind='hit'
+        ?[kind,id,score,validity] := name_count[score],kind='name_count',id='',validity=null
+        ?[kind,id,score,validity] := body_count[score],kind='body_count',id='',validity=null
+        :order kind,-score,validity,id
+        "#
+    );
     let rows = store
         .db_ref()
         .run_script(&script, params, ScriptMutability::Immutable)?;
 
-    // Multiple FTS hits per id (one from name, one from body) come back
-    // as separate rows; keep the highest-score row per id, preserving
-    // overall descending-score ordering.
-    let mut best: HashMap<String, (f64, NodeBrief)> = HashMap::new();
-    let mut order: Vec<String> = Vec::new();
-    for row in &rows.rows {
-        let Some(id) = row.first().and_then(|v| v.get_str()).map(String::from) else {
-            continue;
-        };
-        let score = row.get(4).and_then(|v| v.get_float()).unwrap_or(0.0);
-        let brief = parse_brief(row.as_slice(), excerpt_chars);
-        match best.get(&id) {
-            Some((prev, _)) if *prev >= score => continue,
-            None => order.push(id.clone()),
+    let mut candidates = SearchCandidates::default();
+    for row in rows.rows {
+        match row.first().and_then(DataValue::get_str) {
+            Some("hit") => {
+                if candidates.ids.len() < capacity {
+                    if let Some(id) = row.get(1).and_then(DataValue::get_str) {
+                        candidates.ids.push(id.to_owned());
+                    }
+                } else {
+                    candidates.candidates_truncated = true;
+                }
+            }
+            Some("name_count" | "body_count") => {
+                let count = row.get(2).and_then(DataValue::get_int).unwrap_or(0);
+                candidates.scan_truncated |= count > scan_limit as i64;
+            }
             _ => {}
         }
-        best.insert(id, (score, brief));
+    }
+    Ok(candidates)
+}
+
+#[cfg(test)]
+mod candidate_tests {
+    use super::literal_ids_with_scan_limit;
+    use crate::{EpisodeKind, Significance, Store, write_episode};
+
+    fn note(store: &Store, name: &str, body: &str) -> String {
+        write_episode(
+            store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            name,
+            body,
+        )
+        .unwrap()
     }
 
-    let mut out: Vec<(f64, NodeBrief)> = order
-        .into_iter()
-        .filter_map(|id| best.remove(&id))
-        .collect();
-    // Re-sort because dedup might have stuck a higher-score body hit
-    // behind a lower-score name hit in `order`.
-    out.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-    Ok(out.into_iter().take(limit).map(|(_, b)| b).collect())
+    #[test]
+    fn raw_scan_truncation_survives_an_empty_scope_for_either_index() {
+        for name_index in [true, false] {
+            let store = Store::open_in_memory().unwrap();
+            store.use_initiative("busy");
+            for i in 0..3 {
+                if name_index {
+                    note(&store, &format!("alpha-alpha-alpha-{i}"), "Other content.");
+                } else {
+                    note(&store, &format!("busy-{i}"), "alpha alpha alpha");
+                }
+            }
+            store.use_initiative("quiet");
+            if name_index {
+                note(
+                    &store,
+                    "Quiet alpha design about storage layers and metadata",
+                    "Other content.",
+                );
+            } else {
+                note(
+                    &store,
+                    "quiet-design",
+                    "A long note mentions alpha once among many words about storage layers and metadata.",
+                );
+            }
+            let result = literal_ids_with_scan_limit(&store, "alpha", 3, 2).unwrap();
+            assert!(result.ids.is_empty(), "fixture hides the weak scoped match");
+            assert!(result.scan_truncated, "name index: {name_index}");
+            assert!(!result.candidates_truncated);
+        }
+    }
+
+    #[test]
+    fn exactly_exhausted_streams_and_candidate_capacity_are_complete() {
+        let store = Store::open_in_memory().unwrap();
+        store.use_initiative("quiet");
+        for i in 0..2 {
+            note(&store, &format!("alpha-{i}"), "alpha");
+        }
+        let result = literal_ids_with_scan_limit(&store, "alpha", 2, 2).unwrap();
+        assert_eq!(result.ids.len(), 2, "name/body hits are deduplicated");
+        assert!(!result.scan_truncated);
+        assert!(!result.candidates_truncated);
+
+        note(&store, "alpha-extra", "alpha");
+        let result = literal_ids_with_scan_limit(&store, "alpha", 2, 3).unwrap();
+        assert_eq!(result.ids.len(), 2);
+        assert!(!result.scan_truncated);
+        assert!(result.candidates_truncated);
+    }
+
+    #[test]
+    fn a_real_miss_is_complete_even_when_other_scopes_have_nonmatching_nodes() {
+        let store = Store::open_in_memory().unwrap();
+        store.use_initiative("busy");
+        note(&store, "alpha-note", "alpha");
+        store.use_initiative("quiet");
+        let result = literal_ids_with_scan_limit(&store, "alpha", 2, 2).unwrap();
+        assert!(result.ids.is_empty());
+        assert!(!result.scan_truncated);
+        assert!(!result.candidates_truncated);
+        let result = literal_ids_with_scan_limit(&store, "missingterm", 2, 2).unwrap();
+        assert!(result.ids.is_empty());
+        assert!(!result.scan_truncated);
+        assert!(!result.candidates_truncated);
+    }
 }
 
 #[cfg(test)]
@@ -467,7 +565,7 @@ mod tests {
             EpisodeKind::Observation,
             Significance::Low,
             "pilot-finalize-6of6-2026-06-02",
-            "the pilot run at 185.130.225.215 for a master's degree",
+            "the pilot run at 192.0.2.10 for a master's degree",
         )
         .expect("write");
         store
@@ -487,7 +585,7 @@ mod tests {
     #[test]
     fn punctuation_no_longer_breaks_the_parser() {
         let store = seeded();
-        for q in ["185.130.225.215", "master's", "pilot-finalize-6of6"] {
+        for q in ["192.0.2.10", "master's", "pilot-finalize-6of6"] {
             let hits = fuzzy_recall(&store, q, 5)
                 .unwrap_or_else(|e| panic!("`{q}` should parse, got: {e}"));
             assert!(!hits.is_empty(), "`{q}` finds the node");

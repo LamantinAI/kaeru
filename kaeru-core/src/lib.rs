@@ -8,6 +8,7 @@
 //! Design philosophy: facilitator, not enforcer. Cognitive primitives are
 //! available tools; agent and user choose when to invoke.
 
+pub mod api;
 pub mod config;
 pub mod errors;
 pub mod export;
@@ -16,8 +17,10 @@ pub mod graph;
 pub mod guard;
 pub mod hygiene;
 mod migrate;
+pub mod models;
 pub mod mutate;
 pub mod naming;
+mod read_trace;
 pub mod recall;
 pub mod sanitize;
 pub mod session;
@@ -36,6 +39,7 @@ pub use graph::{
     Revision, SharePolicy, Significance, Tier, Visibility, at, history, new_node_id,
 };
 pub use guard::GuardHit;
+pub use models::{CloudEdge, EdgeImportResult};
 pub use mutate::{
     AttachStats, ChainOutcome, DeleteStats, MergeStats, RechainStats, RenameStats, add_status,
     attach_node, cite, cite_with_layer, complete_task, consolidate_in, consolidate_out,
@@ -51,6 +55,9 @@ pub use mutate::{
     upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
 pub use naming::derive_auto_name;
+pub use recall::cloud_import::{
+    existing_node_ids, restore_cloud_edges, restore_cloud_edges_cancellable,
+};
 pub use recall::unversioned::UnversionedChange;
 pub use recall::verdicts::Verdict;
 pub use recall::{

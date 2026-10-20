@@ -25,48 +25,52 @@ use crate::store::Store;
 /// Used when a node was a mistake or genuine garbage; for content the
 /// agent wants to keep but rewrite, see [`improve`].
 pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
-    let edges = read_connected_edges(store, node_id)?;
+    store.atomic(|store| {
+        let edges = read_connected_edges(store, node_id)?;
 
-    // Each edge is retracted past its own newest row, so an edge written in
-    // this same second is still retracted rather than outranking us (#96).
-    for (src, dst, edge_type) in &edges {
-        let edge_secs = edge_version_seconds(store, src, dst, edge_type)?;
-        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
-        p.insert("src".to_string(), DataValue::Str(src.clone().into()));
-        p.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
-        p.insert(
-            "edge_type".to_string(),
-            DataValue::Str(edge_type.clone().into()),
-        );
-        let s = format!(
+        // Each edge is retracted past its own newest row, so an edge written in
+        // this same second is still retracted rather than outranking us (#96).
+        for (src, dst, edge_type) in &edges {
+            let edge_secs = edge_version_seconds(store, src, dst, edge_type)?;
+            let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+            p.insert("src".to_string(), DataValue::Str(src.clone().into()));
+            p.insert("dst".to_string(), DataValue::Str(dst.clone().into()));
+            p.insert(
+                "edge_type".to_string(),
+                DataValue::Str(edge_type.clone().into()),
+            );
+            let s = format!(
+                r#"
+                ?[src, dst, edge_type, validity, weight, properties] <-
+                    [[$src, $dst, $edge_type, [{edge_secs}.0, false], 1.0, null]]
+                :put edge {{src, dst, edge_type, validity => weight, properties}}
+                "#
+            );
+            store
+                .db_ref()
+                .run_script(&s, p, ScriptMutability::Mutable)?;
+        }
+
+        // Retract the node itself.
+        let node_secs = node_version_seconds(store, node_id)?;
+        let mut p_node: BTreeMap<String, DataValue> = BTreeMap::new();
+        p_node.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
+        let s_node = format!(
             r#"
-            ?[src, dst, edge_type, validity, weight, properties] <-
-                [[$src, $dst, $edge_type, [{edge_secs}.0, false], 1.0, null]]
-            :put edge {{src, dst, edge_type, validity => weight, properties}}
+            ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
+                [[$id, [{node_secs}.0, false], 'placeholder', 'operational', '', null, null, null, null]]
+            :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
             "#
         );
         store
             .db_ref()
-            .run_script(&s, p, ScriptMutability::Mutable)?;
-    }
+            .run_script(&s_node, p_node.clone(), ScriptMutability::Mutable)?;
 
-    // Retract the node itself.
-    let node_secs = node_version_seconds(store, node_id)?;
-    let mut p_node: BTreeMap<String, DataValue> = BTreeMap::new();
-    p_node.insert("id".to_string(), DataValue::Str(node_id.clone().into()));
-    let s_node = format!(
-        r#"
-        ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{node_secs}.0, false], 'placeholder', 'operational', '', null, null, null, null]]
-        :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
-        "#
-    );
-    store
-        .db_ref()
-        .run_script(&s_node, p_node, ScriptMutability::Mutable)?;
-
-    write_audit(store.db_ref(), "forget", "system", &[node_id.clone()])?;
-    Ok(())
+        store.db_ref().run_script("?[initiative,slot] := *slot_occupant{initiative,slot,node_id},node_id=$id :rm slot_occupant {initiative,slot}",p_node.clone(),ScriptMutability::Mutable)?;
+        store.db_ref().run_script("?[node_id] <- [[$id]] :rm session_pin {node_id}",p_node,ScriptMutability::Mutable)?;
+        write_audit(store.db_ref(), "forget", "system", &[node_id.clone()])?;
+        Ok(())
+    })
 }
 
 /// Rewrites a node's `name` and `body` while preserving everything else:
@@ -76,45 +80,47 @@ pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
 /// the new body, so stale topics don't accumulate across rewrites). Implemented as re-assert + retract through the bi-temporal
 /// substrate, so `history` shows both the old version and the new one.
 pub fn improve(store: &Store, node_id: &NodeId, new_name: &str, new_body: &str) -> Result<()> {
-    // Scrub leaked tool-call wire-format from the incoming revision.
-    let new_name_owned = strip_tool_call_markup(new_name).0;
-    let new_body_owned = strip_tool_call_markup(new_body).0;
-    let (new_name, new_body) = (new_name_owned.as_str(), new_body_owned.as_str());
+    store.atomic(|store| {
+        // Scrub leaked tool-call wire-format from the incoming revision.
+        let new_name_owned = strip_tool_call_markup(new_name).0;
+        let new_body_owned = strip_tool_call_markup(new_body).0;
+        let (new_name, new_body) = (new_name_owned.as_str(), new_body_owned.as_str());
 
-    let current = read_node_now(store, node_id)?
-        .ok_or_else(|| Error::NotFound(format!("node {node_id} not found at NOW")))?;
+        let current = read_node_now(store, node_id)?
+            .ok_or_else(|| Error::NotFound(format!("node {node_id} not found at NOW")))?;
 
-    let kind_tag = format!("kind:{}", current.type_);
-    let fresh = build_body_tags(
-        &[kind_tag.as_str(), "role:revised"],
-        Some(new_name),
-        new_body,
-    );
-    let tags = merge_tags(&current.tags, &["lang:", "topic:"], fresh);
+        let kind_tag = format!("kind:{}", current.type_);
+        let fresh = build_body_tags(
+            &[kind_tag.as_str(), "role:revised"],
+            Some(new_name),
+            new_body,
+        );
+        let tags = merge_tags(&current.tags, &["lang:", "topic:"], fresh);
 
-    // Re-assert first, retract second, same timestamp — see
-    // `reassert_node_now` for the ordering invariant. The timestamp is past
-    // the node's newest row, so a revision inside the second that wrote it
-    // still wins (#96).
-    let secs = node_version_seconds(store, node_id)?;
-    reassert_node_now(
-        store,
-        node_id,
-        ReassertRow {
-            secs,
-            type_: &current.type_,
-            tier: &current.tier,
-            name: new_name,
-            body: Some(new_body),
-            tags,
-            visibility: &current.visibility,
-            layer: &current.layer,
-        },
-    )?;
-    retract_node_at(store, node_id, secs)?;
+        // Re-assert first, retract second, same timestamp — see
+        // `reassert_node_now` for the ordering invariant. The timestamp is past
+        // the node's newest row, so a revision inside the second that wrote it
+        // still wins (#96).
+        let secs = node_version_seconds(store, node_id)?;
+        reassert_node_now(
+            store,
+            node_id,
+            ReassertRow {
+                secs,
+                type_: &current.type_,
+                tier: &current.tier,
+                name: new_name,
+                body: Some(new_body),
+                tags,
+                visibility: &current.visibility,
+                layer: &current.layer,
+            },
+        )?;
+        retract_node_at(store, node_id, secs)?;
 
-    write_audit(store.db_ref(), "improve", "system", &[node_id.clone()])?;
-    Ok(())
+        write_audit(store.db_ref(), "improve", "system", &[node_id.clone()])?;
+        Ok(())
+    })
 }
 
 #[cfg(test)]
