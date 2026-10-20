@@ -19,8 +19,10 @@ pub const PASSWORD_WORKERS: usize = 2;
 pub const MAX_REQUEST_BYTES: usize = 8192;
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(default, deny_unknown_fields)]
 pub struct WebConfig {
+    pub enabled: bool,
+    pub mcp_token: String,
     pub username: String,
     pub password_hash: String,
     pub jwt_secret: String,
@@ -32,8 +34,48 @@ pub struct WebConfig {
     pub revision: u64,
 }
 
+impl Default for WebConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            mcp_token: String::new(),
+            username: String::new(),
+            password_hash: String::new(),
+            jwt_secret: String::new(),
+            public_origin: String::new(),
+            ttl_seconds: DEFAULT_TTL_SECONDS,
+            issuer: SESSION_ISSUER.into(),
+            audience: SESSION_AUDIENCE.into(),
+            revision: 1,
+        }
+    }
+}
+
+pub struct AccessMode {
+    pub enabled: bool,
+    pub mcp_token: String,
+}
+
+pub fn access_mode(config: Option<&WebConfig>, token: &str) -> AccessMode {
+    let enabled = config.map_or(!token.trim().is_empty(), |cfg| cfg.enabled);
+    let token = if !enabled {
+        ""
+    } else if !token.trim().is_empty() {
+        token.trim()
+    } else {
+        config.map_or("", |cfg| cfg.mcp_token.as_str())
+    };
+    AccessMode {
+        enabled,
+        mcp_token: token.into(),
+    }
+}
+
 impl WebConfig {
     pub fn validate(&self) -> Result<(), String> {
+        if !self.enabled {
+            return Ok(());
+        }
         if self.username.trim().is_empty() || self.username.len() > MAX_LOGIN_BYTES {
             return Err("Username must be between 1 and 128 bytes".into());
         }
@@ -121,6 +163,41 @@ mod tests {
                 .find(|(key, _)| *key == name)
                 .map(|(_, value)| OsString::from(value))
         })
+    }
+
+    #[test]
+    fn explicit_mode_wins_over_old_tokens_and_missing_credentials_fail_closed() {
+        use super::{WebConfig, access_mode};
+        let disabled: WebConfig = toml::from_str("enabled = false").unwrap();
+        assert!(disabled.validate().is_ok());
+        assert!(!access_mode(Some(&disabled), "leftover-token").enabled);
+        assert!(
+            access_mode(Some(&disabled), "leftover-token")
+                .mcp_token
+                .is_empty()
+        );
+        let mut enabled = WebConfig {
+            mcp_token: "saved-token".into(),
+            ..Default::default()
+        };
+        assert!(enabled.validate().is_err());
+        assert!(access_mode(Some(&enabled), "").enabled);
+        assert_eq!(access_mode(Some(&enabled), "").mcp_token, "saved-token");
+        assert_eq!(
+            access_mode(Some(&enabled), "override-token").mcp_token,
+            "override-token"
+        );
+        enabled.mcp_token.clear();
+        assert!(access_mode(Some(&enabled), "").mcp_token.is_empty());
+        assert!(access_mode(Some(&enabled), "").enabled);
+        assert!(!access_mode(None, "").enabled);
+        assert!(access_mode(None, "legacy-token").enabled);
+        assert!(toml::from_str::<WebConfig>("enabled = 'false'").is_err());
+        let legacy: WebConfig = toml::from_str("username = 'admin'").unwrap();
+        assert!(
+            legacy.enabled,
+            "Existing files without a mode stay protected"
+        );
     }
 
     #[test]

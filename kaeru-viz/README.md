@@ -15,7 +15,8 @@ records. There is no separate graph endpoint or compatibility alias.
 ## Live instance
 
 The bundled frontend is served directly by `kaeru-mcp` at `/ui/`. It uses the
-same named `/v1/` operations as agents, with a local account and JWT session.
+same named `/v1/` operations as agents. Authentication is optional: open the
+graph directly in local open mode, or sign in with a local account/JWT session.
 No export, separate Vite process or Node runtime is required on the instance.
 [Instance setup and development](../docs/instance-ui.md) describe account setup,
 operator scope, administration, embedded builds and browser tests.

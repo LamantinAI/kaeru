@@ -205,7 +205,7 @@ MCP structured content and text contain the same JSON. Local tools advertise
 output schemas. Rig names tools `kaeru_<operation>`; HTTP uses
 `POST /v1/<operation>` with the same arguments. API version 1 is independent of
 the crate version and the MCP protocol version. The instance visualizer uses
-these same operations through authenticated browser sessions, preserving the
+these same operations, with optional browser authentication, preserving the
 operator scope ceiling and egress rules. See [instance access](instance-ui.md).
 
 ## Complete content and incomplete coverage

@@ -63,9 +63,9 @@ function login(configured) {
     finally { button.disabled = false }
   })
 }
-function problem(message, { empty = false } = {}) {
+function problem(message, { empty = false, showSettings = false } = {}) {
   shell(`<main class="account-status"><p class="account-eyebrow">${empty ? 'a fresh page' : 'connection paused'}</p><h1>${empty ? 'No visible memories yet.' : 'Memory is unavailable.'}</h1>
-    <p class="account-lead">${esc(message)}</p><p class="account-notice" data-notice hidden></p><div class="account-actions"><button class="btn go" data-retry>try again →</button><a class="btn" href="/ui/admin">settings</a></div></main>`)
+    <p class="account-lead">${esc(message)}</p><p class="account-notice" data-notice hidden></p><div class="account-actions"><button class="btn go" data-retry>try again →</button>${showSettings ? '<a class="btn" href="/ui/admin">settings</a>' : ''}</div></main>`)
   document.querySelector('[data-retry]').addEventListener('click', () => location.reload())
 }
 async function admin(session) {
@@ -107,17 +107,19 @@ window.addEventListener('kaeru-api-error', (event) => {
 try {
   const session = await auth.session()
   if (session.authenticated) setTimeout(() => go('/ui/login'), Math.max(0, session.expires_at * 1000 - Date.now()))
-  if (!session.authenticated) login(session.configured)
-  else if (location.pathname === '/ui/admin') await admin(session)
-  else if (location.pathname === '/ui/login') go('/ui/')
+  if (session.auth_enabled && !session.authenticated) login(session.configured)
+  else if (location.pathname === '/ui/admin' && session.auth_enabled) await admin(session)
+  else if (location.pathname === '/ui/login' || location.pathname === '/ui/admin') go('/ui/')
   else {
     const graph = await memory.graph()
-    if (!graph.nodes.length) problem('There are no visible records under the current access settings.', { empty: true })
+    if (!graph.nodes.length) problem('There are no visible records under the current access settings.', { empty: true, showSettings: session.auth_enabled })
     else {
       registerGraph(graph)
-      const nav = document.createElement('nav'); nav.className = 'account-nav'
-      nav.innerHTML = `<span>${esc(session.username)}</span><a class="btn" href="/ui/admin">settings ↗</a><button class="btn" type="button" data-logout>sign out all</button>`
-      document.getElementById('hud').append(nav); nav.querySelector('[data-logout]').addEventListener('click', logout)
+      if (session.auth_enabled) {
+        const nav = document.createElement('nav'); nav.className = 'account-nav'
+        nav.innerHTML = `<span>${esc(session.username)}</span><a class="btn" href="/ui/admin">settings ↗</a><button class="btn" type="button" data-logout>sign out all</button>`
+        document.getElementById('hud').append(nav); nav.querySelector('[data-logout]').addEventListener('click', logout)
+      }
       await import('./main.js')
     }
   }

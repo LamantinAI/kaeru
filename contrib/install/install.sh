@@ -10,6 +10,12 @@
 #   KAERU_INSTALL_DIR    where to put the binaries (default: ~/.local/bin)
 #   KAERU_SETUP_DAEMON   yes (default) to install a user-level systemd /
 #                        launchd unit and start kaeru-mcp; "no" to skip
+#   KAERU_SETUP_AUTH      ask (default), yes, no or keep. Ask uses /dev/tty;
+#                        unattended updates preserve the existing choice.
+#   KAERU_WEB_PASSWORD_FILE
+#                        optional password input for unattended auth setup
+#   KAERU_MCP_WEB_CONFIG_FILE
+#                        authentication config path (default: XDG/HOME kaeru/web.toml)
 #   KAERU_SETUP_CLAUDE_MEMORY
 #                        yes to make kaeru the primary agent memory for
 #                        Claude Code: disables Claude Code's built-in file
@@ -27,6 +33,10 @@ REPO="LamantinAI/kaeru"
 VERSION="${KAERU_VERSION:-latest}"
 INSTALL_DIR="${KAERU_INSTALL_DIR:-$HOME/.local/bin}"
 SETUP_DAEMON="${KAERU_SETUP_DAEMON:-yes}"
+SETUP_AUTH="${KAERU_SETUP_AUTH:-ask}"
+AUTH_CONFIG="${KAERU_MCP_WEB_CONFIG_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/kaeru/web.toml}"
+AUTH_MODE=""
+case "$AUTH_CONFIG" in /*) ;; *) AUTH_CONFIG="$PWD/$AUTH_CONFIG" ;; esac
 SETUP_CLAUDE_MEMORY="${KAERU_SETUP_CLAUDE_MEMORY:-no}"
 
 say()  { printf '==> %s\n' "$*"; }
@@ -101,9 +111,65 @@ case ":$PATH:" in
 esac
 
 # Note: kaeru-mcp is a long-lived HTTP server, not a one-shot CLI — running it
-# starts the daemon (no --version probe here, it would just block). The daemon
+# starts the daemon. Old binaries ignore unknown flags; auth setup below is
+# version-gated rather than probing those binaries. The daemon
 # setup below launches it under systemd/launchd.
 echo
+
+# Configure authentication before the service starts. Older released binaries
+# predate this CLI; never probe them by running a flag they would ignore.
+configure_authentication() {
+    local version_re='^v?([0-9]+)\.([0-9]+)\.'
+    if [[ ! "$tag" =~ $version_re ]] || (( BASH_REMATCH[1] == 0 && BASH_REMATCH[2] < 8 )); then
+        case "$SETUP_AUTH" in ask|keep) say "authentication setup is available with kaeru 0.8+"; return ;; esac
+        die "KAERU_SETUP_AUTH requires a kaeru 0.8+ release"
+    fi
+    local current mode answer default_answer
+    current=$("$INSTALL_DIR/kaeru-mcp" --auth-status --web-config "$AUTH_CONFIG")
+    case "$SETUP_AUTH" in
+        yes|enabled) mode=enabled ;;
+        no|disabled) mode=disabled ;;
+        keep) mode="$current" ;;
+        ask)
+            mode="$current"
+            if { true </dev/tty; } 2>/dev/null; then
+                default_answer=N
+                [[ "$current" == enabled ]] && default_answer=Y
+                printf 'Enable authentication? [y/n, default %s] ' "$default_answer" >/dev/tty
+                IFS= read -r answer </dev/tty || answer=""
+                case "$answer" in
+                    y|Y|yes|YES) mode=enabled ;;
+                    n|N|no|NO) mode=disabled ;;
+                    "") ;;
+                    *) die "answer yes or no, or set KAERU_SETUP_AUTH explicitly" ;;
+                esac
+            else
+                say "no terminal; preserving authentication mode: $current"
+            fi
+            ;;
+        *) die "KAERU_SETUP_AUTH must be ask, yes, no or keep" ;;
+    esac
+    if [[ "$SETUP_DAEMON" == yes ]]; then
+        if [[ "$os" == Linux ]] && command -v systemctl >/dev/null 2>&1; then
+            systemctl --user stop kaeru-mcp.service 2>/dev/null || true
+        elif [[ "$os" == Darwin ]] && command -v launchctl >/dev/null 2>&1; then
+            launchctl unload "$HOME/Library/LaunchAgents/ai.lamantin.kaeru-mcp.plist" 2>/dev/null || true
+        fi
+    fi
+    if [[ "$mode" == enabled && -n "${KAERU_WEB_PASSWORD_FILE:-}" ]]; then
+        "$INSTALL_DIR/kaeru-mcp" --auth enabled --web-config "$AUTH_CONFIG" --password-stdin <"$KAERU_WEB_PASSWORD_FILE"
+    else
+        "$INSTALL_DIR/kaeru-mcp" --auth "$mode" --web-config "$AUTH_CONFIG"
+    fi
+    AUTH_MODE="$mode"
+    say "authentication: $AUTH_MODE; config: $AUTH_CONFIG"
+    if [[ "$AUTH_MODE" == disabled ]]; then
+        warn "Authentication is OFF. Before deploying on a hosted or publicly reachable server, enable it:"
+        warn "    $INSTALL_DIR/kaeru-mcp --auth enabled --web-config \"$AUTH_CONFIG\""
+    fi
+}
+
+configure_authentication
 
 # ------------------------------------------------------------------
 # Daemon setup (user-level; no sudo).
@@ -123,6 +189,10 @@ install_systemd_user_unit() {
         return
     fi
 
+    local auth_config_escaped="$AUTH_CONFIG"
+    auth_config_escaped="${auth_config_escaped//\\/\\\\}"
+    auth_config_escaped="${auth_config_escaped//\"/\\\"}"
+    auth_config_escaped="${auth_config_escaped//%/%%}"
     say "writing systemd user unit -> $unit_path"
     mkdir -p "$unit_dir"
     cat > "$unit_path" <<EOF
@@ -136,6 +206,10 @@ Type=simple
 ExecStart=$bin_path
 Restart=always
 RestartSec=2
+Environment="KAERU_MCP_WEB_CONFIG_FILE=$auth_config_escaped"
+# This local installation visualizes its owner's vault.
+Environment=KAERU_MCP_VIZ_INITIATIVES=*
+Environment=KAERU_MCP_VIZ_INCLUDE_LOCAL=1
 
 # kaeru-mcp tunables — uncomment and edit, then \`systemctl --user daemon-reload\`.
 #Environment=KAERU_MCP_LISTEN_ADDRESS=127.0.0.1
@@ -177,6 +251,10 @@ install_launchd_user_agent() {
         return
     fi
 
+    local auth_config_xml="$AUTH_CONFIG"
+    auth_config_xml="${auth_config_xml//&/\&amp;}"
+    auth_config_xml="${auth_config_xml//</\&lt;}"
+    auth_config_xml="${auth_config_xml//>/\&gt;}"
     say "writing launchd user agent -> $plist_path"
     mkdir -p "$agents_dir" "$HOME/Library/Logs"
 
@@ -201,6 +279,9 @@ install_launchd_user_agent() {
     <key>EnvironmentVariables</key>
     <dict>
         <key>KAERU_MCP_LOG_LEVEL</key><string>info</string>
+        <key>KAERU_MCP_WEB_CONFIG_FILE</key><string>$auth_config_xml</string>
+        <key>KAERU_MCP_VIZ_INITIATIVES</key><string>*</string>
+        <key>KAERU_MCP_VIZ_INCLUDE_LOCAL</key><string>1</string>
     </dict>
     <key>StandardOutPath</key>
     <string>$log_path</string>
@@ -305,4 +386,9 @@ fi
 
 echo
 say "final step — point your agent at the daemon:"
-say "    claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp"
+if [[ "$AUTH_MODE" == enabled ]]; then
+    say "    claude mcp add --transport http --header 'Authorization: Bearer <MCP_TOKEN>' kaeru http://127.0.0.1:9876/mcp"
+    say "    MCP_TOKEN: KAERU_MCP_AUTH_TOKEN or mcp_token in $AUTH_CONFIG"
+else
+    say "    claude mcp add --transport http kaeru http://127.0.0.1:9876/mcp"
+fi

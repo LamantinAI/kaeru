@@ -14,3 +14,6 @@
 # here — the vendor tree lives in LamantinAI/kaeru-vendor, one tag per release.
 /vendor/
 /.cargo/config.toml
+
+# Python support-script tests
+__pycache__/

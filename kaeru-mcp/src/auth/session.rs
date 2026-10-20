@@ -64,7 +64,7 @@ impl WebSession {
             return false;
         };
         let snapshot = account.snapshot();
-        if snapshot.revision != expected_revision {
+        if !snapshot.enabled || snapshot.revision != expected_revision {
             return false;
         }
         let hash = snapshot.password_hash;
@@ -103,7 +103,7 @@ impl WebSession {
             .as_ref()
             .ok_or("Account not configured")?
             .snapshot();
-        if cfg.revision != expected_revision {
+        if !cfg.enabled || cfg.revision != expected_revision {
             return Err("Account changed during sign-in".into());
         }
         let now = jsonwebtoken::get_current_timestamp();
@@ -132,6 +132,9 @@ impl WebSession {
     }
 
     fn verify_with(cfg: &WebConfig, token: &str) -> Option<SessionClaims> {
+        if !cfg.enabled {
+            return None;
+        }
         let mut validation = Validation::new(Algorithm::HS256);
         validation.leeway = 0;
         validation.validate_nbf = true;

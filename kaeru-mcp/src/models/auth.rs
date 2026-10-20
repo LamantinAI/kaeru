@@ -40,6 +40,7 @@ pub struct SessionSettingsInput {
 
 #[derive(Serialize)]
 pub struct SessionView {
+    pub auth_enabled: bool,
     pub configured: bool,
     pub authenticated: bool,
     pub username: Option<String>,
@@ -48,8 +49,16 @@ pub struct SessionView {
 }
 
 impl SessionView {
+    pub fn anonymous() -> Self {
+        Self {
+            auth_enabled: false,
+            ..Self::signed_out(false)
+        }
+    }
+
     pub fn signed_out(configured: bool) -> Self {
         Self {
+            auth_enabled: true,
             configured,
             authenticated: false,
             username: None,
@@ -60,6 +69,7 @@ impl SessionView {
 
     pub fn authenticated(claims: &SessionClaims) -> Self {
         Self {
+            auth_enabled: true,
             configured: true,
             authenticated: true,
             username: Some(claims.sub.clone()),

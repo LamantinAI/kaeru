@@ -80,12 +80,13 @@ pub struct KaeruMcpConfig {
 
     /// Shared secret required on every inbound MCP request. When
     /// non-empty, clients must send `Authorization: Bearer <token>` and
-    /// the middleware in `auth.rs` rejects anything else with `401`;
+    /// the middleware in `auth/` rejects anything else with `401`;
     /// the check covers both the streamable HTTP (`/mcp`) and legacy SSE
-    /// (`/sse`, `/messages`) transports. Empty (default) disables auth
-    /// entirely — acceptable for the loopback-only default bind, but you
-    /// should set this whenever `listen_address` is routable. Configure
-    /// a client with e.g.
+    /// (`/sse`, `/messages`) transports. When empty, a configured account's
+    /// persisted `mcp_token` is used. An explicit `enabled=false` in the local
+    /// web configuration disables authentication even if an old token remains.
+    /// With no configuration and no token, authentication is disabled.
+    /// Configure a client with e.g.
     /// `claude mcp add --transport http --header "Authorization: Bearer <token>" kaeru <url>`.
     /// Env: `KAERU_MCP_AUTH_TOKEN`.
     #[serde(default = "default_auth_token")]

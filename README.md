@@ -171,9 +171,13 @@ Per-user / per-org isolation (multi-tenant) is a future addition; today each clo
 
 Open `/ui/` on the MCP instance for the live visualizer. Frontend assets are
 embedded in `kaeru-mcp`; installation needs no Node.js or graph export.
-Run `kaeru-mcp --init-web-auth` to create the local account. The browser uses
-JWT sessions; agent MCP tokens remain separate. See [setup, access and build
+Use `kaeru-mcp --auth enabled` to optionally protect it with a local account
+and JWT session; agent MCP tokens remain separate. See [setup, access and build
 instructions](docs/instance-ui.md).
+
+Local installation defaults to no authentication and asks whether to enable it.
+Use `KAERU_SETUP_AUTH=yes`/`no` for automation; the installer warns about hosted
+deployments when protection is disabled. See [authentication modes](docs/instance-ui.md).
 
 ## Status
 

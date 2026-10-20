@@ -23,6 +23,8 @@ const PASSWORD: &str = "correct horse battery staple";
 
 fn config() -> WebConfig {
     WebConfig {
+        enabled: true,
+        mcp_token: String::new(),
         username: "admin".into(),
         password_hash: hash_password(PASSWORD).unwrap(),
         jwt_secret: "ab".repeat(32),
@@ -48,6 +50,7 @@ impl Fixture {
         Self {
             directory,
             auth: BrowserAuth {
+                auth_enabled: true,
                 session,
                 static_token: "mcp-test-secret".into(),
                 api: crate::api::ApiConfig {
@@ -450,6 +453,7 @@ async fn jwt_api_preserves_scope_visibility_and_static_mcp_auth() {
 #[tokio::test]
 async fn unconfigured_ui_has_no_default_account_or_admin_access() {
     let state = BrowserAuth {
+        auth_enabled: true,
         session: WebSession::new(None),
         static_token: String::new(),
         api: Default::default(),
@@ -634,4 +638,88 @@ async fn an_inflight_admin_request_cannot_use_a_future_revision_after_logout() {
                 .await
         );
     }
+}
+
+#[tokio::test]
+async fn disabled_mode_ignores_old_credentials_but_preserves_memory_permissions() {
+    let mut fixture = Fixture::new();
+    let (token, _, _) = fixture.auth.session.issue(1).unwrap();
+    fixture
+        .auth
+        .session
+        .account
+        .as_ref()
+        .unwrap()
+        .update(1, |cfg| cfg.enabled = false)
+        .unwrap();
+    fixture.auth.auth_enabled = false;
+    fixture.auth.api.include_local = true;
+    let store = Arc::new(kaeru_core::Store::open_in_memory().unwrap());
+    let api = crate::api::router_with_clouds(
+        store,
+        fixture.auth.api.clone(),
+        crate::cloud_client::CloudRegistry::default(),
+    )
+    .layer(middleware::from_fn_with_state(
+        fixture.auth.clone(),
+        crate::ui::api_access,
+    ));
+    let app = fixture.router().merge(api);
+    let (_, _, view) = call(app.clone(), "GET", "/auth/session", Value::Null, &[]).await;
+    assert_eq!(view["auth_enabled"], false);
+    assert_eq!(view["authenticated"], false);
+    for headers in [
+        vec![],
+        vec![
+            ("authorization", "Bearer wrong"),
+            ("cookie", "kaeru_session=expired"),
+        ],
+    ] {
+        assert_eq!(
+            call(app.clone(), "POST", "/v1/initiatives", json!({}), &headers)
+                .await
+                .0,
+            StatusCode::OK
+        );
+    }
+    assert_eq!(
+        call(
+            app.clone(),
+            "POST",
+            "/v1/context",
+            json!({"initiative":"forbidden"}),
+            &[]
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(
+            app.clone(),
+            "POST",
+            "/auth/login",
+            json!({"username":"admin","password":PASSWORD}),
+            &[]
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        call(app, "GET", "/admin/settings", Value::Null, &[])
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+    assert!(fixture.auth.session.verify(&token).is_none());
+    let file = std::fs::read_to_string(fixture.directory.path().join("web.toml")).unwrap();
+    assert!(file.contains("enabled = false"));
+    assert!(!file.contains("password_hash") && !file.contains("jwt_secret"));
+    assert!(
+        !super::store::read_config(&fixture.directory.path().join("web.toml"))
+            .unwrap()
+            .unwrap()
+            .enabled
+    );
 }

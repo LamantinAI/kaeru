@@ -4,35 +4,68 @@
 `/v1/` memory API. The binary includes HTML, JavaScript, styles and fonts.
 Installed instances need no Node.js, separate frontend process or exported graph.
 
-## Setup
+## Local installation and authentication
 
-Create a local account before starting the daemon:
+The local installer asks whether to enable authentication. A new installation
+chooses **no authentication** by default. It prints a warning to enable
+protection before deploying on a hosted or publicly reachable server.
+Unattended updates preserve the configured mode; interactive updates use the
+existing mode as their default.
+
+- Without authentication, `/ui/` opens the graph directly. There is no login,
+  sign-out or account settings screen. MCP and memory HTTP requests do not need
+  credentials; stale cookies and old environment tokens are ignored when the
+  configuration explicitly disables authentication.
+- With authentication, the browser requires a username/password and MCP clients
+  require a bearer token. Existing account files without an `enabled` field
+  remain protected. A legacy environment-only MCP token also remains active
+  unless authentication is explicitly disabled.
+
+Installer automation:
 
 ```sh
-kaeru-mcp --init-web-auth
+KAERU_SETUP_AUTH=no bash install.sh
+KAERU_SETUP_AUTH=yes KAERU_WEB_PASSWORD_FILE=/private/password.txt bash install.sh
+KAERU_SETUP_AUTH=keep bash install.sh
 ```
 
-The command prompts without echoing the password. Browser requests use relative
-URLs; by default, login and CSRF checks compare Origin with the request Host.
-Localhost, IP addresses and domains work without pinning one address. A reverse
-proxy should preserve the browser-facing Host. To optionally pin an origin:
+`ask` is the default. Interactive questions read `/dev/tty`, so the choice also
+works with `curl ... | bash`. `KAERU_MCP_WEB_CONFIG_FILE` selects the config path.
+Older releases before 0.8 are not passed setup flags they cannot support.
+
+For source/Cargo installations or a manual change, stop the daemon and choose:
 
 ```sh
-kaeru-mcp --init-web-auth --public-origin https://memory.example
+kaeru-mcp --auth disabled
+kaeru-mcp --auth enabled
+kaeru-mcp --auth-status
 ```
 
-`--username` chooses the login, `--web-config` selects the file, and
-`--password-stdin` enables explicit automation. Passwords are not command-line
-arguments. Local recovery uses `--reset-web-password`; stop the daemon first.
-Initialization/recovery do not open the vault or network listener.
+Restart the daemon after changing its mode. Enabling creates the account,
+password hash, JWT key and random MCP token; an already protected account keeps
+its credentials. Disabling removes the stored credentials and writes a minimal
+`enabled = false` configuration. Re-enabling asks for a new password.
+`KAERU_MCP_AUTH_TOKEN` overrides the generated `mcp_token` while protection is on.
+The stdio bridge reads the same selection and token without taking the daemon's
+writer lock. Setup prints the configuration path, never the token/password.
+
+`--init-web-auth` remains available for explicit account creation. The password
+prompt does not echo. `--password-stdin` supports automation, `--username`
+selects the login, and `--reset-web-password` performs local recovery.
+Initialization and recovery do not open the vault or network listener.
+
+Browser requests use relative URLs. By default login and CSRF checks compare
+Origin with Host, so localhost, IP addresses and domains work without pinning
+one address. A reverse proxy should preserve the browser-facing Host.
+`--public-origin https://memory.example` can optionally pin it during setup.
 
 The owner-only file defaults to `$XDG_CONFIG_HOME/kaeru/web.toml`, otherwise
 `~/.config/kaeru/web.toml`. Windows uses `%APPDATA%\kaeru\web.toml`, falling
 back to `%USERPROFILE%\AppData\Roaming\kaeru\web.toml`.
 `KAERU_MCP_WEB_CONFIG_FILE` overrides it per instance. A daemon without an account
 also runs when no default configuration directory is available.
-It holds the username, Argon2id verifier, persistent JWT signing key, lifetime,
-origin and session revision. Restart after manual edits. Its generated comment
+When protection is enabled it holds the username, Argon2id verifier, MCP token,
+persistent JWT signing key, lifetime, origin and session revision. Restart after manual edits. Its generated comment
 is an example, not an enabled account:
 
 ```toml
@@ -42,7 +75,7 @@ is an example, not an enabled account:
 
 ## Access and sessions
 
-Login does not widen `KAERU_MCP_VIZ_INITIATIVES`, `KAERU_MCP_VIZ_DENY` or
+Authentication mode does not widen `KAERU_MCP_VIZ_INITIATIVES`, `KAERU_MCP_VIZ_DENY` or
 `KAERU_MCP_VIZ_INCLUDE_LOCAL`. An empty allowed set shows no records. An operator
 intentionally viewing their own entire vault can explicitly configure:
 
@@ -52,10 +85,10 @@ export KAERU_MCP_VIZ_INCLUDE_LOCAL=1
 kaeru-mcp
 ```
 
-Agents retain the separate `KAERU_MCP_AUTH_TOKEN`. Browser-account activation
-closes anonymous MCP HTTP access even when that token is absent; configure it
-for MCP clients and the stdio bridge. Browser cookies do not authorize MCP;
-static MCP credentials do not authorize administration.
+With protection enabled, agents use `mcp_token` from the private config or
+`KAERU_MCP_AUTH_TOKEN`. A protected configuration without a usable MCP token
+rejects requests rather than silently reopening the service. Browser cookies
+do not authorize MCP; static MCP credentials do not authorize administration.
 
 Sign-in sets an HttpOnly, SameSite=Strict JWT cookie, also Secure for HTTPS.
 Cookie-authenticated changes and memory requests require a matching Origin/Host
@@ -95,6 +128,9 @@ and JWT verification live outside its presentation layer.
 The MCP image builds in three stages: Node frontend, Rust binary, runtime.
 Only the executable reaches runtime; installers still deliver one executable.
 Mount both the vault and `/home/kaeru/.config/kaeru` persistently in containers.
+The local systemd/launchd installer configures the UI to view the owner’s vault
+with `KAERU_MCP_VIZ_INITIATIVES=*` and `KAERU_MCP_VIZ_INCLUDE_LOCAL=1`. Explicit
+API scope, visibility and validation rules still apply in either auth mode.
 
 For Vite development, set `KAERU_VIZ_URL` to the daemon; auth/admin/API routes
 are proxied. If an origin is explicitly pinned, use the Vite browser origin.

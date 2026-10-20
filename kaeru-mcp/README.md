@@ -112,14 +112,21 @@ Two layers, both env-driven:
 
 | Variable                     | Default       | Effect                                |
 |------------------------------|---------------|---------------------------------------|
-| `KAERU_MCP_LISTEN_ADDRESS`   | `127.0.0.1`   | Bind IPv4. `0.0.0.0` = LAN-exposed (no auth!). |
+| `KAERU_MCP_LISTEN_ADDRESS`   | `127.0.0.1`   | Bind IPv4. `0.0.0.0` = LAN-exposed; enable authentication for hosted deployments. |
 | `KAERU_MCP_ALLOWED_HOSTS`    | *(empty)*     | Extra `Host` authorities to accept beyond loopback, comma-separated. **Required when binding to `0.0.0.0`** — see note below. |
 | `KAERU_MCP_LISTEN_PORT`      | `9876`        | TCP port.                             |
 | `KAERU_MCP_MOUNT_PATH`       | `/mcp`        | Streamable HTTP mount path (must start with `/`). |
 | `KAERU_MCP_SSE_PATH`         | `/sse`        | Legacy HTTP+SSE GET mount path.       |
 | `KAERU_MCP_MESSAGES_PATH`    | `/messages`   | Legacy HTTP+SSE POST mount path.      |
 | `KAERU_MCP_LOG_LEVEL`        | `info`        | `error` / `warn` / `info` / `debug` / `trace`. |
-| `KAERU_MCP_AUTH_TOKEN`       | *(empty)*     | Bearer token required from inbound clients (covers `/mcp` + `/sse`). Empty = no inbound auth (fine on loopback). |
+| `KAERU_MCP_AUTH_TOKEN`       | *(empty)*     | Overrides the persisted MCP token when authentication is enabled. Explicit `--auth disabled` ignores old tokens. |
+
+Authentication is optional. Local installation defaults to open access and asks
+whether to enable it. Choose explicitly with `kaeru-mcp --auth enabled` or
+`kaeru-mcp --auth disabled`, then restart. Open mode loads `/ui/` without login
+and accepts MCP/memory API requests without credentials. Enabled mode requires
+browser login and a separate MCP bearer token; the token is stored in the private
+web configuration. See [installation and authentication](../docs/instance-ui.md).
 
 **Cloud bridge** (`KAERU_MCP_CLOUD_*` — sharing / recall via `kaeru-cloud`):
 

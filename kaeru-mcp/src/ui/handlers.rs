@@ -22,6 +22,7 @@ use crate::settings::web;
 
 #[derive(Clone)]
 pub struct BrowserAuth {
+    pub auth_enabled: bool,
     pub session: Arc<WebSession>,
     pub static_token: String,
     pub api: ApiConfig,
@@ -95,6 +96,10 @@ pub async fn api_access(
     mut request: Request,
     next: Next,
 ) -> Response {
+    if !state.auth_enabled {
+        request.extensions_mut().insert(Principal::Local);
+        return next.run(request).await;
+    }
     if let Some(token) = request
         .headers()
         .get(header::AUTHORIZATION)
@@ -115,10 +120,6 @@ pub async fn api_access(
         request.extensions_mut().insert(Principal::Web {
             username: claims.sub,
         });
-        return next.run(request).await;
-    }
-    if state.static_token.is_empty() && state.session.account.is_none() {
-        request.extensions_mut().insert(Principal::Local);
         return next.run(request).await;
     }
     denied(StatusCode::UNAUTHORIZED, "Sign in to continue")
@@ -213,6 +214,9 @@ async fn login(
 }
 
 async fn session(State(state): State<BrowserAuth>, headers: HeaderMap) -> Response {
+    if !state.auth_enabled {
+        return Json(SessionView::anonymous()).into_response();
+    }
     let view = match identity(&state, &headers) {
         Some((claims, _)) => SessionView::authenticated(&claims),
         None => SessionView::signed_out(state.session.account.is_some()),
@@ -351,6 +355,12 @@ async fn no_store(request: Request, next: Next) -> Response {
 }
 
 pub fn router(state: BrowserAuth) -> Router {
+    if !state.auth_enabled {
+        return Router::new()
+            .route("/auth/session", get(session))
+            .layer(middleware::from_fn(no_store))
+            .with_state(state);
+    }
     let protected = Router::new()
         .route("/auth/logout", post(logout))
         .route("/admin/settings", get(settings).patch(update_settings))

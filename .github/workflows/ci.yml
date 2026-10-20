@@ -34,6 +34,13 @@ jobs:
       - run: npm run check:embedded
         working-directory: kaeru-viz
 
+  test-installer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n contrib/install/install.sh
+      - run: python3 -m unittest discover -s contrib/install -p test_install.py -v
+
   test-update-worker:
     runs-on: ubuntu-latest
     steps:

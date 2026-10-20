@@ -65,6 +65,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Ok(());
     }
     let mcp_config = KaeruMcpConfig::new()?;
+    let web_path = settings::web::optional_config_path()?;
 
     // `--stdio` is the bridge, not a second server: it forwards to the daemon
     // that owns the vault rather than opening the vault itself. The flag
@@ -80,11 +81,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .with(EnvFilter::from(mcp_config.log_level.as_str()))
             .with(fmt::layer().with_writer(std::io::stderr))
             .init();
-        let bridge = stdio_bridge::Bridge::new(
-            url,
-            mcp_config.listen_port,
-            Some(mcp_config.auth_token.clone()),
-        );
+        let web_config = web_path
+            .as_ref()
+            .map(|path| auth::store::read_config(path))
+            .transpose()?
+            .flatten();
+        let access = settings::web::access_mode(web_config.as_ref(), &mcp_config.auth_token);
+        let bridge = stdio_bridge::Bridge::new(url, mcp_config.listen_port, Some(access.mcp_token));
         bridge.ensure_daemon().await?;
         bridge.run().await?;
         return Ok(());
@@ -228,12 +231,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         std::env::var("KAERU_MCP_UI_ENABLE").ok().as_deref(),
         Some("0" | "false" | "no")
     );
-    let account = settings::web::optional_config_path()?
+    let account = web_path
         .map(auth::store::AccountStore::open)
         .transpose()?
         .flatten();
+    let web_config = account.as_ref().map(auth::store::AccountStore::snapshot);
+    let access = settings::web::access_mode(web_config.as_ref(), &mcp_config.auth_token);
     let web_session = auth::session::WebSession::new(account);
-    let viz_enabled = web_session.account.is_some()
+    let viz_enabled = web_enabled
+        || web_config.as_ref().is_some_and(|cfg| cfg.enabled)
         || matches!(
             std::env::var("KAERU_MCP_VIZ_ENABLE").ok().as_deref(),
             Some("1" | "true" | "yes")
@@ -262,8 +268,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .filter(|s| !s.is_empty()),
     };
     let browser = ui::BrowserAuth {
+        auth_enabled: access.enabled,
         session: web_session,
-        static_token: mcp_config.auth_token.clone(),
+        static_token: access.mcp_token.clone(),
         api: api_config.clone(),
         clouds: server
             .cloud_registry()
@@ -335,44 +342,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .nest_service(&mcp_config.mount_path, service)
         .merge(sse_router);
 
-    // Bearer-token gate, layered over the whole router so it covers the
-    // streamable HTTP and legacy SSE transports alike. Off when no token
-    // is configured — fine for the loopback default, loudly flagged when
-    // the daemon is reachable off-host without one.
-    let browser_account_enabled = browser.session.account.is_some();
-    let router = match mcp_config.auth_token.trim() {
-        "" if browser_account_enabled => {
-            tracing::info!(
-                "MCP HTTP access requires KAERU_MCP_AUTH_TOKEN while browser authentication is enabled"
-            );
-            router.layer(axum::middleware::from_fn_with_state(
-                Arc::<str>::from(""),
-                auth::require_bearer,
-            ))
-        }
-        "" => {
-            if mcp_config.listen_address.is_loopback() {
-                tracing::info!(
-                    "bearer-token auth disabled (no KAERU_MCP_AUTH_TOKEN); loopback bind"
-                );
-            } else {
-                tracing::warn!(
-                    listen_address = %mcp_config.listen_address,
-                    "kaeru-mcp is bound to a non-loopback address with NO auth token — \
-                     anyone who can reach this port has full curator access. Set \
-                     KAERU_MCP_AUTH_TOKEN to require `Authorization: Bearer <token>`."
-                );
-            }
-            router
-        }
-        token => {
-            tracing::info!("bearer-token auth enabled for all inbound MCP requests");
-            let expected: Arc<str> = Arc::from(token);
-            router.layer(axum::middleware::from_fn_with_state(
-                expected,
-                auth::require_bearer,
-            ))
-        }
+    // Authentication is one installation-level choice for MCP, HTTP and UI.
+    // A required mode without a token fails closed instead of reopening MCP.
+    let auth_enabled = access.enabled;
+    let router = if auth_enabled {
+        tracing::info!("Authentication enabled for inbound MCP requests");
+        router.layer(axum::middleware::from_fn_with_state(
+            Arc::<str>::from(access.mcp_token.as_str()),
+            auth::require_bearer,
+        ))
+    } else {
+        tracing::info!("Authentication disabled by local configuration");
+        router
     };
 
     let mut router = router;
@@ -381,7 +362,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
     if web_enabled {
         router = router.merge(ui::router(browser));
-    } else if browser_account_enabled {
+    } else if auth_enabled {
         router = router.merge(ui::auth_routes(browser));
     }
 

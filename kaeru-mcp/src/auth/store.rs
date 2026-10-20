@@ -47,7 +47,11 @@ fn save(path: &Path, value: &WebConfig) -> io::Result<()> {
     temp.write_all(
         b"# basic-creds: admin:admin\n# Example only; no account is enabled by this comment.\n\n",
     )?;
-    let body = toml::to_string_pretty(value).map_err(io::Error::other)?;
+    let body = if value.enabled {
+        toml::to_string_pretty(value).map_err(io::Error::other)?
+    } else {
+        "enabled = false\n".into()
+    };
     temp.write_all(body.as_bytes())?;
     temp.as_file_mut().sync_all()?;
     temp.persist(path).map_err(|error| error.error)?;
@@ -60,29 +64,39 @@ fn save(path: &Path, value: &WebConfig) -> io::Result<()> {
     Ok(())
 }
 
+/// Read-only clients (including the stdio bridge) do not take the daemon's writer lock.
+pub fn read_config(path: &Path) -> io::Result<Option<WebConfig>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+    if fs::symlink_metadata(&path)?.file_type().is_symlink() {
+        return Err(io::Error::other(
+            "Browser account configuration must be a regular file",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if fs::metadata(&path)?.permissions().mode() & 0o077 != 0 {
+            return Err(io::Error::other(
+                "Browser account configuration must be owner-only (0600)",
+            ));
+        }
+    }
+    let value: WebConfig = toml::from_str(&fs::read_to_string(&path)?)
+        .map_err(|_| io::Error::other("Invalid browser account configuration"))?;
+    value.validate().map_err(io::Error::other)?;
+    Ok(Some(value))
+}
+
 impl AccountStore {
     pub fn open(path: PathBuf) -> io::Result<Option<Self>> {
         if !path.exists() {
             return Ok(None);
         }
-        if fs::symlink_metadata(&path)?.file_type().is_symlink() {
-            return Err(io::Error::other(
-                "Browser account configuration must be a regular file",
-            ));
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if fs::metadata(&path)?.permissions().mode() & 0o077 != 0 {
-                return Err(io::Error::other(
-                    "Browser account configuration must be owner-only (0600)",
-                ));
-            }
-        }
         let writer_lock = lock(&path)?;
-        let value: WebConfig = toml::from_str(&fs::read_to_string(&path)?)
-            .map_err(|_| io::Error::other("Invalid browser account configuration"))?;
-        value.validate().map_err(io::Error::other)?;
+        let value =
+            read_config(&path)?.ok_or_else(|| io::Error::other("Configuration disappeared"))?;
         Ok(Some(Self {
             path,
             value: Mutex::new(value),

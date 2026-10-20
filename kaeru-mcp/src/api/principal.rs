@@ -8,7 +8,7 @@ use axum::http::request::Parts;
 /// The authenticated caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Principal {
-    /// Explicit legacy loopback/operator mode, with no configured credentials.
+    /// Anonymous access allowed by the installation authentication policy.
     Local,
     StaticBearer,
     Web {

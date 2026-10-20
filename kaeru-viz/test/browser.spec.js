@@ -28,7 +28,7 @@ async function stop(child) {
     child.kill('SIGKILL'); await once(child, 'exit')
   }
 }
-async function fixture() {
+async function fixture({ authentication = 'enabled', tokenOverride = true } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'kaeru-browser-'))
   const port = await freePort(), origin = `http://127.0.0.1:${port}`
   const config = join(directory, 'web.toml')
@@ -37,9 +37,15 @@ async function fixture() {
     KAERU_MCP_WEB_CONFIG_FILE: config, KAERU_MCP_CLOUDS_FILE: join(directory, 'clouds.toml'),
     KAERU_MCP_AUTH_TOKEN: mcpToken, KAERU_MCP_VIZ_INITIATIVES: '*', KAERU_MCP_VIZ_INCLUDE_LOCAL: '1',
     KAERU_MCP_HYGIENE_ENABLE: '0', KAERU_MCP_UPDATE_CHECK: '0', KAERU_READ_TRACE_ENABLED: 'false' })
+  if (authentication === 'default' || !tokenOverride) delete env.KAERU_MCP_AUTH_TOKEN
   await writeFile(env.KAERU_MCP_CLOUDS_FILE, '')
-  const setup = spawnSync(binary, ['--init-web-auth', '--password-stdin', '--public-origin', origin], { env, cwd: directory, input: password + '\n', encoding: 'utf8' })
-  assert.equal(setup.status, 0, setup.stderr)
+  if (authentication !== 'default') {
+    const args = authentication === 'enabled' ? ['--auth', 'enabled', '--password-stdin', '--public-origin', origin] : ['--auth', 'disabled']
+    const setup = spawnSync(binary, args, { env, cwd: directory, input: password + '\n', encoding: 'utf8' })
+    assert.equal(setup.status, 0, setup.stderr)
+  }
+  const effectiveToken = !tokenOverride && authentication === 'enabled'
+    ? (await readFile(config, 'utf8')).match(/^mcp_token = "([a-f0-9]+)"$/m)[1] : mcpToken
   const logPath = join(directory, 'instance.log'), log = openSync(logPath, 'w')
   const child = spawn(binary, [], { env, cwd: directory, stdio: ['ignore', log, log] }); closeSync(log)
   async function close() { await stop(child); await rm(directory, { recursive: true, force: true }) }
@@ -52,7 +58,7 @@ async function fixture() {
   }
   if (!ready) throw new Error(await readFile(logPath, 'utf8'))
   async function api(operation, args) {
-    const response = await fetch(`${origin}/v1/${operation}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${mcpToken}` }, body: JSON.stringify(args) })
+    const response = await fetch(`${origin}/v1/${operation}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${effectiveToken}` }, body: JSON.stringify(args) })
     const value = await response.json(); assert.ok(response.ok && value.state !== 'rejected', JSON.stringify(value)); return value
   }
   const ids = []
@@ -65,7 +71,7 @@ async function fixture() {
   await api('relate', { initiative: 'memory-lab', action: 'connect', from: ids[1], to: ids[0], type: 'derived_from', weight: 1 })
   await api('trail', { initiative: 'memory-lab', name: 'Connected reasoning', route: { from: ids[2], to: ids[0] }, summary: 'A shared contract connects the decisions to their supporting observations.' })
   await api('note', { initiative: 'planning', name: 'A quiet workspace', body: 'A small, inspectable instance for connected work.', kind: 'observation' })
-  return { origin, directory, config, close }
+  return { origin, directory, config, close, token: effectiveToken }
   } catch (error) { await close(); throw error }
 }
 
@@ -178,4 +184,89 @@ test('headless startup does not require a home or browser configuration director
     assert.ok(ready, await readFile(logPath, 'utf8'))
     assert.equal((await fetch(`http://127.0.0.1:${port}/ui/`, { headers: { authorization: `Bearer ${mcpToken}` } })).status, 404)
   } finally { await stop(child); await rm(directory, { recursive: true, force: true }) }
+})
+
+async function initialize(origin, token) {
+  return fetch(origin + '/mcp', { method: 'POST', headers: {
+    'content-type': 'application/json', accept: 'application/json, text/event-stream',
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+  }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+    protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'auth-check', version: '1' },
+  } }) })
+}
+
+test('anonymous UI opens the graph and APIs without login, including with leftover tokens', { timeout: 90000 }, async () => {
+  let engine
+  try {
+    engine = await browser()
+    for (const authentication of ['disabled', 'default']) {
+      const instance = await fixture({ authentication })
+      try {
+        const page = await engine.newPage()
+        await page.goto(instance.origin + '/ui/')
+        await page.locator('#graph canvas').waitFor({ timeout: 20000 })
+        assert.equal(await page.locator('#login-form').count(), 0)
+        assert.equal(await page.locator('.account-nav').count(), 0)
+        const session = await (await fetch(instance.origin + '/auth/session')).json()
+        assert.equal(session.auth_enabled, false)
+        assert.equal(session.authenticated, false)
+        assert.equal(session.csrf_token, null)
+        assert.equal((await fetch(instance.origin + '/v1/initiatives', { method: 'POST', headers: {
+          'content-type': 'application/json', authorization: 'Bearer obsolete', cookie: 'kaeru_session=expired',
+        }, body: '{}' })).status, 200)
+        const init = await initialize(instance.origin)
+        assert.equal(init.status, 200); await init.text()
+        assert.equal((await fetch(instance.origin + '/admin/settings')).status, 404)
+        assert.equal((await fetch(instance.origin + '/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 404)
+        for (const path of ['/ui/login', '/ui/admin']) {
+          await page.goto(instance.origin + path)
+          await page.locator('#graph canvas').waitFor({ timeout: 20000 })
+          assert.equal(new URL(page.url()).pathname, '/ui/')
+        }
+        await page.close()
+      } finally { await instance.close() }
+    }
+  } finally { await engine?.close() }
+})
+
+test('configured MCP token protects requests without a token environment override', { timeout: 30000 }, async () => {
+  const instance = await fixture({ tokenOverride: false })
+  try {
+    assert.equal((await initialize(instance.origin)).status, 401)
+    assert.equal((await initialize(instance.origin, 'wrong')).status, 401)
+    const response = await initialize(instance.origin, instance.token)
+    assert.equal(response.status, 200); await response.text()
+    assert.equal((await fetch(instance.origin + '/v1/initiatives', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).status, 401)
+  } finally { await instance.close() }
+})
+
+test('local authentication choice persists and can be disabled and enabled again', { timeout: 30000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'kaeru-auth-choice-'))
+  const config = join(directory, 'web.toml')
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('KAERU_')))
+  env.KAERU_MCP_WEB_CONFIG_FILE = config
+  env.KAERU_MCP_CLOUDS_FILE = join(directory, 'clouds.toml')
+  await writeFile(env.KAERU_MCP_CLOUDS_FILE, '')
+  const run = (args, input = '') => spawnSync(binary, args, { env, cwd: directory, input, encoding: 'utf8' })
+  try {
+    assert.equal(run(['--auth-status']).stdout.trim(), 'disabled')
+    assert.equal(run(['--auth', 'disabled']).status, 0)
+    assert.equal(run(['--auth-status']).stdout.trim(), 'disabled')
+    assert.equal((await readFile(config, 'utf8')).includes('password_hash'), false)
+    const setup = run(['--auth', 'enabled', '--password-stdin'], password + '\n')
+    assert.equal(setup.status, 0, setup.stderr)
+    const first = await readFile(config, 'utf8')
+    assert.match(first, /^mcp_token = "[a-f0-9]{64}"$/m)
+    assert.equal(run(['--auth-status']).stdout.trim(), 'enabled')
+    const repeated = run(['--auth', 'enabled', '--password-stdin'], 'not a password reset\n')
+    assert.equal(repeated.status, 0, repeated.stderr)
+    assert.equal(await readFile(config, 'utf8'), first)
+    assert.equal(run(['--auth', 'disabled']).status, 0)
+    assert.equal((await readFile(config, 'utf8')).includes('jwt_secret'), false)
+    assert.equal(run(['--auth', 'enabled', '--password-stdin'], password + '\n').status, 0)
+    assert.notEqual((await readFile(config, 'utf8')).match(/^jwt_secret = "([^"]+)"/m)[1], first.match(/^jwt_secret = "([^"]+)"/m)[1])
+    await writeFile(config, 'enabled = true\n')
+    assert.notEqual(run(['--auth-status']).status, 0, 'incomplete protected configuration must fail closed')
+    assert.equal((setup.stdout + setup.stderr).includes(password), false)
+  } finally { await rm(directory, { recursive: true, force: true }) }
 })
