@@ -1,4 +1,4 @@
-import memoryNetwork from './memory-network.svg?raw'
+import { mountGalaxy, mountStarfield } from './login-galaxy.js'
 import { auth } from './auth.js'
 import { memory, registerGraph } from './api.js'
 import './account.css'
@@ -17,20 +17,38 @@ function theme() {
 function wireTheme() {
   document.querySelector('[data-theme-toggle]')?.addEventListener('click', () => {
     const value = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light'
-    document.documentElement.dataset.theme = value
+    // The page background transitions while the color tokens snap, so a
+    // switch shows a frame of low-contrast text. Switch with transitions
+    // off, then restore them after the next frame.
+    const root = document.documentElement
+    root.classList.add('theme-switching')
+    root.dataset.theme = value
+    void root.offsetHeight
+    requestAnimationFrame(() => root.classList.remove('theme-switching'))
     try { localStorage.setItem('kaeru-viz-theme', value) } catch (_) {}
   })
 }
+// The project turns slowly while the page is open; under reduced motion it
+// is drawn once and stays still.
+function wireGalaxy() {
+  const frame = document.querySelector('.galaxy-frame')
+  if (!frame || getComputedStyle(frame).display === 'none') return
+  const galaxy = mountGalaxy(frame, { onTurn: starfield?.rotate })
+  starfield?.place() // the field turns about the project's axis, now that it is laid out
+  if (!matchMedia('(prefers-reduced-motion: reduce)').matches) galaxy.play()
+}
 const mark = `<a class="account-brand" href="/ui/" aria-label="Kaeru memory"><span class="seal">蛙</span><span>kaeru<small>Cognitive memory for agents</small></span></a>`
-const footer = `<footer class="account-footer"><span>Lamantin AI</span><span>connected memory</span></footer>`
+const footer = `<footer class="account-footer"><a href="https://lamantin-ai.com" target="_blank" rel="noopener">Lamantin AI</a><span>connected memory</span></footer>`
+let starfield = null
 function shell(content, { admin = false, username = '' } = {}) {
   document.body.className = 'account-page'
   document.body.innerHTML = `<div class="account-shell"><header class="account-header">${mark}<nav>
-    ${admin ? `<a class="btn" href="/ui/">← memory</a><span class="account-user">${esc(username)}</span>` : '<span class="account-label">sign in</span>'}
+    ${admin ? `<a class="btn" href="/ui/">← memory</a><span class="account-user">${esc(username)}</span>` : ''}
     <button type="button" class="btn" data-theme-toggle aria-label="Switch color theme">◐</button>
     ${admin ? '<button type="button" class="btn" data-logout>sign out all sessions</button>' : ''}
     </nav></header>${content}${footer}</div>`
   wireTheme()
+  starfield = mountStarfield(document.body)
   document.querySelector('[data-logout]')?.addEventListener('click', logout)
 }
 async function logout() {
@@ -42,15 +60,16 @@ function login(configured) {
   document.title = 'Sign in — kaeru'
   shell(`<main class="access-layout"><section class="access-story"><p class="account-eyebrow">a working memory</p>
     <h1>Keep the thread.</h1><p class="account-lead">Decisions, connections and unfinished thoughts.<br>Ready to return to.</p>
-    ${memoryNetwork}
+    <div class="galaxy-frame"></div>
     </section><section class="access-card" aria-labelledby="access-title"><p class="account-eyebrow">${configured ? 'welcome back' : 'first connection'}</p>
     <h2 id="access-title">${configured ? 'Sign in' : 'Set up access'}</h2>
-    <p class="account-hint">${configured ? 'Enter your credentials.' : 'Create an account on the machine running kaeru, then restart it.'}</p>
+    ${configured ? '' : '<p class="account-hint">Create an account on the machine running kaeru, then restart it.</p>'}
     ${configured ? `<form id="login-form"><label for="username">Username</label><input id="username" name="username" autocomplete="username" required maxlength="128" />
       <label for="password">Password</label><input id="password" name="password" type="password" autocomplete="current-password" required maxlength="1024" />
-      <p class="account-notice" data-notice role="alert" hidden></p><button class="btn go account-submit" type="submit">open memory <span>→</span></button></form>`
+      <p class="account-notice" data-notice role="alert" hidden></p><button class="btn go account-submit" type="submit">open memory</button></form>`
       : `<code class="setup-command">kaeru-mcp --init-web-auth</code><p class="account-notice" data-notice role="status" hidden></p><button class="btn account-submit" data-retry>check again →</button>`}
-    <div class="account-card-foot"><span class="status-dot"></span>live memory</div></section></main>`)
+    </section></main>`)
+  wireGalaxy()
   document.querySelector('[data-retry]')?.addEventListener('click', () => location.reload())
   const known = { 'signed-out': 'All browser sessions have been signed out.', 'account-updated': 'Account updated. Sign in with your current credentials.', 'settings-updated': 'Session settings saved. Sign in again.' }
   notice(known[new URLSearchParams(location.search).get('notice')] || '')

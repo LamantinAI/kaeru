@@ -8,7 +8,7 @@
   --bg: #2a2a2f;
   --fg: #ece8df;
   --fg-2: #cdc9bf;
-  --dim: #8b887e;
+  --dim: #9a978d;         /* 4.9:1 on --bg; #8b887e was 4.03:1, under 4.5:1 for small text */
   --faint: #5a5851;
   --line: rgba(236, 232, 223, 0.10);
   --line-2: rgba(236, 232, 223, 0.18);
@@ -19,6 +19,7 @@
   --warn: #caa24a;      /* gold reads on the dark ground */
   --kind: #e8836f;      /* the kind label — seal itself is 2.88:1 here */
   --seal-fg: #f0d9d3;
+  --focus: #e8836f;       /* the seal is 2.88:1 on this ground — under 3:1 for a focus ring */
 }
 /* light theme — "aged paper" (brandbook v2 face palette) */
 @media (prefers-color-scheme: light) {
@@ -26,20 +27,21 @@
     --bg: #fcfbf8; --fg: #35312a; --fg-2: #544d42; --dim: #6e6557; --faint: #a99e8c;
     --line: rgba(53, 49, 42, 0.14); --line-2: rgba(53, 49, 42, 0.20);
     --panel: #eee9d8; --panel-2: rgba(238, 233, 216, 0.86); --ctl-bg: #f4efe6;
-    --gold: #caa24a; --warn: #8a6b24; --kind: #a8331f; --seal-fg: #8a2a1a;
+    --gold: #caa24a; --warn: #8a6b24; --kind: #a8331f; --seal-fg: #8a2a1a; --focus: var(--seal);
   }
 }
 :root[data-theme="light"] {
   --bg: #fcfbf8; --fg: #35312a; --fg-2: #544d42; --dim: #6e6557; --faint: #a99e8c;
   --line: rgba(53, 49, 42, 0.14); --line-2: rgba(53, 49, 42, 0.20);
   --panel: #eee9d8; --panel-2: rgba(238, 233, 216, 0.86); --ctl-bg: #f4efe6;
-  --gold: #caa24a; --warn: #8a6b24; --kind: #a8331f; --seal-fg: #8a2a1a;
+  --gold: #caa24a; --warn: #8a6b24; --kind: #a8331f; --seal-fg: #8a2a1a; --focus: var(--seal);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
   font-family: var(--serif); overflow: hidden;
   transition: background-color .3s ease, color .3s ease; }
 [hidden] { display: none !important; }
+.theme-switching, .theme-switching * { transition: none !important; }
 
 /* ── scrollbars, once ─────────────────────────────────────
  * Every scroller in the app wears the same bar. It used to be written out per
@@ -246,7 +248,7 @@ input[type=range]::-moz-range-thumb { width: 12px; height: 12px; border-radius: 
 
 /* ── legend ───────────────────────────────────────────── */
 /* keyboard focus is visible everywhere; pointer users still see nothing */
-:focus-visible { outline: 2px solid var(--seal); outline-offset: 2px; border-radius: 2px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 2px; }
 
 /* for text only assistive tech should read */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
