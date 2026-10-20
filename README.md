@@ -167,6 +167,14 @@ Per-user / per-org isolation (multi-tenant) is a future addition; today each clo
 - **Multi-tenant + isolation** — per-user / per-org separation in the shared cloud.
 - **Cross-initiative links** — opt-in edges and recall that *traverse* between initiatives. Per-initiative scoping is deliberate, not a gap — and `initiative_manage(action="attach")` already gives a node membership in several initiatives at once; this adds boundary-crossing edges/recall on top of it.
 
+## Instance visualizer
+
+Open `/ui/` on the MCP instance for the live visualizer. Frontend assets are
+embedded in `kaeru-mcp`; installation needs no Node.js or graph export.
+Run `kaeru-mcp --init-web-auth` to create the local account. The browser uses
+JWT sessions; agent MCP tokens remain separate. See [setup, access and build
+instructions](docs/instance-ui.md).
+
 ## Status
 
 Pre-1.0. This checkout implements the reduced API and removes old agent tool

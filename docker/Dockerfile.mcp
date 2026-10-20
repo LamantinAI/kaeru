@@ -1,6 +1,14 @@
+FROM node:24-bookworm-slim AS frontend
+
+WORKDIR /build/kaeru-viz
+COPY kaeru-viz/package.json kaeru-viz/package-lock.json ./
+RUN npm ci
+COPY kaeru-viz/ ./
+RUN npm run build:embedded
+
 FROM rust:1.95-bookworm AS builder
 
-WORKDIR kaeru/
+WORKDIR /kaeru
 
 RUN apt update && apt install -y \
         pkg-config \
@@ -10,10 +18,11 @@ RUN apt update && apt install -y \
         && rm -rf /var/lib/apt/lists/*
 
 COPY . .
+COPY --from=frontend /build/kaeru-mcp/ui-dist ./kaeru-mcp/ui-dist
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/kaeru/target \
-    cargo build -p kaeru-mcp --release && \
+    cargo build -p kaeru-mcp --release --locked && \
     cp target/release/kaeru-mcp /usr/local/bin/kaeru-mcp
 
 FROM debian:bookworm-slim
@@ -22,7 +31,7 @@ RUN apt update && apt install -y \
         ca-certificates \
         && rm -rf /var/lib/apt/lists/* \
     && adduser --disabled-password --gecos '' kaeru \
-    && mkdir -p /home/kaeru/.local/share/kaeru \
+    && mkdir -p /home/kaeru/.local/share/kaeru /home/kaeru/.config/kaeru \
     && chown -R kaeru:kaeru /home/kaeru
 
 COPY --from=builder /usr/local/bin/kaeru-mcp /usr/local/bin/kaeru-mcp

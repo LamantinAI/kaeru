@@ -6,3 +6,11 @@ target/
 LICENSE
 contrib/
 skills/
+**/node_modules/
+**/.env*
+target-linux-release/
+dist/
+.kaeru-vault/
+.cargo/config.toml
+benchmarks/
+kaeru-viz/public/graph.json

@@ -74,7 +74,7 @@ The workspace targets Rust `1.95+` with edition `2024` and uses a shared depende
 Workspace members:
 
 - `kaeru-core/` — library crate: substrate, schema, primitives and shared exchange models (`src/models/`).
-- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 1.6, streamable HTTP transport). The agent's surface; also proxies into `kaeru-cloud` for sharing / recall.
+- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 1.6, streamable HTTP transport). The agent's surface; also proxies into `kaeru-cloud` for sharing / recall. Its `ui/` module serves the embedded visualizer and browser routes; JWT/account services live in `auth/`. Generated assets in `ui-dist/` are rebuilt from `kaeru-viz/` with `npm run build:embedded` and checked with `npm run check:embedded`.
 - `kaeru-cloud/` — binary crate `kaeru-cloud`: the shared cloud tier (Axum REST over `kaeru-core`, bearer-token auth). One per team; local daemons connect to it.
 - `kaeru-rig/` — embedded `rig` adapter over the shared `kaeru-core::api`
   catalogue. `MemoryTool<I>` gives each operation a distinct static name;
@@ -184,7 +184,7 @@ kaeru-mcp/src/
 ├── canonical.rs            ← local dispatch plus asynchronous supplements
 ├── cloud.rs                ← retained cloud bridge
 └── api/                    ← the HTTP surface: one route per curator verb
-    ├── principal.rs        ← who is asking (one variant today, by design)
+    ├── principal.rs        ← authenticated caller (local, static bearer or browser session)
     ├── egress.rs           ← ApiConfig: the initiative ceiling, visibility, redaction
     └── handlers.rs         ← shared named-operation HTTP handler
 

@@ -26,6 +26,7 @@ pub struct ApiState {
 #[cfg(test)]
 pub fn router(store: Arc<Store>, cfg: ApiConfig) -> Router {
     router_with_clouds(store, cfg, CloudRegistry::default())
+        .layer(axum::Extension(principal::Principal::Local))
 }
 
 pub fn router_with_clouds(store: Arc<Store>, cfg: ApiConfig, clouds: CloudRegistry) -> Router {

@@ -29,6 +29,7 @@ mod server;
 mod settings;
 mod sse;
 mod stdio_bridge;
+mod ui;
 mod update;
 mod utils;
 
@@ -60,11 +61,14 @@ use crate::settings::KaeruMcpConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    if auth::cli::handle()? {
+        return Ok(());
+    }
     let mcp_config = KaeruMcpConfig::new()?;
 
     // `--stdio` is the bridge, not a second server: it forwards to the daemon
-    // that owns the vault rather than opening the vault itself. The flag is
-    // read straight off argv because the daemon has no other arguments.
+    // that owns the vault rather than opening the vault itself. The flag
+    // remains independent of local browser-account setup commands.
     if std::env::args().any(|a| a == "--stdio") {
         let url = format!(
             "http://{}:{}{}",
@@ -213,17 +217,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
     server.hygiene_scheduler().spawn_sweeper();
 
     // Shared HTTP memory API (`/v1/<operation>`) — OFF
-    // unless `KAERU_MCP_VIZ_ENABLE` is set, so a daemon never exposes a
+    // unless a browser account or `KAERU_MCP_VIZ_ENABLE` enables it; a daemon never exposes a
     // whole-graph export unasked. When on, scope is operator-configured (no
     // names in source): `KAERU_MCP_VIZ_INITIATIVES` is the allow ceiling
     // (empty = nothing), `KAERU_MCP_VIZ_DENY` is always denied, and only
     // `shared` nodes export unless `KAERU_MCP_VIZ_INCLUDE_LOCAL=1`. The env
     // names still say VIZ because operators already set them; the surface they
     // gate is no longer viz-specific.
-    let viz_enabled = matches!(
-        std::env::var("KAERU_MCP_VIZ_ENABLE").ok().as_deref(),
-        Some("1") | Some("true") | Some("yes")
+    let web_enabled = !matches!(
+        std::env::var("KAERU_MCP_UI_ENABLE").ok().as_deref(),
+        Some("0" | "false" | "no")
     );
+    let account = settings::web::optional_config_path()?
+        .map(auth::store::AccountStore::open)
+        .transpose()?
+        .flatten();
+    let web_session = auth::session::WebSession::new(account);
+    let viz_enabled = web_session.account.is_some()
+        || matches!(
+            std::env::var("KAERU_MCP_VIZ_ENABLE").ok().as_deref(),
+            Some("1" | "true" | "yes")
+        );
     let viz_csv = |key: &str| -> Vec<String> {
         std::env::var(key)
             .ok()
@@ -236,26 +250,33 @@ async fn main() -> Result<(), Box<dyn Error>> {
             })
             .unwrap_or_default()
     };
+    let api_config = api::ApiConfig {
+        allow: viz_csv("KAERU_MCP_VIZ_INITIATIVES"),
+        deny: viz_csv("KAERU_MCP_VIZ_DENY"),
+        include_local: matches!(
+            std::env::var("KAERU_MCP_VIZ_INCLUDE_LOCAL").ok().as_deref(),
+            Some("1" | "true" | "yes")
+        ),
+        allow_origin: std::env::var("KAERU_MCP_VIZ_ALLOW_ORIGIN")
+            .ok()
+            .filter(|s| !s.is_empty()),
+    };
+    let browser = ui::BrowserAuth {
+        session: web_session,
+        static_token: mcp_config.auth_token.clone(),
+        api: api_config.clone(),
+        clouds: server
+            .cloud_registry()
+            .names()
+            .into_iter()
+            .map(str::to_owned)
+            .collect(),
+    };
     let api_router = viz_enabled.then(|| {
-        api::router_with_clouds(
-            server.store(),
-            api::ApiConfig {
-                allow: viz_csv("KAERU_MCP_VIZ_INITIATIVES"),
-                deny: viz_csv("KAERU_MCP_VIZ_DENY"),
-                include_local: matches!(
-                    std::env::var("KAERU_MCP_VIZ_INCLUDE_LOCAL").ok().as_deref(),
-                    Some("1") | Some("true") | Some("yes")
-                ),
-                allow_origin: std::env::var("KAERU_MCP_VIZ_ALLOW_ORIGIN")
-                    .ok()
-                    .filter(|s| !s.is_empty()),
-            },
-            server.cloud_registry(),
+        api::router_with_clouds(server.store(), api_config, server.cloud_registry()).layer(
+            axum::middleware::from_fn_with_state(browser.clone(), ui::api_access),
         )
     });
-    if viz_enabled {
-        tracing::info!("HTTP API enabled (KAERU_MCP_VIZ_ENABLE): named /v1/ memory operations");
-    }
 
     let mut session_manager = LocalSessionManager::default();
     // rmcp defaults to a 5-minute idle timeout that reaps Claude Code MCP
@@ -310,18 +331,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .with_cancellation_token(cancel.child_token()),
     );
 
-    let mut router = axum::Router::new()
+    let router = axum::Router::new()
         .nest_service(&mcp_config.mount_path, service)
         .merge(sse_router);
-    if let Some(api_router) = api_router {
-        router = router.merge(api_router);
-    }
 
     // Bearer-token gate, layered over the whole router so it covers the
     // streamable HTTP and legacy SSE transports alike. Off when no token
     // is configured — fine for the loopback default, loudly flagged when
     // the daemon is reachable off-host without one.
+    let browser_account_enabled = browser.session.account.is_some();
     let router = match mcp_config.auth_token.trim() {
+        "" if browser_account_enabled => {
+            tracing::info!(
+                "MCP HTTP access requires KAERU_MCP_AUTH_TOKEN while browser authentication is enabled"
+            );
+            router.layer(axum::middleware::from_fn_with_state(
+                Arc::<str>::from(""),
+                auth::require_bearer,
+            ))
+        }
         "" => {
             if mcp_config.listen_address.is_loopback() {
                 tracing::info!(
@@ -346,6 +374,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
             ))
         }
     };
+
+    let mut router = router;
+    if let Some(api_router) = api_router {
+        router = router.merge(api_router);
+    }
+    if web_enabled {
+        router = router.merge(ui::router(browser));
+    } else if browser_account_enabled {
+        router = router.merge(ui::auth_routes(browser));
+    }
 
     // rmcp's Streamable HTTP transport returns `406 Not Acceptable` to any
     // request whose `Accept` header doesn't list BOTH `application/json` and

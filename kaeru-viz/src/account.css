@@ -1,0 +1,46 @@
+.account-page { overflow: auto; }
+.account-shell { max-width: 1280px; min-height: 100dvh; margin: auto; padding: 28px 48px 0; display: flex; flex-direction: column; }
+.account-header { display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.account-brand { display: flex; align-items: center; gap: 15px; text-decoration: none; color: var(--fg); font-size: 36px; letter-spacing: -.04em; line-height: 1; }
+.account-brand .seal { font-size: 31px; width: 48px; height: 48px; }
+.account-brand small { display: block; font: 9px/1.7 var(--mono); letter-spacing: .13em; text-transform: uppercase; color: var(--dim); margin-top: 5px; }
+.account-header nav { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.account-label, .account-user, .account-version, .account-footer { font: 10px/1.6 var(--mono); color: var(--dim); letter-spacing: .08em; }
+.account-eyebrow { font: 10px/1.5 var(--mono); letter-spacing: .2em; text-transform: uppercase; color: var(--kind); margin: 0 0 16px; }
+.access-layout { flex: 1; display: grid; grid-template-columns: 1.15fr 1fr; align-items: center; gap: 100px; padding: 56px 0 48px; }
+.access-story h1, .admin-intro h1, .account-status h1 { font-weight: 400; font-size: clamp(48px, 6vw, 78px); line-height: 1.06; letter-spacing: -.055em; margin: 0 0 24px; }
+.account-lead { color: var(--fg-2); font-size: 19px; line-height: 1.7; margin: 0; }
+.access-card { border: 1px solid var(--line-2); border-radius: 4px; padding: 38px; background: var(--panel-2); }
+.access-card h2, .admin-card h2 { font-size: 29px; font-weight: 400; letter-spacing: -.025em; margin: 0 0 10px; }
+.account-hint { font-size: 15px; color: var(--dim); line-height: 1.65; margin: 0 0 25px; }
+.account-page form { display: flex; flex-direction: column; gap: 10px; }
+.account-page form label { color: var(--fg-2); font: 11px/1.6 var(--mono); margin-top: 6px; }
+.account-page form label small { color: var(--dim); font-size: 9px; }
+.account-page input { width: 100%; height: 45px; border: 1px solid var(--line-2); border-radius: 3px; background: var(--ctl-bg); padding: 10px 12px; font: 14px var(--mono); color: var(--fg); outline: none; }
+.account-page input:focus-visible { border-color: var(--seal); box-shadow: 0 0 0 2px color-mix(in srgb, var(--seal) 20%, transparent); }
+.account-page .btn { text-decoration: none; }
+.account-page form button { align-self: start; margin-top: 15px; min-height: 38px; }
+.account-page .account-submit { width: 100%; align-self: stretch; display: flex; justify-content: space-between; margin-top: 23px; height: 43px; }
+.account-page button:disabled { opacity: .55; cursor: wait; }
+.account-notice { font: 12px/1.65 var(--mono); color: var(--fg-2); padding: 10px 0; margin: 0; }
+.account-notice.error { color: var(--kind); }
+.account-card-foot { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 20px; color: var(--dim); font: 9px var(--mono); letter-spacing: .06em; display: flex; align-items: center; gap: 9px; }
+.status-dot { background: var(--gold); width: 5px; height: 5px; display: inline-block; border-radius: 50%; }
+.account-footer { display: flex; justify-content: space-between; padding: 21px 0; margin-top: auto; border-top: 1px solid var(--line); font-size: 9px; }
+.memory-network { display: block; width: 360px; max-width: 100%; height: auto; margin-top: 32px; overflow: visible; }
+.network-links { fill: none; stroke: var(--dim); stroke-width: .65; }
+.network-nodes { fill: var(--gold); stroke: var(--bg); stroke-width: 2; paint-order: stroke; }
+.network-node-quiet { fill: var(--dim); }
+.network-node-accent { fill: var(--kind); }
+.network-mark { fill: var(--seal); font: 40px 'Zen Old Mincho', serif; }
+.setup-command { display: block; padding: 15px; font: 12px/1.8 var(--mono); border: 1px solid var(--line-2); background: var(--ctl-bg); overflow-wrap: anywhere; }
+.admin-layout { display: grid; grid-template-columns: 280px 1fr; gap: 70px; padding: 72px 0 54px; }
+.admin-intro { align-self: start; position: sticky; top: 36px; }.admin-intro h1 { font-size: 56px; }.admin-intro .account-lead { font-size: 16px; margin-bottom: 34px; }
+.admin-link { display: flex; gap: 16px; border-top: 1px solid var(--line); color: var(--dim); font: 11px var(--mono); padding: 17px 0; text-decoration: none; }.admin-link span { color: var(--fg-2); flex: 1; }.admin-link:hover span { color: var(--kind); }
+.account-version { margin-top: 28px; }.admin-panels { display: flex; flex-direction: column; gap: 24px; min-width: 0; }.admin-card { border: 1px solid var(--line-2); padding: 29px 32px; border-radius: 4px; background: var(--panel-2); scroll-margin-top: 24px; }
+.admin-card-heading { display: flex; align-items: baseline; gap: 16px; margin-bottom: 10px; }.admin-card-heading > span:first-child { color: var(--dim); font: 10px var(--mono); }.admin-card-heading h2 { margin-right: auto; }.admin-card-heading .account-chip { font-size: 9px; }
+.account-chip { display: inline-block; font: 10px/1.7 var(--mono); border: 1px solid var(--line-2); padding: 1px 7px; border-radius: 2px; margin: 1px 4px 1px 0; }.account-muted { color: var(--dim); }.instance-facts { display: grid; grid-template-columns: 150px 1fr; gap: 16px; margin: 15px 0 25px; font: 11px/1.8 var(--mono); }.instance-facts dt { color: var(--dim); }.instance-facts dd { margin: 0; overflow-wrap: anywhere; }
+.account-status { padding: 100px 0; max-width: 780px; }.account-status .account-lead { margin-bottom: 30px; }.account-actions { display: flex; gap: 12px; }
+.account-nav { display: flex; align-items: center; gap: 10px; pointer-events: auto; font: 10px var(--mono); color: var(--dim); }.account-nav a { text-decoration: none; }.live-error { position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%); z-index: 90; border: 1px solid var(--kind); color: var(--fg); background: var(--panel); padding: 12px 20px; max-width: calc(100vw - 32px); font: 11px/1.6 var(--mono); }
+@media (max-width: 900px) { .account-shell { padding: 24px 26px 0; }.access-layout { gap: 36px; }.admin-layout { grid-template-columns: 200px 1fr; gap: 28px; }.admin-intro h1 { font-size: 45px; }.admin-card { padding: 24px; }.account-label { display: none; } }
+@media (max-width: 650px) { .account-shell { padding: 20px 20px 0; }.account-brand { font-size: 29px; }.account-brand .seal { width: 39px; height: 39px; font-size: 26px; }.account-header nav { gap: 7px; }.account-user { display: none; }.account-header .btn { font-size: 10px; }.access-layout { grid-template-columns: 1fr; gap: 28px; padding: 42px 0 36px; }.access-story h1 { font-size: 52px; margin-bottom: 12px; }.account-lead { font-size: 16px; }.memory-network { display: none; }.access-card { padding: 26px; }.account-footer { margin-top: 20px; font-size: 8px; }.admin-layout { grid-template-columns: 1fr; padding-top: 35px; }.admin-intro { position: static; }.admin-intro h1 { font-size: 44px; }.admin-intro h1 br { display: none; }.admin-intro .account-lead, .admin-link, .account-version { display: none; }.instance-facts { grid-template-columns: 110px 1fr; gap: 12px; }.admin-card-heading { gap: 10px; }.admin-card h2 { font-size: 25px; }.account-status { padding: 70px 0; }.account-actions { flex-wrap: wrap; }.account-nav { position: fixed; top: 76px; right: 20px; }.account-nav > span { display: none; } }

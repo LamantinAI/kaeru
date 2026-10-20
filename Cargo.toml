@@ -11,6 +11,12 @@ description = "Cognitive memory layer for LLM agents — typed graph + bi-tempor
 authors = ["GrumpyChubbyCat <lamantin-ai@yandex.ru>"]
 
 [workspace.dependencies]
+argon2 = { version = "0.5.3", features = ["std"] }
+jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"] }
+rpassword = "7"
+toml = "0.9"
+tempfile = "3"
+include_dir = "0.7"
 # Substrate. Cozo with the rocksdb storage backend explicitly enabled —
 # disk-mode `Store::open(path)` opens the embedded RocksDB engine via
 # `DbInstance::new("rocksdb", path, "")`. The "compact" default features

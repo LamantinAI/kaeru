@@ -153,7 +153,8 @@ mod tests {
                     ..ApiConfig::default()
                 },
                 clouds.clone(),
-            );
+            )
+            .layer(axum::Extension(crate::api::principal::Principal::Local));
             let response = app
                 .oneshot(
                     Request::post("/v1/cloud_recall")
@@ -205,6 +206,7 @@ mod tests {
             },
             clouds,
         )
+        .layer(axum::Extension(crate::api::principal::Principal::Local))
         .oneshot(
             Request::post("/v1/pull")
                 .header("content-type", "application/json")

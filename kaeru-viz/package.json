@@ -3,16 +3,21 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "3D galaxy visualizer for a kaeru knowledge base — conference-talk build",
+  "description": "3D galaxy visualizer for a kaeru knowledge base \u2014 conference-talk build",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test test/*.test.js",
+    "build:embedded": "node scripts/build-embedded.mjs",
+    "check:embedded": "node scripts/build-embedded.mjs --check",
+    "test:browser": "node --test test/browser.spec.js"
   },
   "dependencies": {
     "three": "^0.184.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "vite": "^5.4.0"
   }
 }

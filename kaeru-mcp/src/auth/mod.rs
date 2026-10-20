@@ -1,23 +1,4 @@
-//! Static bearer-token authentication for inbound MCP requests.
-//!
-//! kaeru-mcp binds to loopback by default and ships with no auth — fine
-//! when only local agent sessions reach it. Once the daemon is exposed on
-//! a routable address (e.g. the central `feynman` stand), the open port is
-//! full curator access to the vault for anyone who can reach it. This
-//! module closes that gap with the simplest credible control: a single
-//! shared secret.
-//!
-//! When `KAERU_MCP_AUTH_TOKEN` is set, [`require_bearer`] is layered over
-//! the whole axum router, so **both** transports — streamable HTTP
-//! (`/mcp`) and the legacy SSE pair (`/sse`, `/messages`) — demand
-//! `Authorization: Bearer <token>` on every request. An empty token (the
-//! default) leaves the middleware off entirely; that decision is made in
-//! `main.rs`, not here.
-//!
-//! This is intentionally not OAuth: the MCP spec's auth flow is overkill
-//! for a single-operator stand. A static token is opt-in, works with
-//! `claude mcp add --header`, and is a clean upgrade path if richer auth
-//! is ever needed.
+//! Static MCP bearer authentication and the separate local browser-account service.
 
 use std::sync::Arc;
 
@@ -29,8 +10,8 @@ use axum::response::{IntoResponse, Response};
 
 /// axum middleware that rejects any request lacking a matching bearer
 /// token. The expected token is injected as state via
-/// `from_fn_with_state`; `main.rs` only installs this layer when a
-/// non-empty token is configured, so `expected` is never empty here.
+/// `from_fn_with_state`. Empty expected credentials deny every request;
+/// this keeps MCP closed when browser auth is enabled without an MCP token.
 pub async fn require_bearer(
     State(expected): State<Arc<str>>,
     request: Request,
@@ -58,7 +39,7 @@ pub async fn require_bearer(
 /// Parses the token out of an `Authorization` header value, accepting any
 /// case of the `Bearer` scheme per RFC 7235. Returns `None` for malformed
 /// or non-bearer values.
-fn bearer_token(header: &HeaderValue) -> Option<&str> {
+pub(crate) fn bearer_token(header: &HeaderValue) -> Option<&str> {
     let value = header.to_str().ok()?;
     let (scheme, token) = value.split_once(' ')?;
     scheme
@@ -70,7 +51,7 @@ fn bearer_token(header: &HeaderValue) -> Option<&str> {
 /// Length-checked constant-time byte comparison. Avoids leaking the
 /// matched-prefix length through timing — cheap insurance for a secret
 /// compared on every request.
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -91,7 +72,7 @@ fn unauthorized() -> Response {
 }
 
 #[cfg(test)]
-mod tests {
+mod bearer_tests {
     use axum::http::HeaderValue;
 
     use super::{bearer_token, constant_time_eq};
@@ -124,3 +105,11 @@ mod tests {
         assert!(constant_time_eq(b"", b""));
     }
 }
+
+pub mod store;
+
+pub mod cli;
+pub mod session;
+
+#[cfg(test)]
+mod tests;

@@ -13,3 +13,6 @@
 # `text=auto eol=lf` rather than `-text`, so the normalisation also holds for
 # anything committed from a Windows machine, not just what is checked out.
 * text=auto eol=lf
+
+# Generated bundles retain third-party shader text verbatim.
+kaeru-mcp/ui-dist/** linguist-generated=true -whitespace

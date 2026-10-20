@@ -1,4 +1,4 @@
-import { memory, registerGraph } from './api.js'
+import { memory, registerGraph, registeredGraph } from './api.js'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { createReader } from './reader.js'
@@ -66,12 +66,8 @@ const resolvedTheme = () => (themePref === 'auto' ? (mql.matches ? 'light' : 'da
 let TH = THEMES[resolvedTheme()]
 
 // ── data ──────────────────────────────────────────────────────────────────
-// Prefer the authorized live API; an offline graph is a separate static file.
-async function loadGraph() {
-  try { return await memory.graph() } catch (_) { /* offline snapshot */ }
-  try { const response = await fetch('./graph.json'); if (response.ok) return await response.json() } catch (_) {}
-  return null
-}
+// Bootstrap supplies the authorized live graph before loading WebGL.
+async function loadGraph() { return registeredGraph() || await memory.graph() }
 function fail(msg) {
   const g = document.getElementById('graph')
   if (g) g.insertAdjacentHTML('beforeend',
@@ -82,7 +78,7 @@ function fail(msg) {
 const data = await loadGraph()
 if (data) registerGraph(data)
 if (!data || !Array.isArray(data.nodes) || data.nodes.length === 0) {
-  fail('graph data unavailable — is the kaeru daemon running, or a snapshot baked?')
+  fail('no records available under this instance’s access settings')
 }
 // tolerate a partial/malformed snapshot: default the optional collections
 data.initiatives ??= []

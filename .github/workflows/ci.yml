@@ -18,6 +18,22 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  test-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: kaeru-viz/package-lock.json
+      - run: npm ci
+        working-directory: kaeru-viz
+      - run: npm test
+        working-directory: kaeru-viz
+      - run: npm run check:embedded
+        working-directory: kaeru-viz
+
   test-update-worker:
     runs-on: ubuntu-latest
     steps:
@@ -54,3 +70,17 @@ jobs:
 
       - name: cargo test --workspace
         run: cargo test --workspace --all-targets
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: kaeru-viz/package-lock.json
+      - name: Build MCP for browser integration tests
+        run: cargo build -p kaeru-mcp --locked
+      - name: Test embedded UI against a temporary MCP instance
+        working-directory: kaeru-viz
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run test:browser

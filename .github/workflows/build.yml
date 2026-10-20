@@ -15,6 +15,9 @@ jobs:
     strategy:
       matrix:
         include:
+          - name: mcp
+            file: ./docker/Dockerfile.mcp
+            suffix: -mcp
           - name: cloud
             file: ./docker/Dockerfile.cloud
             suffix: -cloud

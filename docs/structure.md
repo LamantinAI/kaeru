@@ -3,7 +3,9 @@
 The four Rust crates share dependencies through the workspace manifest. Core
 owns local memory semantics. MCP and Rig expose those semantics to clients;
 cloud provides the existing shared-memory REST service. The browser visualizer
-and portable skill are distributed separately from Cargo builds.
+is compiled separately, then embedded into the MCP binary;
+Cargo-only installation uses the checked-in generated bundle. The portable skill
+remains a separate distribution.
 
 ## Follow one call
 
@@ -36,6 +38,9 @@ and Rig tool modules are removed; they are not a compatibility API.
 | `kaeru-mcp/src/canonical.rs` | Local dispatch and asynchronous supplements. |
 | `kaeru-mcp/src/cloud.rs` | The nine existing cloud bridge operations. |
 | `kaeru-mcp/src/api/` | Named HTTP routes, principal and egress policy. |
+| `kaeru-mcp/src/ui/` | Embedded assets, browser routes and thin account screens. |
+| `kaeru-mcp/src/auth/` | JWT/password verification and atomic local account persistence. |
+| `kaeru-mcp/ui-dist/` | Generated, verified static frontend bundled by Cargo. |
 | `kaeru-rig/src/tools.rs` | Distinct `kaeru_<operation>` tools over the shared catalogue. |
 | `kaeru-rig/src/cloud/` | Embedded asynchronous cloud bridge. |
 | `kaeru-cloud/src/api/` | Standalone cloud REST handlers. |

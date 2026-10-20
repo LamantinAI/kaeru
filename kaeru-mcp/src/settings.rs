@@ -268,3 +268,5 @@ token = "work-yyy"
         assert_eq!(cfg.clouds["work"].url, "https://team.corp/");
     }
 }
+
+pub mod web;

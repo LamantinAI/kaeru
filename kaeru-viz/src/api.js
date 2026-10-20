@@ -1,24 +1,29 @@
 // The visualizer consumes the same named JSON operations as agents.
+import { sessionHeaders } from './session.js'
+
 const scopesByNode = new Map()
-let snapshot = null
+let registered = null
 
 export function registerGraph(graph) {
-  snapshot = graph
+  registered = graph
+  scopesByNode.clear()
   for (const node of graph.nodes || []) if (node.initiatives?.length) scopesByNode.set(node.id, node.initiatives[0])
 }
 export function scopeFor(id) { return scopesByNode.get(id) }
-export function snapshotBody(id) { return snapshot?.nodes.find((n) => n.id === id)?.body }
+export function registeredGraph() { return registered }
 
-export function createClient({ baseUrl = '', headers = {}, fetcher = fetch } = {}) {
+export function createClient({ baseUrl = '', headers = {}, fetcher = fetch, onError } = {}) {
   async function call(operation, arguments_) {
     const response = await fetcher(`${baseUrl}/v1/${operation}`, {
-      method: 'POST', headers: { 'content-type': 'application/json', ...headers },
+      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(typeof headers === 'function' ? headers() : headers) },
       body: JSON.stringify(arguments_),
-    })
-    const value = await response.json()
+    }).catch((error) => { onError?.(error); throw error })
+    const value = await response.json().catch(() => ({}))
     if (!response.ok || value.state === 'rejected' || value.state === 'partial') {
       const error = new Error(value.issues?.[0]?.message || `Memory HTTP ${response.status}`)
       error.code = value.issues?.[0]?.code
+      error.status = response.status
+      onError?.(error)
       throw error
     }
     return value
@@ -72,7 +77,7 @@ export function createClient({ baseUrl = '', headers = {}, fetcher = fetch } = {
           const key = `${edge.from}|${edge.to}|${edge.edge_type}`
           edges.set(key, { src: edge.from, dst: edge.to, type: edge.edge_type, weight: edge.weight, dst_store: edge.dst_store })
         }
-        if (node.type === 'chain') for (const trail of page.data.reasoning) if (trail.id === node.id) {
+        for (const trail of page.data.reasoning || []) {
           chains.set(trail.id, { id: trail.id, name: trail.name, members: trail.members.filter((id) => nodes.has(id)) })
         }
       }
@@ -86,4 +91,6 @@ export function createClient({ baseUrl = '', headers = {}, fetcher = fetch } = {
   }
   return { call, pages, record, graph }
 }
-export const memory = createClient()
+export const memory = createClient({ headers: sessionHeaders, onError(error) {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(error.status === 401 ? 'kaeru-auth-required' : 'kaeru-api-error', { detail: error }))
+} })

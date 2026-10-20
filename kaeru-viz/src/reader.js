@@ -78,7 +78,11 @@ export function createReader(data, { fmtDateTime }) {
   // Reports whether anything actually grew, so a caller that already drew the
   // page knows whether it is worth drawing again.
   async function loadBodies(ids) {
-    const full = await bodiesFor(ids)
+    let full
+    try { full = await bodiesFor(ids) } catch (error) {
+      window.dispatchEvent(new CustomEvent('kaeru-api-error', { detail: error }))
+      return false
+    }
     let grew = false
     for (const id in full) if (N[id] && N[id].body !== full[id]) { N[id].body = full[id]; grew = true }
     return grew
