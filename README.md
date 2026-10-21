@@ -212,7 +212,7 @@ kaeru-mcp amg import knowledge.amg --vault /path/to/destination
 Metadata records the export time, schema version, software version and initiative
 selection. `--force` appends conflicting imported versions under the same IDs
 while preserving local history. For a complete backup, stop the owner and copy
-the vault and configuration. See [AMG format and import behavior](docs/amg.md).
+the vault and configuration. See [AMG format and import behavior](docs/export_format_amg.md).
 
 ## Roadmap
 
@@ -243,7 +243,7 @@ and AMG knowledge transfer. Current boundaries:
 - **Migrations and transfer.** Vault migrations are forward-only. AMG transfers current knowledge, not the source vault's full history or runtime configuration; cryptographic signatures and encryption are not implemented.
 
 See [architecture](docs/architecture.md), [the API reference](docs/curator-api.md)
-and [read-performance measurements](docs/read-performance.md) for the contracts
+and [read performance and cancellation](docs/read-performance.md) for the contracts
 and measured behavior.
 
 ## Contributing

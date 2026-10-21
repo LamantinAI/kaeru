@@ -182,7 +182,7 @@ kaeru-mcp amg inspect project.amg
 kaeru-mcp amg import project.amg --vault /path/to/other-vault --dry-run
 ```
 
-See [AMG](../docs/amg.md) for force/conflict semantics and backup limits.
+See [AMG](../docs/export_format_amg.md) for force/conflict semantics and backup limits.
 Agent `export` is a separate JSON/Markdown artifact operation, not AMG.
 
 ## Containers and releases

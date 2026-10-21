@@ -498,7 +498,7 @@ the set-scope-then-operate sequence (`kaeru-core/src/store.rs`).
 
 Start at `docs/README.md`; use `docs/curator-api.md` for the 35 agent operations,
 `docs/instance-ui.md` for optional authentication and HTTP/UI scope, and
-`docs/amg.md` for the offline transfer format. API version 1, AMG schema 1 and
+`docs/export_format_amg.md` for the offline transfer format. API version 1, AMG schema 1 and
 database migration numbers are independent. `export(destination=...)` produces
 a JSON/Markdown view under the authorized artifact root; `kaeru-mcp amg` moves
 current knowledge. Neither replaces a cold full-vault backup of source history.

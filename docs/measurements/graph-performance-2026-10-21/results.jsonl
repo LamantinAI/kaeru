@@ -1,6 +1,0 @@
-{"api_calls":2339,"backend":"rocksdb","elapsed_ms":2942.611649,"fingerprint":"7f529b0641233048","nodes":2300,"pipeline":"legacy","profile":"release","repeat":0,"response_bytes":4619617,"returned_edges":4600,"returned_nodes":2300}
-{"api_calls":12,"backend":"rocksdb","elapsed_ms":173.071929,"fingerprint":"7f529b0641233048","nodes":2300,"pipeline":"compact","profile":"release","repeat":0,"response_bytes":763142,"returned_edges":4600,"returned_nodes":2300}
-{"api_calls":2339,"backend":"rocksdb","elapsed_ms":2940.4616570000003,"fingerprint":"7f529b0641233048","nodes":2300,"pipeline":"legacy","profile":"release","repeat":1,"response_bytes":4619617,"returned_edges":4600,"returned_nodes":2300}
-{"api_calls":12,"backend":"rocksdb","elapsed_ms":158.34717,"fingerprint":"7f529b0641233048","nodes":2300,"pipeline":"compact","profile":"release","repeat":1,"response_bytes":763142,"returned_edges":4600,"returned_nodes":2300}
-{"api_calls":2339,"backend":"rocksdb","elapsed_ms":3151.961981,"fingerprint":"7f529b0641233048","nodes":2300,"pipeline":"legacy","profile":"release","repeat":2,"response_bytes":4619617,"returned_edges":4600,"returned_nodes":2300}
-{"api_calls":12,"backend":"rocksdb","elapsed_ms":173.080445,"fingerprint":"7f529b0641233048","nodes":2300,"pipeline":"compact","profile":"release","repeat":2,"response_bytes":763142,"returned_edges":4600,"returned_nodes":2300}

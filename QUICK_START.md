@@ -261,7 +261,7 @@ AMG transfers current knowledge into another vault and preserves IDs, properties
 local edges and semantic metadata. It does not transfer the source's old versions,
 authentication or journals. Use `amg inspect`, then `amg import --dry-run` before
 applying a merge. Conflicts abort by default; `--force` appends supplied versions
-while retaining the destination's existing history. See [AMG](docs/amg.md).
+while retaining the destination's existing history. See [AMG](docs/export_format_amg.md).
 
 The agent-facing `export` operation is a readable view, separate from AMG:
 

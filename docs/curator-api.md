@@ -275,5 +275,5 @@ not an importable backup of all graph properties/history.
 
 AMG uses the operator CLI `kaeru-mcp amg export/import/inspect`, outside the
 35-operation agent catalogue. It transfers current knowledge, including typed
-properties and semantic metadata. See [AMG](amg.md) for selection, force,
+properties and semantic metadata. See [AMG](export_format_amg.md) for selection, force,
 validation and the offline vault-lock requirement.

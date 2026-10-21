@@ -156,7 +156,7 @@ validates closure and merged destination invariants, then commits atomically.
 Normal conflicts abort; force appends local versions under existing IDs and
 retains prior destination node/edge history. Metadata before-images are stored
 in an import receipt. Source history, accounts, runtime state and cloud endpoint
-configuration are excluded. See [AMG](amg.md).
+configuration are excluded. See [AMG](export_format_amg.md).
 
 ## Migrations and cloud
 
