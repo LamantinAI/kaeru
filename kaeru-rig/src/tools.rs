@@ -93,6 +93,8 @@ impl<const I: usize> Tool for MemoryTool<I> {
                 }
             } else if args.get("initiative").is_none()
                 && !(name == "context" && args.get("view").and_then(Value::as_str) == Some("graph"))
+                && !(name == "export"
+                    && (args.get("initiatives").is_some() || args.get("all").is_some()))
             {
                 let schema = &definition.input_schema;
                 let accepts = schema.pointer("/properties/initiative").is_some()
@@ -448,6 +450,34 @@ mod tests {
 
     use super::*;
 
+    #[tokio::test]
+    async fn export_honors_explicit_multi_and_all_instead_of_injecting_active_scope() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        for name in ["alpha", "beta"] {
+            let r = kaeru_core::api::execute(
+                &store,
+                "note",
+                json!({"initiative":name,"body":name}),
+                &kaeru_core::api::ApiOptions::local(),
+            );
+            assert!(!r.is_error());
+        }
+        let root = std::env::temp_dir().join(kaeru_core::new_node_id());
+        let mem = KaeruMemory::with_initiative(store, "alpha").with_api_artifact_root(&root);
+        for (name, args, count) in [
+            ("all", json!({"all":true}), 2),
+            ("multi", json!({"initiatives":["alpha","beta"]}), 2),
+            ("scoped", json!({}), 1),
+        ] {
+            let mut args = args;
+            args["format"] = json!("amg");
+            args["destination"] = json!(name);
+            let response = mem.export().call(args).await.unwrap();
+            assert_ne!(response["state"], "rejected", "{response}");
+            assert_eq!(response["data"]["artifacts"][0]["nodes"], count);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[tokio::test]
     async fn rig_calls_share_the_same_state_and_replay_contract() {
         let store = Arc::new(Store::open_in_memory().unwrap());

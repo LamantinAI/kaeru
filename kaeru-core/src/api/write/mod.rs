@@ -20,6 +20,7 @@ use crate::models::{
 use crate::{EdgeType, Error, Store, link_with_weight, new_node_id, release_slot, slot_holder};
 
 mod capture;
+mod export;
 mod manage;
 mod state;
 

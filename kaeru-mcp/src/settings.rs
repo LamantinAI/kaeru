@@ -270,4 +270,5 @@ token = "work-yyy"
     }
 }
 
+pub mod archive;
 pub mod web;

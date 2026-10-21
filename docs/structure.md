@@ -25,6 +25,7 @@ after the local commit and report their own failures.
 | Transaction ownership and rollback | `kaeru-core/src/store/database.rs` |
 | Identity transfer and preserved references | `kaeru-core/src/mutate/identity.rs` |
 | Stored schema and forward migrations | `kaeru-core/src/store.rs`, `kaeru-core/src/migrate.rs` |
+| Archive rendering | `kaeru-core/src/archive/`, `kaeru-core/src/models/archive.rs` |
 | Portable knowledge export/import | `kaeru-core/src/amg/`, `kaeru-core/src/models/amg.rs`, `kaeru-core/src/config/amg.rs` |
 | Domain storage primitives | `kaeru-core/src/graph/`, `mutate/`, `recall/` |
 
@@ -40,6 +41,7 @@ and Rig tool modules are removed; they are not a compatibility API.
 | `kaeru-mcp/src/cloud.rs` | The nine existing cloud bridge operations. |
 | `kaeru-mcp/src/api/` | Named HTTP routes, principal and egress policy. |
 | `kaeru-mcp/src/ui/` | Embedded assets, browser routes and thin account screens. |
+| `kaeru-mcp/src/exports/` | Bounded generated-only MCP archive resources. |
 | `kaeru-mcp/src/cli/` | Offline AMG and local authentication setup commands. |
 | `kaeru-mcp/src/auth/` | JWT/password verification and atomic local account persistence. |
 | `kaeru-mcp/ui-dist/` | Generated, verified static frontend bundled by Cargo. |
@@ -66,6 +68,7 @@ Unit tests beside domain code cover individual storage and adapter behaviors.
 | `atomic_commands.rs` | Command rollback and transactional behavior. |
 | `canonical_api.rs` | Shared definitions, validation and canonical results. |
 | `identity_and_history.rs` | Content preservation, identity transfer and historical access. |
+| `agent_exports.rs` | Live two-format export, egress, no-clobber filesystem behavior and replay. |
 | `amg.rs` | Scoped export, atomic conflict/force import, semantic metadata and recorded history. |
 | `vault_migration.rs` | Opening older disk vaults without losing recorded data. |
 

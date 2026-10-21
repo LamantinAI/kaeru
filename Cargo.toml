@@ -35,6 +35,10 @@ tower = { version = "0.5", features = ["util"] }
 # CLI parsing
 clap = { version = "4", features = ["derive", "env"] }
 
+# Archive publishing
+base64 = "0.22"
+zip = { version = "=3.0.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
 # Serde
 ciborium = "0.2.2"
 serde = { version = "1", features = ["derive"] }

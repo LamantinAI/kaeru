@@ -45,7 +45,7 @@ this contract. See [the API reference](docs/curator-api.md).
 - **Structural recall** — scoped name / ID lookup, literal lexical search and typed graph traversal. `read` expands relations, provenance and paths on demand; returned records carry currentness, material conflicts and saved reasoning. Source references preserve the supplied text exactly.
 - **Read-back on re-entry** — `context` restores what was *touched* and also what is still *owed*: project rules, current slots, open tasks, claims, reminders and saved reasoning. Bounded results report coverage and provide continuation arguments.
 - **Initiative management** — `initiative_manage` renames, merges or deletes an initiative, or attaches an existing record to another initiative to repair fragmentation.
-- **Markdown export** — an Obsidian-friendly snapshot of an initiative through `export`. AMG additionally transfers structured current knowledge between vaults.
+- **Markdown export** — an Obsidian-friendly ZIP of `.md` pages through `export`. AMG additionally transfers structured current knowledge between vaults.
 
 ## Architecture Notes
 
@@ -123,7 +123,7 @@ initiative_manage(action="set_slot", initiative="auth-rewrite",
 retention(initiative="auth-rewrite", action="preview_hygiene")
 
 # Export an initiative into the host's configured artifact root:
-export(initiative="auth-rewrite", destination="/path/to/artifacts/auth-snapshot")
+export(format="markdown", initiative="auth-rewrite", destination="auth-snapshot.zip")
 ```
 
 Follow `continuation.next_arguments` and inspect `coverage` on bounded reads.
@@ -201,18 +201,22 @@ and JWT browser sessions; agent MCP bearer credentials remain separate. See
 AMG is a CBOR-based format for transferring current knowledge between vaults.
 Export the whole graph or selected initiatives, then inspect and import it:
 
-```sh
-# Stop each vault's daemon before offline export or import.
-kaeru-mcp amg export --vault /path/to/source --all --output knowledge.amg
-kaeru-mcp amg inspect knowledge.amg
-kaeru-mcp amg import knowledge.amg --vault /path/to/destination --dry-run
-kaeru-mcp amg import knowledge.amg --vault /path/to/destination
+Ask an agent to export selected initiatives or the whole current graph. The
+existing `export` tool has two formats: Markdown ZIP and AMG:
+
+```text
+export(format="markdown", initiatives=["research","infrastructure"], destination="projects.zip")
+export(format="amg", all=true, destination="knowledge.amg")
 ```
 
-Metadata records the export time, schema version, software version and initiative
-selection. `--force` appends conflicting imported versions under the same IDs
-while preserving local history. For a complete backup, stop the owner and copy
-the vault and configuration. See [AMG format and import behavior](docs/export_format_amg.md).
+Export works live through MCP, HTTP and Rig. Configure the host's authorized
+`KAERU_MCP_ARTIFACT_ROOT`; MCP returns a resource link so remote clients can
+retrieve the archive without server filesystem access. See [AMG and archive
+export](docs/export_format_amg.md) for scope, download limits and the offline import commands.
+
+Neither format includes source history, accounts, journals or runtime
+configuration. For a complete pre-upgrade backup, stop the owner and copy its
+vault and config. See [upgrade guidance](QUICK_START.md#5-upgrades-and-backups).
 
 ## Roadmap
 

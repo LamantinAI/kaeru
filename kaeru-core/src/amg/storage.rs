@@ -159,6 +159,16 @@ pub(super) fn nodes(store: &Store, ids: &BTreeSet<String>) -> Result<BTreeMap<St
         .collect::<Result<BTreeMap<_, _>>>()?;
     let mut origins = origins(store, "node", &versions)?;
     for (id, node) in out.iter_mut() {
+        // Full canonical reads use exact source.original, not the legacy
+        // summary that may have scrubbed tool-like markup during capture.
+        if node.node_type == "reference"
+            && let Some(original) = node
+                .properties
+                .pointer("/source/original")
+                .and_then(Value::as_str)
+        {
+            node.body = Some(original.to_string());
+        }
         node.origins = origins
             .remove(&(id.clone(), versions[id]))
             .unwrap_or_default();

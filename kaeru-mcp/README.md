@@ -170,20 +170,26 @@ in [Quick Start](../QUICK_START.md). Other substrate tunables are defined in
 `KAERU_READ_TRACE_ENABLED=true` enables the optional
 [local read journal](../docs/architecture.md#local-read-delivery-journal), outside the vault.
 
-## Operator commands and knowledge transfer
+## Agent exports and operator commands
 
-`kaeru-mcp --help` lists daemon, stdio, authentication and AMG commands.
-`kaeru-mcp amg --help` lists offline inspect/export/import. Stop the process
-owning the selected vault before export/import; the lock is never bypassed.
+The existing `export` tool produces either a ZIP of Markdown pages or one AMG
+file from the live vault. Configure `KAERU_MCP_ARTIFACT_ROOT` before starting the
+service. Example tool arguments:
 
-```sh
-kaeru-mcp amg export --vault /path/to/vault --initiative project --output project.amg
-kaeru-mcp amg inspect project.amg
-kaeru-mcp amg import project.amg --vault /path/to/other-vault --dry-run
+```json
+{"format":"amg","all":true,"destination":"knowledge.amg"}
 ```
 
-See [AMG](../docs/export_format_amg.md) for force/conflict semantics and backup limits.
-Agent `export` is a separate JSON/Markdown artifact operation, not AMG.
+Use `format: "markdown"` and a `.zip` destination for readable pages. Select
+exactly one of `initiative`, `initiatives` or `all`. The result reports the
+published artifact and includes an MCP `resource_link`; retrieve it through
+`resources/read`. Only generated verified files are registered, with bounded
+size/cache/lifetime. There is no arbitrary file read or JSON-directory format.
+See [archive export and AMG](../docs/export_format_amg.md) for access and download limits.
+
+`kaeru-mcp --help` also lists service/authentication commands and the manual
+`amg inspect/export/import` CLI. Those offline export/import commands require
+stopping the vault owner; agent export does not. Import is not an agent tool.
 
 ## Containers and releases
 

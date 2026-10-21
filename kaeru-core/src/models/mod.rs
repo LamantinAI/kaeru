@@ -2,6 +2,7 @@
 
 mod access;
 pub mod amg;
+mod archive;
 mod catalogue;
 mod cloud;
 mod graph;
@@ -13,6 +14,7 @@ mod response;
 mod search;
 
 pub use access::ApiOptions;
+pub use archive::ArchiveFormat;
 pub use catalogue::{ToolAnnotations, ToolDefinition};
 pub use graph::{GraphCounts, GraphData, GraphEdge, GraphMember, GraphNode, GraphSnapshot};
 pub use mirror::{EdgeChange, EdgeMirror};

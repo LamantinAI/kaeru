@@ -155,3 +155,14 @@ edge import is incomplete; retry rather than assuming nothing was written. `link
 and `cloud_links` retain a remote reference. `policy` controls whether and where
 an initiative may share. `share` and `unshare` are explicit; sharing also runs a
 secret guard. With several configured clouds, name the one you mean.
+
+
+## Export when asked
+
+Use `export(format="markdown", initiative="project", destination="project.zip")`
+for an archive of readable Markdown pages, or `format="amg"` with a `.amg`
+destination for portable current knowledge. Choose exactly one of `initiative`,
+`initiatives=[...]` or `all=true`. Export runs against the live service and needs
+an authorized host artifact root. Return the artifact/resource link to the user;
+MCP clients retrieve the file with `resources/read`. No history backup or agent
+import is implied. Do not put archive bytes or base64 into a memory note.

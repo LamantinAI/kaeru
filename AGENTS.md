@@ -492,22 +492,23 @@ the set-scope-then-operate sequence (`kaeru-core/src/store.rs`).
 
 - Vector embeddings — **not implemented**. Recall is structural + Cozo FTS; Cozo supports HNSW but kaeru wires none of it (no embeddings / vector index in the tree). A vector fallback for cold queries is possible future work, not a current feature.
 - A network storage backend — Cozo/RocksDB remains embedded. MCP, HTTP and the cloud service expose network APIs; a remote PostgreSQL/gRPC substrate is not implemented.
-- Replacing PKM tools — `kaeru` is for **agent** memory. Humans can inspect it through the embedded UI and JSON/Markdown exports; the offline CLI handles AMG transfer and local account setup.
+- Replacing PKM tools — `kaeru` is for **agent** memory. Humans can inspect it through the embedded UI and Markdown ZIP/AMG exports; the offline CLI handles AMG transfer and local account setup.
 
 ## Current operator documentation
 
 Start at `docs/README.md`; use `docs/curator-api.md` for the 35 agent operations,
 `docs/instance-ui.md` for optional authentication and HTTP/UI scope, and
-`docs/export_format_amg.md` for the offline transfer format. API version 1, AMG schema 1 and
-database migration numbers are independent. `export(destination=...)` produces
-a JSON/Markdown view under the authorized artifact root; `kaeru-mcp amg` moves
-current knowledge. Neither replaces a cold full-vault backup of source history.
+`docs/export_format_amg.md` for live agent exports and offline import. API version 1, AMG schema 1 and
+database migration numbers are independent. Agent `export` accepts exactly
+`format=markdown` (ZIP of `.md` pages) or `format=amg`, under the authorized
+artifact root. MCP provides generated-only downloadable resources. Neither
+format replaces a cold full-vault backup of source history.
 
 AMG conflicts abort unless explicit force accepts new current assertions.
 Preserve local node/edge history, destination sharing policy and semantic
-closure; force is not permission to bypass validation. Export/import must not
-open a vault held by a daemon. Do not add AMG commands to the agent catalogue
-without an explicit contract change.
+closure; force is not permission to bypass validation. Offline operator export/import must not open a vault held by a daemon.
+Agent export uses the already running Store; import is not an agent operation.
+Keep shared schemas/dispatch in core and resource transport concerns in MCP.
 
 The repository is BSL 1.1 with its Additional Use Grant; see `LICENSE` and
 `LICENSING.md`. Do not label current code MIT or promise unimplemented vector,

@@ -263,16 +263,22 @@ authentication or journals. Use `amg inspect`, then `amg import --dry-run` befor
 applying a merge. Conflicts abort by default; `--force` appends supplied versions
 while retaining the destination's existing history. See [AMG](docs/export_format_amg.md).
 
-The agent-facing `export` operation is a readable view, separate from AMG:
+### Ask an agent to export
+
+The running service can produce an AMG file or ZIP with Markdown pages:
 
 ```text
-export(initiative="project", destination="project-snapshot")
+export(format="amg", initiative="project", destination="project.amg")
+export(format="markdown", initiatives=["project","research"], destination="projects.zip")
+export(format="amg", all=true, destination="knowledge.amg")
 ```
 
-It writes `graph.json` and `README.md` beneath the host's authorized artifact
-root (`KAERU_MCP_ARTIFACT_ROOT` for the daemon). Choose a new destination; its
-parent must already exist inside that root. It is not a complete backup, and
-there is no automatic Markdown re-import operation.
+The host must set `KAERU_MCP_ARTIFACT_ROOT` to authorize destinations. Existing
+files are never overwritten. MCP returns a generated-file resource link;
+`resources/read` retrieves the archive without local filesystem access. Agent
+exports need no daemon shutdown. They contain current knowledge, not historical
+backups; import remains an offline operator action. See [AMG and archive
+export](docs/export_format_amg.md) for scope and bounded downloads.
 
 ## 6. Team Cloud (Sharing & Recall)
 

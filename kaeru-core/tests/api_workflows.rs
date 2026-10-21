@@ -633,16 +633,20 @@ fn exports_preserve_the_exact_source_and_apply_the_scope_before_content_selectio
     let response = api::execute(
         &store,
         "export",
-        json!({"initiative":"work","destination":"snapshot"}),
+        json!({"format":"markdown","initiative":"work","destination":"snapshot.zip"}),
         &options,
     );
     assert!(!response.is_error(), "{response:?}");
-    let graph: Value = serde_json::from_str(
-        &std::fs::read_to_string(directory.join("snapshot/graph.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!(graph["nodes"][0]["body"], exact);
-    assert!(!graph.to_string().contains("PRIVATE OTHER PROJECT"));
+    let mut archive =
+        zip::ZipArchive::new(std::fs::File::open(directory.join("snapshot.zip")).unwrap()).unwrap();
+    let mut contents = String::new();
+    for index in 0..archive.len() {
+        let mut entry = archive.by_index(index).unwrap();
+        std::io::Read::read_to_string(&mut entry, &mut contents).unwrap();
+    }
+    assert!(contents.contains(exact));
+    assert!(!contents.contains("PRIVATE OTHER PROJECT"));
+    drop(archive);
     std::fs::remove_dir_all(directory).unwrap();
 }
 

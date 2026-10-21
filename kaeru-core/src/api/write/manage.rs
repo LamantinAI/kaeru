@@ -1,24 +1,22 @@
-use std::fs::{create_dir, create_dir_all, remove_dir_all, rename, write};
-use std::path::{Component, PathBuf};
-
-use serde_json::{Value, json, to_value, to_vec_pretty};
+use serde_json::{Value, json};
 
 use super::super::access::{check_node, check_scope, resolve};
 use super::super::read::entity;
 use super::super::{ApiOptions, ApiResult, Args, hash, issue_from_error};
+use super::export::run as export_archive;
 use super::{assign_slot, changed, check_revision, result, target};
 use crate::hygiene::{collect, force_pass};
 use crate::models::{
-    Artifact, ContextData, Entity, FailedStep, Issue, MutationData, Response, ResponseData,
+    ContextData, Entity, FailedStep, Issue, MutationData, Response, ResponseData,
     RetentionProposal, Section, State,
 };
 use crate::mutate::board::set_terminal_status;
 use crate::{
-    EpisodeKind, ExportOpts, Layer, Significance, Store, add_status, attach_node,
-    delete_initiative, effective_statuses, export_graph_json, get_layer, get_share_policy,
-    initiative_clouds, list_initiatives, merge_initiative, new_node_id, nodes_in_initiative,
-    read_node_full, relabel_status, remove_status, rename_initiative, reorder_statuses,
-    set_initiative_clouds, set_layer, set_share_policy, write_episode_with_layer,
+    EpisodeKind, Layer, Significance, Store, add_status, attach_node, delete_initiative,
+    effective_statuses, get_layer, get_share_policy, initiative_clouds, list_initiatives,
+    merge_initiative, new_node_id, nodes_in_initiative, read_node_full, relabel_status,
+    remove_status, rename_initiative, reorder_statuses, set_initiative_clouds, set_layer,
+    set_share_policy, write_episode_with_layer,
 };
 
 pub(super) fn dispatch(
@@ -32,7 +30,7 @@ pub(super) fn dispatch(
         "board_config" => board(store, args),
         "policy" => policy(store, args),
         "retention" => retention(store, args, options),
-        "export" => export(store, args, options),
+        "export" => export_archive(store, args, options),
         _ => unreachable!(),
     }
 }
@@ -402,100 +400,4 @@ pub(super) fn run_hygiene(store: &Store, args: &Args, options: &ApiOptions) -> A
         }
     }
     Ok(response)
-}
-
-fn export(store: &Store, args: &Args, options: &ApiOptions) -> ApiResult<Response> {
-    let root = options
-        .artifact_root
-        .as_ref()
-        .ok_or_else(|| Issue::new("UNSUPPORTED_SOURCE", "host has no authorized artifact root"))?;
-    create_dir_all(root).map_err(|e| Issue::new("IO_ERROR", e.to_string()))?;
-    let root = root
-        .canonicalize()
-        .map_err(|e| Issue::new("IO_ERROR", e.to_string()))?;
-    let destination = PathBuf::from(args.required_text("destination")?);
-    if destination
-        .components()
-        .any(|c| matches!(c, Component::ParentDir))
-    {
-        return Err(Issue::new(
-            "INVALID_ARGUMENT",
-            "destination cannot traverse parent directories",
-        ));
-    }
-    let destination = if destination.is_absolute() {
-        destination
-    } else {
-        root.join(destination)
-    };
-    let parent = destination.parent().unwrap();
-    if !parent.exists() {
-        return Err(Issue::new(
-            "INVALID_ARGUMENT",
-            "destination parent must exist in the artifact root",
-        ));
-    }
-    if !parent
-        .canonicalize()
-        .map_err(|e| Issue::new("IO_ERROR", e.to_string()))?
-        .starts_with(&root)
-    {
-        return Err(Issue::new(
-            "INVALID_ARGUMENT",
-            "destination is outside artifact root",
-        ));
-    }
-    if destination.exists() {
-        return Err(Issue::new(
-            "INVALID_ARGUMENT",
-            "choose a new export destination",
-        ));
-    }
-    let scope = args.required_text("initiative")?;
-    let graph = export_graph_json(
-        store,
-        &ExportOpts {
-            allow_initiatives: options.allowed_initiatives.clone(),
-            restrict_initiatives: Some(vec![scope]),
-            deny_initiatives: options.denied_initiatives.clone(),
-            shared_only: !options.include_local,
-            include_bodies: true,
-            redact: options.allowed_initiatives.is_some(),
-        },
-    )
-    .map_err(issue_from_error)?;
-    let staging = root.join(format!(".export-{}", new_node_id()));
-    create_dir(&staging).map_err(|e| Issue::new("IO_ERROR", e.to_string()))?;
-    let graph_value = to_value(&graph).unwrap();
-    let mut markdown = String::from("# Kaeru memory snapshot\n\n");
-    if let Some(nodes) = graph_value.get("nodes").and_then(Value::as_array) {
-        for n in nodes {
-            markdown.push_str(&format!(
-                "## {}\n\n{}\n\n",
-                n.get("name").and_then(Value::as_str).unwrap_or("unnamed"),
-                n.get("body").and_then(Value::as_str).unwrap_or("")
-            ));
-        }
-    }
-    let written = (|| {
-        write(staging.join("graph.json"), to_vec_pretty(&graph).unwrap())?;
-        write(staging.join("README.md"), markdown)?;
-        rename(&staging, &destination)
-    })()
-    .map_err(|e| {
-        let _ = remove_dir_all(&staging);
-        Issue::new("IO_ERROR", e.to_string())
-    });
-    written?;
-    Ok(Response::mutation(
-        "export",
-        MutationData {
-            artifacts: vec![Artifact {
-                path: destination.to_string_lossy().into(),
-                nodes: graph.nodes.len(),
-                edges: graph.edges.len(),
-            }],
-            ..MutationData::default()
-        },
-    ))
 }

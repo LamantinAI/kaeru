@@ -10,6 +10,7 @@
 
 pub mod amg;
 pub mod api;
+pub mod archive;
 pub mod config;
 pub mod errors;
 pub mod export;

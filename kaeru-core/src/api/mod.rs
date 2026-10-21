@@ -58,6 +58,7 @@ pub fn authorize_arguments(name: &str, arguments: &Value, options: &ApiOptions) 
         check_scope(&scope, options)?;
     }
     if name == "search"
+        || name == "export" && args.has("initiatives")
         || name == "context"
             && args.text("view").as_deref() == Some("graph")
             && args.has("initiatives")
@@ -65,6 +66,20 @@ pub fn authorize_arguments(name: &str, arguments: &Value, options: &ApiOptions) 
         for scope in args.parse::<Vec<String>>("initiatives")? {
             check_scope(&scope, options)?;
         }
+    }
+    if name == "export"
+        && args.value("all").as_bool() == Some(true)
+        && (!options.include_local
+            || !options.denied_initiatives.is_empty()
+            || options
+                .allowed_initiatives
+                .as_ref()
+                .is_some_and(|names| !names.iter().any(|name| name == "*")))
+    {
+        return Err(Issue::new(
+            "NOT_FOUND",
+            "full export requires full operator scope; select accessible initiatives instead",
+        ));
     }
     if name == "initiative_manage" {
         for key in ["old", "new", "source", "target", "to", "name"] {
@@ -378,7 +393,7 @@ pub fn normalize_arguments(name: &str, arguments: &mut Value) {
         }
     }
     walk(arguments);
-    if (name == "search"
+    if (matches!(name, "search" | "export")
         || name == "context" && arguments.get("view").and_then(Value::as_str) == Some("graph"))
         && let Some(a) = arguments
             .get_mut("initiatives")

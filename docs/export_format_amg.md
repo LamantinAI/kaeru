@@ -7,9 +7,51 @@ contain every initiative, one initiative, or an explicit set of initiatives.
 The current format is **AMG schema 1**, independent of Kaeru's software version
 and database migration numbers.
 
-## Operator commands
+## Export through an agent (live)
 
-Stop the daemon using the source or destination vault before export/import.
+The shared `export` tool works against the running daemon and accepts exactly
+two formats: `markdown` produces a ZIP of `.md` pages; `amg` produces one
+portable `.amg` file. Select exactly one of `initiative`, `initiatives`, or
+`all: true`. The host authorizes the output directory through
+`KAERU_MCP_ARTIFACT_ROOT`; an agent cannot widen that root.
+
+```json
+{"format":"amg","initiative":"research","destination":"research.amg"}
+```
+
+```json
+{"format":"markdown","initiatives":["research","infrastructure"],"destination":"projects.zip"}
+```
+
+```json
+{"format":"amg","all":true,"destination":"knowledge.amg"}
+```
+
+The same arguments work over MCP, `POST /v1/export`, and Rig. Capture is a
+consistent in-process snapshot; no daemon shutdown is required for agent
+export. The result contains the generated artifact’s path, format, size,
+SHA-256, counts, selected initiatives and omissions. No JSON directory is
+produced. Missing file extensions are added; conflicting ones are refused.
+
+MCP also returns a standard `resource_link`. A client can retrieve the exact
+ZIP/AMG bytes with `resources/read`; binary data is not inserted into tool text.
+Download links last up to 15 minutes and can expire earlier on cache eviction
+or daemon restart. The per-file MCP download limit is 32 MiB, with at most
+32 entries/128 MiB cached. Larger exports remain on disk and return an explicit
+partial result explaining that MCP download is unavailable; select fewer
+initiatives to download them. Displaying a download button depends on the
+client’s resource-link support. Resources are generated-export capabilities,
+not arbitrary filesystem reads; the resource listing is empty.
+
+Restricted callers must name accessible initiatives; `all` requires full scope
+and local visibility. A mixed permitted/denied selection fails in full. If a
+restricted archive would need secret redaction, export refuses it instead of
+altering source bytes, hashes or reasoning. Agent import is not exposed.
+
+## Offline operator commands
+
+For these manual offline commands, stop the daemon using the source or
+destination vault before export/import.
 These commands open the embedded store exclusively; a busy vault fails with a
 lock error. Never remove a running daemon's lock.
 
@@ -39,8 +81,9 @@ owner-only permissions on Unix. Commands print JSON metadata or merge counts.
 the store can still perform normal bootstrap/schema migrations. Invalid files
 and unsupported schemas are rejected before opening the destination.
 
-This release exposes AMG through the local operator CLI and `kaeru_core::amg`.
-It adds no MCP/HTTP agent operation or browser import/export screen.
+The offline operator CLI and `kaeru_core::amg` additionally support inspect/import.
+The shared agent catalogue still contains 35 tools: the existing `export` is
+extended, and no import tool or browser export screen is added.
 
 ## Container and metadata
 

@@ -13,7 +13,7 @@ For the product overview, see [README.md](../README.md).
    when reviewing a particular behavior.
 4. [Task board](board.md) describes status columns, completion and deadlines.
 5. [Instance UI and authentication](instance-ui.md) covers local accounts, access modes and containers.
-6. [AMG knowledge transfer](export_format_amg.md) covers scoped CBOR export, atomic import and force.
+6. [AMG knowledge transfer](export_format_amg.md) covers live Markdown ZIP/CBOR exports, offline atomic import and force.
 7. [Offline builds](offline-build.md) covers vendored dependencies and toolchains.
 8. [Read performance](read-performance.md) explains batching, cancellation and disposable benchmarks.
 

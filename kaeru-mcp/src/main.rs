@@ -22,6 +22,7 @@ mod canonical;
 mod cli;
 mod cloud;
 mod cloud_client;
+mod exports;
 mod hygiene;
 mod models;
 #[cfg(test)]

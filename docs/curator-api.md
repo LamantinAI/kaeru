@@ -42,7 +42,7 @@ including retained identities. This changes current membership metadata only.
 | `initiative_manage` | Rename, merge, delete, attach membership or change a current slot pointer. |
 | `board_config` | Configure columns, their order and explicit terminal flags. |
 | `policy` | Read or change sharing policy and allowed clouds. |
-| `export` | Write scoped graph JSON and Markdown into an authorized artifact root. |
+| `export` | Export current knowledge as a Markdown ZIP or AMG file in the host artifact root. |
 
 ## Cloud operations
 
@@ -264,16 +264,25 @@ For the implementation, start with [the code map](structure.md). The shared
 catalogue is in `kaeru-core/src/api/surface.rs`, and shared exchange types are in
 `kaeru-core/src/models/` (re-exported through the API). MCP `tools/list` returns the active tool definitions.
 
-## Export is distinct from AMG
+## Archive export
 
-The agent operation `export` takes `initiative` and `destination`, not an
-arbitrary output path. The host must configure an artifact root; for MCP this
-is `KAERU_MCP_ARTIFACT_ROOT`. The new destination stays within that root and
-contains `graph.json` plus `README.md`. The parent must exist; existing
-destinations and parent traversal are refused. This is a readable scoped view,
-not an importable backup of all graph properties/history.
+`export` accepts `format: "markdown"` (ZIP of `.md` pages) or `format: "amg"`,
+`destination`, and exactly one selector: `initiative`, a nonempty unique
+`initiatives` list, or `all: true`. It uses the running Store, with one coherent
+snapshot, and requires a host-authorized artifact root. The parent directory
+must exist in that root; no traversal, outside symlinks or overwrite is allowed.
+Missing extensions are added as `.zip`/`.amg`; other extensions are rejected.
 
-AMG uses the operator CLI `kaeru-mcp amg export/import/inspect`, outside the
-35-operation agent catalogue. It transfers current knowledge, including typed
-properties and semantic metadata. See [AMG](export_format_amg.md) for selection, force,
-validation and the offline vault-lock requirement.
+The result’s artifact includes format, bytes, SHA-256, node/edge counts,
+initiatives and omission counts. A partial trail is omitted whole, never spliced;
+mandatory typed references outside the selection reject export. Restricted
+callers must pass the scope checks; `all` requires a full operator ceiling.
+Portable data requiring restricted egress redaction is refused rather than
+silently altered. No host-only permissions are accepted as model arguments.
+
+MCP adds a standard generated-file resource link, readable through
+`resources/read`. Structured content and the JSON text block still match;
+resource links are separate content blocks, not base64 in model-facing text.
+HTTP uses `POST /v1/export`; Rig uses `kaeru_export`. The operation count stays
+35. Import remains an offline operator action. See [AMG](export_format_amg.md) for file
+contents, download lifetime/limits and manual import.

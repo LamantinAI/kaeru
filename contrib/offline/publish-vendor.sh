@@ -56,7 +56,7 @@ rm -rf "$WORKDIR"
 mkdir -p "$WORKDIR/staging"
 # Capture the config cargo prints; it is the only correct source of the
 # replacement stanzas.
-cargo vendor --versioned-dirs "$WORKDIR/staging/vendor" > "$WORKDIR/staging/config.toml"
+cargo vendor --locked --versioned-dirs "$WORKDIR/staging/vendor" > "$WORKDIR/staging/config.toml"
 
 # `directory` is the one field that must not be published verbatim. Cargo
 # echoes back the path it was handed, which is this machine's staging

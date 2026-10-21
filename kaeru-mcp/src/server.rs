@@ -4,8 +4,9 @@ use std::sync::Arc;
 
 use kaeru_core::Store;
 use rmcp::model::{
-    CallToolRequestParams, CallToolResult, Implementation, ListToolsResult, PaginatedRequestParams,
-    ProtocolVersion, ServerCapabilities, ServerInfo, Tool,
+    CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
+    PaginatedRequestParams, ProtocolVersion, ReadResourceRequestParams, ReadResourceResult,
+    ServerCapabilities, ServerInfo, Tool,
 };
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer, ServerHandler};
@@ -14,9 +15,11 @@ use tokio_util::sync::CancellationToken;
 
 use crate::canonical;
 use crate::cloud_client::CloudRegistry;
+use crate::exports::ExportResources;
 use crate::hygiene::HygieneScheduler;
 use crate::settings::{MCP_SERVER_NAME, MCP_SERVER_TITLE, MCP_SERVER_WEBSITE_URL};
 use crate::update::UpdateNotice;
+use kaeru_core::models::{FailedStep, Issue, Response, ResponseData, State};
 
 #[derive(Clone)]
 pub struct KaeruServer {
@@ -24,6 +27,7 @@ pub struct KaeruServer {
     clouds: CloudRegistry,
     hygiene: HygieneScheduler,
     update_notice: UpdateNotice,
+    exports: ExportResources,
 }
 
 impl KaeruServer {
@@ -44,6 +48,7 @@ impl KaeruServer {
             clouds,
             hygiene,
             update_notice: UpdateNotice::default(),
+            exports: ExportResources::default(),
         }
     }
     pub fn store(&self) -> Arc<Store> {
@@ -77,17 +82,74 @@ impl ServerHandler for KaeruServer {
         context: RequestContext<RoleServer>,
     ) -> Result<CallToolResult, McpError> {
         let args = Value::Object(request.arguments.unwrap_or_default());
-        let result = canonical::call_with_cancellation(
+        let options = canonical::options();
+        let root = options.artifact_root.clone();
+        let is_export = request.name.as_ref() == "export";
+        let mut result = canonical::call_with_cancellation(
             self.store.clone(),
             &self.clouds,
             request.name.as_ref(),
             args.clone(),
-            canonical::options(),
+            options,
             context.ct,
         )
         .await;
+        if is_export
+            && let (Ok(outcome), Some(root)) = (&mut result, root)
+            && let Some(value) = outcome.structured_content.clone()
+            && let Ok(mut response) = serde_json::from_value::<Response>(value)
+            && !matches!(response.state, State::Rejected)
+        {
+            let artifacts = match &response.data {
+                ResponseData::Mutation(data) => data.artifacts.clone(),
+                _ => vec![],
+            };
+            let exports = self.exports.clone();
+            let links = tokio::task::spawn_blocking(move || {
+                artifacts
+                    .iter()
+                    .map(|a| exports.register(a, &root))
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+            let mut content = vec![];
+            for link in links {
+                match link {
+                    Ok(resource) => content.push(Content::resource_link(resource)),
+                    Err(message) => {
+                        response.state = State::Partial;
+                        response
+                            .issues
+                            .push(Issue::new("ARTIFACT_DOWNLOAD_UNAVAILABLE", &message));
+                        if let ResponseData::Mutation(data) = &mut response.data {
+                            data.failed_steps.push(FailedStep {
+                                step: "mcp_download".into(),
+                                code: "ARTIFACT_DOWNLOAD_UNAVAILABLE".into(),
+                                message,
+                            });
+                        }
+                    }
+                }
+            }
+            *outcome = canonical::render(response);
+            outcome.content.extend(content);
+        }
         self.hygiene.consider(args["initiative"].as_str());
         result
+    }
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        let exports = self.exports.clone();
+        let content = tokio::task::spawn_blocking(move || exports.read(&request.uri))
+            .await
+            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+        content
+            .map(|content| ReadResourceResult::new(vec![content]))
+            .ok_or_else(|| McpError::resource_not_found("unknown or expired export resource", None))
     }
     fn get_tool(&self, name: &str) -> Option<Tool> {
         Self::tool_definitions()
@@ -96,7 +158,7 @@ impl ServerHandler for KaeruServer {
     }
     fn get_info(&self) -> ServerInfo {
         let mut info=ServerInfo::new(
-            ServerCapabilities::builder().enable_tools().build(),
+            ServerCapabilities::builder().enable_tools().enable_resources().build(),
         )
         .with_server_info(
             Implementation::new(MCP_SERVER_NAME, env!("CARGO_PKG_VERSION"))

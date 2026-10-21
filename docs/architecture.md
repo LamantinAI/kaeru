@@ -149,14 +149,16 @@ open mode omits login and accepts credential-free requests. HTTP/UI scope and
 visibility remain operator-owned in either mode; MCP uses its local owner
 capabilities. See [instance access](instance-ui.md).
 
-AMG is a separate offline operator interface over core snapshot/import logic.
-It captures the current graph in one transaction and writes a bounded
+The shared `export` operation renders Markdown ZIP or AMG from the running
+Store; the offline operator interface additionally provides import and inspect.
+AMG captures the current graph in one transaction and writes a bounded
 length-delimited CBOR container with producer/schema/scope metadata. Import
 validates closure and merged destination invariants, then commits atomically.
 Normal conflicts abort; force appends local versions under existing IDs and
 retains prior destination node/edge history. Metadata before-images are stored
 in an import receipt. Source history, accounts, runtime state and cloud endpoint
-configuration are excluded. See [AMG](export_format_amg.md).
+configuration are excluded. MCP exposes only generated, verified artifacts as
+temporary resource links; it does not serve arbitrary paths. See [AMG](export_format_amg.md).
 
 ## Migrations and cloud
 

@@ -4,6 +4,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::ArchiveFormat;
+use super::amg::AmgOmission;
+
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Entity {
     pub id: String,
@@ -53,6 +56,11 @@ pub struct SlotChange {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct Artifact {
     pub path: String,
+    pub format: ArchiveFormat,
+    pub bytes: usize,
+    pub sha256: String,
+    pub initiatives: Vec<String>,
+    pub omissions: Vec<AmgOmission>,
     pub nodes: usize,
     pub edges: usize,
 }
