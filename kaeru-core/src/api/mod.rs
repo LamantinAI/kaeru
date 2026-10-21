@@ -23,11 +23,14 @@ use crate::graph::audit::write_audit;
 use crate::{Error, Store, read_node_full};
 
 mod access;
+mod control;
 mod graph;
 pub(crate) mod read;
 mod schema;
 mod surface;
 mod write;
+pub use control::ExecutionControl;
+
 pub use crate::models::{
     ApiOptions, Artifact, ArtifactSource, Change, CheckEvidence, ContentRange, ContextData,
     Continuation, Coverage, EdgeChange, EdgeMirror, Entity, Evidence, EvidenceResult,
@@ -54,7 +57,11 @@ pub fn authorize_arguments(name: &str, arguments: &Value, options: &ApiOptions) 
     if let Some(scope) = args.text("initiative") {
         check_scope(&scope, options)?;
     }
-    if name == "search" {
+    if name == "search"
+        || name == "context"
+            && args.text("view").as_deref() == Some("graph")
+            && args.has("initiatives")
+    {
         for scope in args.parse::<Vec<String>>("initiatives")? {
             check_scope(&scope, options)?;
         }
@@ -143,6 +150,9 @@ pub fn output_schema_for(name: &str) -> Value {
         schema["properties"]["data"] =
             json!({"anyOf":[{"$ref":format!("#/$defs/{kind}")},{"$ref":"#/$defs/MutationData"}]});
     }
+    if name == "context" {
+        schema["properties"]["data"] = json!({"anyOf":[{"$ref":"#/$defs/ContextData"},{"$ref":"#/$defs/GraphData"},{"$ref":"#/$defs/MutationData"}]});
+    }
     let all = schema["$defs"].as_object().cloned().unwrap_or_default();
     let mut needed = BTreeSet::new();
     fn visit(value: &Value, all: &Map<String, Value>, needed: &mut BTreeSet<String>) {
@@ -181,7 +191,38 @@ pub fn output_schema_for(name: &str) -> Value {
     schema
 }
 
-pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOptions) -> Response {
+pub fn execute(store: &Store, name: &str, arguments: Value, options: &ApiOptions) -> Response {
+    execute_with_control(
+        store,
+        name,
+        arguments,
+        options,
+        &ExecutionControl::default(),
+    )
+}
+
+/// Executes the same contract with host-controlled cancellation at safe read
+/// boundaries. Commands already started are not rolled back by cancellation.
+pub fn execute_with_control(
+    store: &Store,
+    name: &str,
+    arguments: Value,
+    options: &ApiOptions,
+    control: &ExecutionControl,
+) -> Response {
+    let _control = control::enter(control.clone());
+    if let Err(issue) = control::checkpoint() {
+        return Response::rejected(name, issue);
+    }
+    execute_inner(store, name, arguments, options)
+}
+
+fn execute_inner(
+    store: &Store,
+    name: &str,
+    mut arguments: Value,
+    options: &ApiOptions,
+) -> Response {
     normalize_arguments(name, &mut arguments);
     if let Err(issue) = validate(name, &arguments) {
         return Response::rejected(name, issue);
@@ -198,6 +239,7 @@ pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOpt
         .map(|_| store.api_requests.lock().unwrap_or_else(|p| p.into_inner()));
     if name == "retention" && action.as_deref() == Some("run_hygiene") {
         let replay = store.scoped(initiative.as_deref(), |store| {
+            control::checkpoint()?;
             cached(store, name, &args, options)
         });
         match replay {
@@ -208,6 +250,10 @@ pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOpt
             Err(e) => return Response::rejected(name, e),
             _ => {}
         }
+        if let Err(issue) = control::checkpoint() {
+            return Response::rejected(name, issue);
+        }
+        let _uninterrupted = control::suspend();
         let mut r = run_hygiene(store, &args, options)
             .unwrap_or_else(|issue| Response::rejected(name, issue));
         r.request_id = request_id;
@@ -222,12 +268,14 @@ pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOpt
         return r;
     }
     let mut result = store.scoped(initiative.as_deref(), |store| {
+        control::checkpoint()?;
         if let Some(scope) = initiative.as_deref() {
             check_scope(scope, options)?;
         }
         if is_read(name, action.as_deref(), &args) {
             return read_dispatch(store, name, &args, options);
         }
+        let _uninterrupted = control::suspend();
         if name == "export" {
             if let Some(mut response) = cached(store, name, &args, options)? {
                 response.replayed = true;
@@ -330,7 +378,8 @@ pub fn normalize_arguments(name: &str, arguments: &mut Value) {
         }
     }
     walk(arguments);
-    if name == "search"
+    if (name == "search"
+        || name == "context" && arguments.get("view").and_then(Value::as_str) == Some("graph"))
         && let Some(a) = arguments
             .get_mut("initiatives")
             .and_then(Value::as_array_mut)

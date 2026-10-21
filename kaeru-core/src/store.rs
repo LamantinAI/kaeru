@@ -19,6 +19,8 @@ use crate::models::ReadTraceEvent;
 use crate::read_trace::ReadTrace;
 
 mod database;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub(crate) use database::Database;
 
 /// In-process handle to the kaeru substrate.
@@ -303,6 +305,8 @@ impl Store {
 /// `edge_initiative`) deliberately do not — initiative membership is
 /// append-only and read via prefix-scan.
 const SCHEMA_STATEMENTS: &[&str] = &[
+    ":create amg_origin {kind:String,key:String,version:Int=>origins:Json}",
+    ":create amg_import {id:String=>digest:String,metadata:Json,changes:Json,imported_at:Float default now()}",
     ":create api_operation { caller: String, request_id: String => tool: String, arguments_hash: String, result: Json, created_at: Float default now() }",
     ":create api_slot_revision { initiative: String, slot: String => revision: String }",
     ":create api_trail_summary { chain_id: String => fingerprints: Json, stale: Bool default false }",
@@ -435,6 +439,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "::index create edge:by_edge_type { edge_type }",
     "::index create edge:by_dst_store { dst_store }",
     "::index create chain_member:by_node { node_id }",
+    "::index create node_initiative:by_node { node_id }",
 ];
 
 /// FTS indexes — created lazily after `SCHEMA_STATEMENTS` so vaults

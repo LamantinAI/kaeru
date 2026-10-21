@@ -3,9 +3,11 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 use uuid::Uuid;
 
+use super::read::session::{check as cached_check, memberships, visibility};
 use super::{ApiOptions, ApiResult, Issue, NodeRef, issue_from_error};
+use crate::api::control::checkpoint;
 use crate::export_json::pat_match;
-use crate::{Error, Store, initiatives_of_node};
+use crate::{Error, Store};
 
 pub(super) fn check_scope(scope: &str, options: &ApiOptions) -> ApiResult<()> {
     if scope.trim().is_empty() {
@@ -34,24 +36,27 @@ pub(super) fn check_node(
     options: &ApiOptions,
     historical: bool,
 ) -> ApiResult<()> {
-    let memberships = initiatives_of_node(store, &id.to_string()).map_err(issue_from_error)?;
+    checkpoint()?;
+    cached_check(store, id, scope, options, historical, || {
+        check_node_inner(store, id, scope, options, historical)
+    })
+}
+
+fn check_node_inner(
+    store: &Store,
+    id: &str,
+    scope: Option<&str>,
+    options: &ApiOptions,
+    historical: bool,
+) -> ApiResult<()> {
+    let memberships = memberships(store, id).map_err(issue_from_error)?;
     if let Some(scope) = scope {
         check_scope(scope, options)?;
         let recovered_retired = historical
             && memberships.is_empty()
             && options.include_local
             && options.allowed_initiatives.is_none()
-            && store
-                .db_ref()
-                .run_script(
-                    "?[id] := *node{id @ 'NOW'},id=$id",
-                    BTreeMap::from([("id".into(), DataValue::Str(id.into()))]),
-                    ScriptMutability::Immutable,
-                )
-                .map_err(Error::from)
-                .map_err(issue_from_error)?
-                .rows
-                .is_empty();
+            && visibility(store, id, false)?.is_none();
         if !memberships.iter().any(|m| m == scope) && !recovered_retired {
             return Err(Issue::new(
                 "NOT_FOUND",
@@ -63,42 +68,13 @@ pub(super) fn check_node(
     {
         return Err(Issue::new("NOT_FOUND", "node is not accessible"));
     }
-    let rows = store
-        .db_ref()
-        .run_script(
-            "?[visibility] := *node{id,visibility @ 'NOW'},id=$id",
-            BTreeMap::from([("id".into(), DataValue::Str(id.into()))]),
-            ScriptMutability::Immutable,
-        )
-        .map_err(Error::from)
-        .map_err(issue_from_error)?;
-    if let Some(visibility) = rows
-        .rows
-        .first()
-        .and_then(|r| r.first())
-        .and_then(DataValue::get_str)
-    {
+    if let Some(visibility) = visibility(store, id, false)? {
         if !options.include_local && visibility != "shared" {
             return Err(Issue::new("NOT_FOUND", "node is not accessible"));
         }
     } else if historical {
-        let rows = store
-            .db_ref()
-            .run_script(
-                "?[visibility] := *node{id, visibility, validity}, id = $id :limit 1",
-                BTreeMap::from([("id".into(), DataValue::Str(id.into()))]),
-                ScriptMutability::Immutable,
-            )
-            .map_err(Error::from)
-            .map_err(issue_from_error)?;
-        let Some(visibility) = rows
-            .rows
-            .first()
-            .and_then(|r| r.first())
-            .and_then(DataValue::get_str)
-        else {
-            return Err(Issue::new("NOT_FOUND", "node does not exist"));
-        };
+        let visibility = visibility(store, id, true)?
+            .ok_or_else(|| Issue::new("NOT_FOUND", "node does not exist"))?;
         if !options.include_local && visibility != "shared" {
             return Err(Issue::new("NOT_FOUND", "node is not accessible"));
         }
@@ -172,21 +148,21 @@ pub(super) fn resolve(
     let scope_clause = if let Some(scope) = scope.as_deref() {
         check_scope(scope, options)?;
         params.insert("scope".into(), DataValue::Str(scope.into()));
-        ", *node_initiative{initiative, node_id: id}, initiative = $scope"
+        ", initiative=$scope, *node_initiative{initiative, node_id:id}"
     } else {
         ""
     };
     let at = when
         .map(|n| format!(" @ {}", n.floor()))
         .unwrap_or_else(|| " @ 'NOW'".into());
-    let script = format!("?[id] := *node{{id, name{at}}}, name = $name{scope_clause}");
+    let script = format!("?[id] := name=$name, *node{{id, name{at}}}{scope_clause}");
     let mut rows = store
         .db_ref()
         .run_script(&script, params.clone(), ScriptMutability::Immutable)
         .map_err(Error::from)
         .map_err(issue_from_error)?;
     if rows.rows.is_empty() && allow_retired && when.is_none() {
-        let script = format!("?[id] := *node{{id, name}}, name = $name{scope_clause}");
+        let script = format!("?[id] := name=$name, *node{{id, name}}{scope_clause}");
         rows = store
             .db_ref()
             .run_script(&script, params, ScriptMutability::Immutable)

@@ -7,7 +7,8 @@ description: Recall, capture and inspect persistent project memory through the k
 
 Kaeru holds scoped records and typed graph relationships across sessions.
 Use the tool schemas exposed by the connected server; the current API has 35
-operations. There is no memory CLI or query DSL.
+operations. Agent access has no query DSL; the offline `kaeru-mcp amg`
+operator CLI handles knowledge transfer, not agent recall.
 
 Respect memory-write exclusions before applying capture examples. Persist the
 exclusion itself as a standing constraint, retaining its full meaning and scope

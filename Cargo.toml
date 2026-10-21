@@ -36,6 +36,7 @@ tower = { version = "0.5", features = ["util"] }
 clap = { version = "4", features = ["derive", "env"] }
 
 # Serde
+ciborium = "0.2.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

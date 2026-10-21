@@ -274,8 +274,8 @@ export function createBoard(data, { onOpenNode }) {
     if (!c.whole) {
       c.whole = true
       bodiesFor([c.id]).then((full) => {
-        if (full[c.id] && full[c.id] !== c.text) { c.text = full[c.id]; if (picked === c.id) drawDetail() }
-      })
+        if (Object.hasOwn(full, c.id) && full[c.id] !== c.text) { c.text = full[c.id]; if (picked === c.id) drawDetail() }
+      }).catch(() => { c.whole = false })
     }
     const col = columns.find((x) => x.key === keyOf(c))
     const from = c.island

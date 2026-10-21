@@ -6,11 +6,13 @@ use chrono::{DateTime, Utc};
 use cozo::{DataValue, ScriptMutability};
 use serde_json::{Value, json};
 
+use super::session::prefetch;
 use super::{historical_node, node};
 use crate::api::access::{check_node, check_scope};
+use crate::api::control::checkpoint;
 use crate::api::write::slot_revision;
 use crate::api::{API_VERSION, ApiOptions, ApiResult, Args, issue_from_error};
-use crate::config::api::API_EXCERPT_CHARS;
+use crate::config::api::{API_EXCERPT_CHARS, API_READ_BATCH_SIZE};
 use crate::models::{
     ContentRange, ContextData, Issue, NodeData, Omission, Response, ResponseData, Section,
     SlotChange,
@@ -30,18 +32,28 @@ pub(in crate::api) fn scope_nodes(
     let rows = store
         .db_ref()
         .run_script(
-            "?[id] := *node_initiative{initiative,node_id:id},initiative=$scope",
+            "?[id] := initiative=$scope,*node_initiative{initiative,node_id:id}",
             BTreeMap::from([("scope".into(), DataValue::Str(scope.into()))]),
             ScriptMutability::Immutable,
         )
         .map_err(Error::from)
         .map_err(issue_from_error)?;
-    let mut nodes: Vec<_> = rows
+    let ids = rows
         .rows
         .iter()
-        .filter_map(|r| r.first().and_then(DataValue::get_str))
-        .filter_map(|id| node(store, id, options, false).ok())
-        .collect();
+        .filter_map(|r| r.first().and_then(DataValue::get_str).map(str::to_string))
+        .collect::<Vec<_>>();
+    let mut nodes = vec![];
+    for batch in ids.chunks(API_READ_BATCH_SIZE) {
+        checkpoint()?;
+        prefetch(store, batch, options)?;
+        nodes.extend(
+            batch
+                .iter()
+                .filter_map(|id| node(store, id, options, false).ok()),
+        );
+        checkpoint()?;
+    }
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(nodes)
 }
@@ -87,7 +99,7 @@ pub(in crate::api) fn context(
         let rows = store
             .db_ref()
             .run_script(
-                "?[id] := *node_initiative{initiative,node_id:id},initiative=$scope",
+                "?[id] := initiative=$scope,*node_initiative{initiative,node_id:id}",
                 BTreeMap::from([("scope".into(), DataValue::Str(scope.clone().into()))]),
                 ScriptMutability::Immutable,
             )
@@ -257,7 +269,7 @@ pub(in crate::api) fn context(
         records: reminders,
         details: Value::Null,
     });
-    let pins=store.db_ref().run_script("?[id,pinned_at] := *session_pin{node_id:id,pinned_at},*node_initiative{initiative,node_id:id},initiative=$scope :order -pinned_at",BTreeMap::from([("scope".into(),DataValue::Str(scope.clone().into()))]),ScriptMutability::Immutable).map_err(Error::from).map_err(issue_from_error)?;
+    let pins=store.db_ref().run_script("?[id,pinned_at] := initiative=$scope,*node_initiative{initiative,node_id:id},*session_pin{node_id:id,pinned_at} :order -pinned_at",BTreeMap::from([("scope".into(),DataValue::Str(scope.clone().into()))]),ScriptMutability::Immutable).map_err(Error::from).map_err(issue_from_error)?;
     sections.push(Section {
         name: "pinned".into(),
         records: pins
@@ -357,7 +369,7 @@ pub(in crate::api) fn context(
     let pending = store
         .db_ref()
         .run_script(
-            "?[pending_report] := *initiative_hygiene{initiative,pending_report},initiative=$scope",
+            "?[pending_report] := *initiative_hygiene{initiative:$scope,pending_report}",
             BTreeMap::from([("scope".into(), DataValue::Str(scope.clone().into()))]),
             ScriptMutability::Immutable,
         )

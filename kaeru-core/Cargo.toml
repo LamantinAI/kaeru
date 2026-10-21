@@ -7,6 +7,7 @@ description = "kaeru — cognitive memory core: substrate, schema, primitives"
 repository.workspace = true
 
 [dependencies]
+ciborium.workspace = true
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -22,4 +23,6 @@ uuid.workspace = true
 config.workspace = true
 
 [dev-dependencies]
+clap.workspace = true
 proptest.workspace = true
+tempfile.workspace = true

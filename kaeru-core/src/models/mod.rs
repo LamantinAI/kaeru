@@ -1,8 +1,10 @@
 //! Shared memory exchange models. Execution and transports consume these contracts.
 
 mod access;
+pub mod amg;
 mod catalogue;
 mod cloud;
+mod graph;
 mod mirror;
 mod read_trace;
 mod records;
@@ -12,6 +14,7 @@ mod search;
 
 pub use access::ApiOptions;
 pub use catalogue::{ToolAnnotations, ToolDefinition};
+pub use graph::{GraphCounts, GraphData, GraphEdge, GraphMember, GraphNode, GraphSnapshot};
 pub use mirror::{EdgeChange, EdgeMirror};
 pub use read_trace::ReadTraceEvent;
 pub use records::{
@@ -27,9 +30,8 @@ pub use response::{Continuation, Coverage, Issue, Omission, Response, ResponseDa
 pub(crate) use search::SearchCandidates;
 
 mod export;
+pub use cloud::{CloudEdge, CloudPullInput, CloudRecallInput, EdgeImportResult};
 pub use export::{
     ChainExport, EdgeExport, ExportOpts, ExportSummary, GraphExport, GraphMeta, InitiativeStat,
     NodeExport, ProjectLink,
 };
-
-pub use cloud::{CloudEdge, CloudPullInput, CloudRecallInput, EdgeImportResult};

@@ -4,8 +4,8 @@ use std::convert::Infallible;
 use std::path::PathBuf;
 
 use kaeru_core::api::{
-    FailedStep, Issue, Response, ResponseData, State, edge_mirror, execute, finish_remote,
-    normalize_arguments, tool_definitions, validate,
+    ExecutionControl, FailedStep, Issue, Response, ResponseData, State, edge_mirror,
+    execute_with_control, finish_remote, normalize_arguments, tool_definitions, validate,
 };
 use kaeru_core::{Visibility, get_visibility};
 use rig::agent::{AgentBuilder, NoToolConfig, WithBuilderTools};
@@ -13,6 +13,7 @@ use rig::completion::{CompletionModel, ToolDefinition};
 use rig::tool::Tool;
 use serde_json::{Value, json, to_value};
 use tokio::task::spawn_blocking;
+use tokio_util::sync::CancellationToken;
 
 use crate::KaeruMemory;
 use crate::cloud::{call as core_call, propagate_edge};
@@ -90,7 +91,9 @@ impl<const I: usize> Tool for MemoryTool<I> {
                 if args.get("initiatives").is_none() {
                     args["initiatives"] = json!([scope]);
                 }
-            } else if args.get("initiative").is_none() {
+            } else if args.get("initiative").is_none()
+                && !(name == "context" && args.get("view").and_then(Value::as_str) == Some("graph"))
+            {
                 let schema = &definition.input_schema;
                 let accepts = schema.pointer("/properties/initiative").is_some()
                     || schema
@@ -125,8 +128,13 @@ impl<const I: usize> Tool for MemoryTool<I> {
         let store = self.0.store.clone();
         let operation = name.clone();
         let input = args.clone();
-        let response =
-            spawn_blocking(move || execute(&store, &operation, input, &worker_opts)).await;
+        let cancel = CancellationToken::new();
+        let _cancel_on_drop = cancel.clone().drop_guard();
+        let control = ExecutionControl::new(move || cancel.is_cancelled());
+        let response = spawn_blocking(move || {
+            execute_with_control(&store, &operation, input, &worker_opts, &control)
+        })
+        .await;
         let mut response = match response {
             Ok(r) => r,
             Err(e) => Response::rejected(&name, Issue::new("EXECUTION_FAILED", e.to_string())),
@@ -434,9 +442,11 @@ impl KaeruMemory {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use kaeru_core::Store;
     use std::sync::Arc;
+
+    use kaeru_core::Store;
+
+    use super::*;
 
     #[tokio::test]
     async fn rig_calls_share_the_same_state_and_replay_contract() {
@@ -500,6 +510,48 @@ mod tests {
         let replay = mem.note().call(args).await.unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(first["data"], replay["data"]);
+    }
+
+    #[tokio::test]
+    async fn graph_scope_selection_does_not_receive_an_implicit_singular_scope() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let first = KaeruMemory::with_initiative(store.clone(), "first");
+        let second = KaeruMemory::with_initiative(store, "second");
+        first
+            .note()
+            .call(json!({"name":"From first","body":"A"}))
+            .await
+            .unwrap();
+        second
+            .note()
+            .call(json!({"name":"From second","body":"B"}))
+            .await
+            .unwrap();
+        let all = first
+            .context()
+            .call(json!({"view":"graph","budget_chars":64000}))
+            .await
+            .unwrap();
+        let names = all["data"]["graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|n| n["name"].as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"From first") && names.contains(&"From second"));
+        let selected = first
+            .context()
+            .call(json!({"view":"graph","initiatives":["second"],"budget_chars":64000}))
+            .await
+            .unwrap();
+        assert_ne!(selected["state"], "rejected", "{selected}");
+        assert!(
+            selected["data"]["graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|n| n["initiatives"] == json!(["second"]))
+        );
     }
 
     #[tokio::test]

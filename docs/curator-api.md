@@ -12,7 +12,7 @@ including retained identities. This changes current membership metadata only.
 
 | Operation | Purpose |
 | --- | --- |
-| `context` | Restore rules, current slots, open work, reminders and saved reasoning. `view` selects work, map, board or diagnostics. |
+| `context` | Restore rules, current slots, open work, reminders and saved reasoning. Views: work, map, board, diagnostics, or a compact structural graph. |
 | `search` | Literal lexical text and explicit filters across named initiatives. |
 | `read` | Full record, currentness, conflicts and saved reasoning. Optional relations, provenance and directed path. |
 | `note` | Observation, decision, constraint, plan or outcome. |
@@ -64,7 +64,7 @@ First recover what matters now with `context`:
 ```
 
 This returns standing rules, current records, open work, reminders and saved
-reasoning. `context` also offers `work`, `map`, `board` and `diagnostics` views.
+reasoning. `context` also offers `work`, `map`, `board`, `diagnostics` and `graph` views.
 Use `search` to find something outside that initial context:
 
 ```json
@@ -249,7 +249,9 @@ history; forgetting is a retraction, not physical erasure.
 Existing vaults migrate on open. Migration 0010 adds API bookkeeping. Migration
 0011 restores missing legacy membership junctions and assigns previously
 unscoped domain identities to `legacy-unscoped`, including retired identities.
-It preserves IDs, bodies and stored validity. Old tool names and HTTP aliases
+Migration 0012 adds AMG provenance/import receipts. These schema migrations
+are separate from API version 1 and AMG schema 1.
+These migrations preserve IDs, bodies and stored validity. Old tool names and HTTP aliases
 have no compatibility dispatcher; update clients before using this API.
 
 Intrinsic graph commands use one Cozo transaction for nodes, edges, memberships,
@@ -259,5 +261,19 @@ hygiene passes are separate effects; their results do not promise rollback of
 an external file, remote write or whole pass.
 
 For the implementation, start with [the code map](structure.md). The shared
-catalogue is in `kaeru-core/src/api/surface.rs`, and output types are in
-`kaeru-core/src/api/types.rs`. MCP `tools/list` returns the active tool definitions.
+catalogue is in `kaeru-core/src/api/surface.rs`, and shared exchange types are in
+`kaeru-core/src/models/` (re-exported through the API). MCP `tools/list` returns the active tool definitions.
+
+## Export is distinct from AMG
+
+The agent operation `export` takes `initiative` and `destination`, not an
+arbitrary output path. The host must configure an artifact root; for MCP this
+is `KAERU_MCP_ARTIFACT_ROOT`. The new destination stays within that root and
+contains `graph.json` plus `README.md`. The parent must exist; existing
+destinations and parent traversal are refused. This is a readable scoped view,
+not an importable backup of all graph properties/history.
+
+AMG uses the operator CLI `kaeru-mcp amg export/import/inspect`, outside the
+35-operation agent catalogue. It transfers current knowledge, including typed
+properties and semantic metadata. See [AMG](amg.md) for selection, force,
+validation and the offline vault-lock requirement.

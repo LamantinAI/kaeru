@@ -96,7 +96,40 @@ const MIGRATIONS: &[Migration] = &[
         name: "0011_scope_legacy_unscoped",
         up: m0011_scope_legacy_unscoped,
     },
+    Migration {
+        name: "0012_amg_provenance",
+        up: m0012_amg_provenance,
+    },
+    Migration {
+        name: "0013_node_initiative_by_node",
+        up: m0013_node_initiative_by_node,
+    },
 ];
+
+fn m0013_node_initiative_by_node(db: &DbInstance) -> Result<()> {
+    if !index_exists(db, "node_initiative", "by_node")? {
+        run_mut(db, "::index create node_initiative:by_node {node_id}")?;
+    }
+    Ok(())
+}
+
+fn m0012_amg_provenance(db: &DbInstance) -> Result<()> {
+    for (name, schema) in [
+        (
+            "amg_origin",
+            ":create amg_origin {kind:String,key:String,version:Int=>origins:Json}",
+        ),
+        (
+            "amg_import",
+            ":create amg_import {id:String=>digest:String,metadata:Json,changes:Json,imported_at:Float default now()}",
+        ),
+    ] {
+        if !relation_exists(db, name)? {
+            run_mut(db, schema)?;
+        }
+    }
+    Ok(())
+}
 
 /// Recover records created by older unscoped capture calls. Membership is
 /// current administrative metadata; content, identity and validity are intact.

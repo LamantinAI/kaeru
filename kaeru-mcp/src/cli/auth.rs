@@ -3,37 +3,34 @@
 use std::io::{self, BufRead};
 use std::path::PathBuf;
 
-use clap::{ArgGroup, Parser, ValueEnum};
+use clap::{Args, ValueEnum};
 
-use super::session::{hash_password, random_secret};
-use super::store::{AccountStore, read_config};
+use crate::auth::session::{hash_password, random_secret};
+use crate::auth::store::{AccountStore, read_config};
 use crate::settings::{
     KaeruMcpConfig,
     web::{self, WebConfig},
 };
 
 #[derive(Clone, Copy, ValueEnum)]
-enum AuthChoice {
+pub(super) enum AuthChoice {
     Enabled,
     Disabled,
 }
 
-#[derive(Parser)]
-#[command(version, about = "Kaeru local authentication setup")]
-#[command(group(ArgGroup::new("action").args(["init_web_auth", "reset_web_password", "auth", "auth_status", "stdio"]).multiple(false)))]
-struct Setup {
+#[derive(Args)]
+#[group(skip)]
+pub(super) struct AuthOptions {
     #[arg(long)]
-    init_web_auth: bool,
+    pub init_web_auth: bool,
     #[arg(long)]
-    reset_web_password: bool,
+    pub reset_web_password: bool,
     /// Enable authentication or persist an explicitly open local installation.
     #[arg(long, value_enum)]
-    auth: Option<AuthChoice>,
+    pub auth: Option<AuthChoice>,
     /// Print enabled or disabled without changing configuration or opening the vault.
     #[arg(long)]
-    auth_status: bool,
-    #[arg(long)]
-    stdio: bool,
+    pub auth_status: bool,
     #[arg(long)]
     web_config: Option<PathBuf>,
     #[arg(long, default_value = "admin")]
@@ -46,7 +43,7 @@ struct Setup {
     password_stdin: bool,
 }
 
-fn password(args: &Setup) -> Result<String, Box<dyn std::error::Error>> {
+fn password(args: &AuthOptions) -> Result<String, Box<dyn std::error::Error>> {
     let value = if args.password_stdin {
         let mut value = String::new();
         io::stdin().lock().read_line(&mut value)?;
@@ -61,23 +58,7 @@ fn password(args: &Setup) -> Result<String, Box<dyn std::error::Error>> {
     Ok(value)
 }
 
-pub fn handle() -> Result<bool, Box<dyn std::error::Error>> {
-    if !std::env::args().any(|arg| {
-        matches!(
-            arg.as_str(),
-            "--init-web-auth"
-                | "--reset-web-password"
-                | "--auth"
-                | "--auth-status"
-                | "--help"
-                | "-h"
-                | "--version"
-                | "-V"
-        )
-    }) {
-        return Ok(false);
-    }
-    let args = Setup::parse();
+pub(super) fn handle(args: AuthOptions) -> Result<(), Box<dyn std::error::Error>> {
     let path = args
         .web_config
         .clone()
@@ -99,7 +80,7 @@ pub fn handle() -> Result<bool, Box<dyn std::error::Error>> {
                 "disabled"
             }
         );
-        return Ok(true);
+        return Ok(());
     }
     if matches!(args.auth, Some(AuthChoice::Disabled)) {
         match AccountStore::open(path.clone())? {
@@ -118,7 +99,7 @@ pub fn handle() -> Result<bool, Box<dyn std::error::Error>> {
             "Authentication disabled in {}. Restart kaeru-mcp to apply.",
             path.display()
         );
-        return Ok(true);
+        return Ok(());
     }
     if current.as_ref().is_some_and(|cfg| cfg.enabled) {
         if args.init_web_auth {
@@ -156,5 +137,5 @@ pub fn handle() -> Result<bool, Box<dyn std::error::Error>> {
         "Authentication configured in {}. Restart kaeru-mcp, then open /ui/. MCP clients use KAERU_MCP_AUTH_TOKEN or mcp_token from this owner-only file.",
         path.display()
     );
-    Ok(true)
+    Ok(())
 }

@@ -362,9 +362,9 @@ function showReadout(n, step, total) {
       <div class="kicker">${kicker}</div>
       <h2>${esc(n.name)}</h2>
       <div class="tags">${meta}</div>
-      <p>${esc(n.body || (n.redacted ? '⟨body redacted⟩' : (n.isHub ? 'A project cluster — hover its nodes to explore.' : '—')))}</p>
+      <p>${esc(n.body || (n.redacted ? '⟨body redacted⟩' : (n.isHub ? 'A project cluster — hover its nodes to explore.' : 'Open this record in the reader to load its text.')))}</p>
       ${n.isHub ? '' : `<div class="ts">asserted <b>${asserted}</b></div>`}
-      ${n.isHub ? '' : `<button class="btn go rd" data-read="${esc(n.id)}">read this trail →</button>`}
+      ${n.isHub ? '' : `<button class="btn go rd" data-read="${esc(n.id)}">read this trail</button>`}
     </div>`
   readout.classList.add('show')
 }
@@ -511,9 +511,11 @@ $('chainReset').addEventListener('click', resetChain)
 
 // ── reader: the same chain, read instead of surveyed ────────────────────────
 reader = createReader(data, { fmtDateTime })
-let readerOpen = false
+let readerOpen = false, readerRequest = 0
 const readBtn = $('chainRead')
 async function setReader(on, nodeId) {
+  const request = ++readerRequest
+  if (!on) reader.cancel()
   if (on) {
     readBtn.textContent = '…'
     // Unhide BEFORE laying out: the reader measures card heights to stack its
@@ -522,6 +524,7 @@ async function setReader(on, nodeId) {
     const ok = nodeId
       ? await reader.showNode(nodeId)
       : await reader.show((data.chains[+chainPick.value || 0] || {}).id)
+    if (request !== readerRequest) return
     readBtn.textContent = ok ? 'galaxy' : 'read'
     if (!ok) { $('reader').hidden = true; return }
     // if the node sat on a saved chain, let the picker follow the reader
@@ -575,9 +578,8 @@ $('readout').addEventListener('click', (e) => {
 chainPick.addEventListener('change', () => { if (readerOpen) setReader(true) })
 
 // ── board: the same tasks, owed instead of surveyed ─────────────────────────
-// Read-only by design: `/graph.json` carries the `status:*` tags a card's
-// column is made of, but moving a card is `set_status` — a write the viz
-// endpoint does not have. So the board shows the command instead of running it.
+// The compact graph carries task status tags. The board stays read-only and
+// shows an explicit task_update command for changes.
 const boardBtn = $('boardBtn')
 let boardOpen = false
 // where the reader was opened from, so its way out leads back there

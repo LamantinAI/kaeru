@@ -35,6 +35,6 @@ test('API failure stays a failure and never requests a graph snapshot', async ()
   const paths = [], errors = []
   const client = createClient({ fetcher: async (path) => { paths.push(path); return reply({ error: 'Sign in' }, 401) }, onError: (error) => errors.push(error) })
   await assert.rejects(client.graph(), (error) => error.status === 401)
-  assert.deepEqual(paths, ['/v1/initiatives'])
+  assert.deepEqual(paths, ['/v1/context'])
   assert.equal(errors.length, 1)
 })

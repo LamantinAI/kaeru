@@ -1,12 +1,12 @@
 # Quick Start
 
-> **Pre-1.0 alpha.** Additive schema changes migrate automatically on start
-> (see §5); destructive changes can still need a semantic rebuild. Until 1.0
-> stabilises, keep a markdown export before major upgrades.
+This guide follows the current source checkout. The installer downloads a
+published release; if that binary predates a feature described here, upgrade or
+build from source. See [the documentation index](docs/README.md).
 
-`kaeru` runs as one long-lived MCP daemon per machine. Agents do not spawn it
-over stdio: the vault is backed by RocksDB, and only one process can own the
-writer lock safely.
+One daemon owns each embedded RocksDB vault. Agents connect over HTTP or use
+`kaeru-mcp --stdio` as a relay to that daemon; the relay does not open a second
+copy of the vault.
 
 ## 1. Install And Start The Daemon
 
@@ -25,7 +25,11 @@ The installer downloads the latest release, installs `kaeru-mcp` into
 Useful install knobs:
 
 - `KAERU_INSTALL_DIR=/usr/local/bin` changes the binary destination.
-- `KAERU_VERSION=v0.1.0` pins a release tag instead of `latest`.
+- `KAERU_VERSION` pins a published release tag instead of `latest`.
+- `KAERU_SETUP_AUTH=ask|yes|no|keep` controls optional local authentication.
+  Fresh installs default to no auth; unattended updates preserve the configured mode.
+- `KAERU_WEB_PASSWORD_FILE=/private/password.txt` supplies a password for
+  unattended `KAERU_SETUP_AUTH=yes` setup.
 - `KAERU_SETUP_DAEMON=no` installs the binary but skips daemon setup.
 - `KAERU_SETUP_CLAUDE_MEMORY=yes` also configures Claude Code to treat kaeru
   as the memory of record: disables Claude's built-in auto-memory and adds a
@@ -52,14 +56,15 @@ page and run `kaeru-mcp.exe` yourself. For Intel Mac or Linux ARM, build from so
 
 ### From source
 
-Prerequisites: Rust 1.95+. On Linux you also need `libclang-dev` for the
-RocksDB build.
+Prerequisites: Rust 1.95+, a C/C++ toolchain and libclang for RocksDB.
+On Debian/Ubuntu, install `build-essential` and `libclang-dev`.
+Node.js is unnecessary unless rebuilding the frontend: Cargo uses the checked-in bundle.
 
 ```bash
 git clone https://github.com/LamantinAI/kaeru.git
 cd kaeru
-cargo test --workspace
-cargo install --path kaeru-mcp
+cargo test --workspace --all-targets --locked
+cargo install --path kaeru-mcp --locked
 kaeru-mcp
 ```
 
@@ -68,6 +73,7 @@ under the platform default:
 
 - Linux: `$XDG_DATA_HOME/kaeru`, usually `~/.local/share/kaeru`
 - macOS: `~/Library/Application Support/ai.lamantin.kaeru`
+- Windows: `%LOCALAPPDATA%\ai.lamantin.kaeru`
 
 Override the vault with `KAERU_VAULT_PATH=/path/to/vault`.
 
@@ -130,7 +136,7 @@ This copies `AGENTS.kaeru.md`, installs `/kaeru`, `/lesson`, and `/recall`
 commands, and merges a small `mcp.kaeru` block into
 `~/.config/opencode/opencode.json`.
 
-Opencode 1.15.x still uses legacy HTTP+SSE, so the contrib config points at:
+The bundled Opencode snippet uses the legacy HTTP+SSE endpoint:
 
 ```text
 http://localhost:9876/sse
@@ -148,15 +154,35 @@ covers the SSE transport too.
 
 See `contrib/opencode/README.md` for the exact files and merge behaviour.
 
+### Stdio-only clients
+
+Configure the client command as `kaeru-mcp` with argument `--stdio`. It reuses
+the configured daemon and its saved MCP token, starting the daemon if necessary.
+
+### Local UI and authentication
+
+Open `http://127.0.0.1:9876/ui/`. The local installer grants the UI access to its
+owner’s vault. For a manual/source run, set the HTTP/UI scope explicitly:
+
+```sh
+KAERU_MCP_VIZ_INITIATIVES='*' KAERU_MCP_VIZ_INCLUDE_LOCAL=1 kaeru-mcp
+```
+
+To change authentication, stop the daemon, run `kaeru-mcp --auth enabled` or
+`kaeru-mcp --auth disabled`, then restart it. Enabling prompts for a password
+and persists a separate MCP token in the private `web.toml`; there is no active
+`admin:admin` account. `kaeru-mcp --auth-status` prints the selected mode.
+See [UI/account setup](docs/instance-ui.md) for recovery and automation.
+
 ### Remote Or Docker Daemons
 
 If the daemon binds to anything other than loopback, remember:
 
-- set `KAERU_MCP_AUTH_TOKEN` to a shared secret. Once set, every request to
-  both transports (`/mcp` and `/sse` + `/messages`) must carry
-  `Authorization: Bearer <token>`; anything else gets `401`. Left unset on a
-  non-loopback bind, the port is open curator access to the vault — the daemon
-  logs a warning to that effect at startup;
+- enable authentication with `kaeru-mcp --auth enabled` and configure MCP
+  clients with `Authorization: Bearer <mcp_token>` from the private config.
+  `KAERU_MCP_AUTH_TOKEN` can override that token. An explicit `--auth disabled`
+  takes precedence over leftover environment tokens, so setting a token alone
+  does not override a deliberately disabled configuration;
 - set `KAERU_MCP_ALLOWED_HOSTS` to the hostnames or `host:port` values clients
   use, otherwise the streamable HTTP transport rejects non-loopback `Host`
   headers.
@@ -164,9 +190,10 @@ If the daemon binds to anything other than loopback, remember:
 Example:
 
 ```bash
-KAERU_MCP_LISTEN_ADDRESS=0.0.0.0
-KAERU_MCP_AUTH_TOKEN=replace-with-a-long-random-secret
-KAERU_MCP_ALLOWED_HOSTS=192.0.2.10:9876,kaeru.example
+# After enabling authentication; use the saved MCP token in clients.
+KAERU_MCP_LISTEN_ADDRESS=0.0.0.0 \
+KAERU_MCP_ALLOWED_HOSTS=192.0.2.10:9876,kaeru.example \
+  kaeru-mcp
 ```
 
 The token is a static shared secret, not OAuth — the minimal control for a
@@ -198,78 +225,54 @@ core, hot, warm, cold and frozen. Capture `options.layer` selects a layer;
 and unfinished work; search filters reach retained material on demand. Slots
 are current pointers, not supersession or role changes.
 
-## 5. Schema Changes & Rebuilding A Vault
+## 5. Upgrades and backups
 
-**Additive schema changes migrate automatically.** On every start the daemon
-runs a forward-only migration journal (`migration_journal`): new relations and
-columns added by a newer build are applied to an existing vault in place, so a
-routine upgrade needs no action. Migrations are add-only — there is no
-down-migration or destructive-change path.
+Vault opening runs forward migrations automatically. Migrations may add
+relations, normalize stored metadata or recover old memberships; they are not
+limited to adding columns. Downgrading a migrated vault is not a supported
+rollback procedure.
 
-### Routine upgrade (seamless — but export first)
+Before upgrading:
 
-A normal version bump is **seamless**: the new binary migrates your existing
-vault in place on start and your data is preserved. Still, **export every
-initiative first** as a one-command safety net before upgrading — cheap
-insurance, and the markdown is a clean fallback if anything looks off.
+1. Stop the daemon or embedded application owning the vault.
+2. Copy the complete vault directory to a separate backup location. Back up
+   `web.toml`, `clouds.toml` and relevant service configuration separately;
+   preserve their permissions. A cold vault copy retains recorded history.
+3. Optionally export a portable current-knowledge snapshot with a binary that
+   supports AMG:
 
-1. **Back up — export each initiative** (ask the agent, or call directly):
-
-   ```text
-   initiatives                      # list them
-   export(output_dir: "~/kaeru-backup/<initiative>", initiative: "<initiative>")
+   ```sh
+   kaeru-mcp amg export --vault /path/to/vault --all --output before-upgrade.amg
    ```
 
-2. **Upgrade the binary and restart:**
+4. Upgrade the binary, then restart the owner. For a source installation:
 
-   ```bash
-   cd kaeru && git pull
-   cargo install --path kaeru-mcp --force
-   systemctl --user restart kaeru-mcp        # or restart your manual process
+   ```sh
+   git pull --ff-only
+   cargo install --path kaeru-mcp --locked --force
+   systemctl --user restart kaeru-mcp
    ```
 
-3. **Verify:** `context` / `context(view="map")` per initiative — counts should match what
-   you had. Migrations auto-applied; nothing else to do.
+5. Verify expected initiatives and records with `context`, `read` and `history`.
+   If rollback is needed, stop the service and restore the **pre-upgrade copy**
+   with its matching binary/configuration. Keep the newer vault separately.
 
-4. **Rollback (only if needed):** your pre-upgrade markdown export is the
-   fallback — see the semantic rebuild below. Keep the export until you've
-   confirmed the upgrade is healthy.
+AMG transfers current knowledge into another vault and preserves IDs, properties,
+local edges and semantic metadata. It does not transfer the source's old versions,
+authentication or journals. Use `amg inspect`, then `amg import --dry-run` before
+applying a merge. Conflicts abort by default; `--force` appends supplied versions
+while retaining the destination's existing history. See [AMG](docs/amg.md).
 
-If a release note flags a **non-additive** change (rare, pre-1.0), follow the
-semantic rebuild instead of relying on auto-migration.
-
-When an upgrade involves a change migrations can't cover (a destructive or
-incompatible schema shift, flagged in the release notes), rebuild the vault
-semantically rather than with a blind database rewrite:
-
-1. Upgrade and start the new `kaeru-mcp`.
-2. Ask the agent to list initiatives with `initiatives`.
-3. Export every current initiative to markdown:
+The agent-facing `export` operation is a readable view, separate from AMG:
 
 ```text
-export(output_dir: "/tmp/kaeru-export/<initiative>", initiative: "<initiative>")
+export(initiative="project", destination="project-snapshot")
 ```
 
-Repeat for each initiative. The export contains `README.md`, `INDEX.md`,
-`LOG.md`, and node pages grouped by tier/type.
-
-4. If you are rebuilding into a fresh vault, stop the daemon, point
-   `KAERU_VAULT_PATH` at a new empty directory, and start it again.
-5. Ask the agent to resynchronise from the exports. A useful prompt:
-
-```text
-For each exported kaeru initiative under /tmp/kaeru-export:
-- read README.md, INDEX.md, LOG.md, and the node pages;
-- recreate durable settled material with reference/synthesise/lifecycle under the same initiative;
-- recreate only still-relevant open work as task, claim, or note;
-- preserve important relationships with link;
-- keep routine stale observations out unless they are needed for provenance;
-- inspect each initiative with context, map and reflect, then fix obvious orphaned important nodes.
-```
-
-Do not re-import everything mechanically. The goal is to let the agent classify
-old memory into the tier/layer model and drop stale operational noise while
-preserving settled knowledge and active work.
+It writes `graph.json` and `README.md` beneath the host's authorized artifact
+root (`KAERU_MCP_ARTIFACT_ROOT` for the daemon). Choose a new destination; its
+parent must already exist inside that root. It is not a complete backup, and
+there is no automatic Markdown re-import operation.
 
 ## 6. Team Cloud (Sharing & Recall)
 
@@ -313,7 +316,7 @@ them in `$XDG_CONFIG_HOME/kaeru/clouds.toml` (override via
 `KAERU_MCP_CLOUDS_FILE`):
 
 ```toml
-default = "family"          # used when a tool omits `cloud`
+default = "family"          # config metadata; multiple-cloud calls still name cloud
 
 [clouds.family]
 url   = "https://home.example/"
@@ -324,7 +327,8 @@ url   = "https://team.corp/"
 token = "work-yyy"
 ```
 
-The cloud verbs below then take an optional `cloud: "<name>"`; a soft link
+With several clouds configured, cloud operations require `cloud: "<name>"`,
+even when `default` is set. One configured cloud resolves implicitly. A soft link
 remembers which cloud it points at, and `cloud_links` resolves each against the
 right one. The single `KAERU_MCP_CLOUD_URL`/`_TOKEN` pair still works on its own
 (folded in as the `default` cloud) — no file needed for one cloud.
@@ -333,22 +337,23 @@ right one. The single `KAERU_MCP_CLOUD_URL`/`_TOKEN` pair still works on its own
 
 Sharing is explicit and gated; nothing leaves automatically.
 
-1. Mark an initiative shareable, once: `policy(initiative: "<proj>", policy: "team")`.
+1. Mark an initiative shareable, once: `policy(initiative="<proj>", policy="team")`.
    Default is `private` — personal initiatives never leave.
-2. Share a node: `share(name: "<node>", initiative: "<proj>")`. Two gates run —
+2. Share a node: `share(name="<node>", initiative="<proj>")`. Two gates run —
    the initiative policy, and a secret guard that blocks API keys / tokens /
    private keys. The local node is marked `shared` only after the cloud accepts it.
-3. Or capture-and-share in one call: `note(..., sharing: {visibility: "shared"}, initiative: "<proj>")`
+3. Or capture-and-share in one call: `note(initiative="<proj>", body="...", sharing={"visibility":"shared"})`
    — also `reference`.
-4. Batch review: `sync_review(initiative: "<proj>")` splits still-local nodes into
+4. Batch review: `sync_review(initiative="<proj>")` splits still-local nodes into
    PROPOSE SHARE (guard-clean) vs KEEP LOCAL (guard-flagged). Review once, then
    `share` the approved ones.
 
 ### Recall flow
 
-- `cloud_recall(initiative: "<proj>")` — list what the team has shared.
-- `pull(id: "<id>", initiative: "<proj>")` — bring a shared node into your local graph.
-- `link_cloud(name: "<local>", cloud_id: "<id>")` then `cloud_links(name: "<local>")` —
+- `cloud_recall(initiative="<proj>")` — list what the team has shared.
+- `pull(id="<id>", initiative="<proj>")` — bring a shared node into your local graph.
+- `link_cloud(initiative="<proj>", name="<local>", cloud_id="<id>")` then
+  `cloud_links(initiative="<proj>", name="<local>")` —
   reference a cloud node from a local one without copying, and resolve it on demand.
 
 Per-user / per-org isolation is a future addition; today the cloud is one shared

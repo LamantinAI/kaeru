@@ -19,6 +19,7 @@
 mod api;
 mod auth;
 mod canonical;
+mod cli;
 mod cloud;
 mod cloud_client;
 mod hygiene;
@@ -61,7 +62,8 @@ use crate::settings::KaeruMcpConfig;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    if auth::cli::handle()? {
+    let startup = cli::run()?;
+    if startup == cli::Startup::Handled {
         return Ok(());
     }
     let mcp_config = KaeruMcpConfig::new()?;
@@ -70,7 +72,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // `--stdio` is the bridge, not a second server: it forwards to the daemon
     // that owns the vault rather than opening the vault itself. The flag
     // remains independent of local browser-account setup commands.
-    if std::env::args().any(|a| a == "--stdio") {
+    if startup == cli::Startup::Stdio {
         let url = format!(
             "http://{}:{}{}",
             mcp_config.listen_address, mcp_config.listen_port, mcp_config.mount_path

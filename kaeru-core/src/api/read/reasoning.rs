@@ -5,14 +5,16 @@ use std::collections::BTreeMap;
 use cozo::{DataValue, ScriptMutability};
 use serde_json::{Value, json};
 
+use super::session::raw_node;
 use crate::api::access::check_node;
+use crate::api::control::checkpoint;
 use crate::api::{ApiOptions, ApiResult, hash, issue_from_error};
 use crate::config::api::API_EXCERPT_CHARS;
 use crate::models::{ContentRange, Issue, TrailData};
-use crate::{Error, Store, read_node_full};
+use crate::{Error, Store};
 
 pub(in crate::api) fn content_hash(store: &Store, id: &str) -> ApiResult<String> {
-    let n = read_node_full(store, &id.into())
+    let n = raw_node(store, id)
         .map_err(issue_from_error)?
         .ok_or_else(|| Issue::new("NOT_FOUND", "trail member not live"))?;
     Ok(hash(&json!([n.name, n.body])))
@@ -24,13 +26,13 @@ pub(in crate::api) fn trails(
     options: &ApiOptions,
     expanded: bool,
 ) -> ApiResult<Vec<TrailData>> {
-    let root = read_node_full(store, &id.into())
+    let root = raw_node(store, id)
         .map_err(issue_from_error)?
         .ok_or_else(|| Issue::new("NOT_FOUND", "record is not live"))?;
     let mut chain_ids = store
         .db_ref()
         .run_script(
-            "?[chain_id] := *chain_member{chain_id,node_id},node_id=$id",
+            "?[chain_id] := node_id=$id,*chain_member{chain_id,node_id}",
             BTreeMap::from([("id".into(), DataValue::Str(id.into()))]),
             ScriptMutability::Immutable,
         )
@@ -45,13 +47,14 @@ pub(in crate::api) fn trails(
     }
     let mut out = vec![];
     for chain_id in chain_ids {
+        checkpoint()?;
         if check_node(store, &chain_id, None, options, false).is_err() {
             continue;
         }
-        let n = read_node_full(store, &chain_id)
+        let n = raw_node(store, &chain_id)
             .map_err(issue_from_error)?
             .unwrap();
-        let rows=store.db_ref().run_script("?[node_id,position] := *chain_member{chain_id,position,node_id},chain_id=$id :order position",BTreeMap::from([("id".into(),DataValue::Str(chain_id.clone().into()))]),ScriptMutability::Immutable).map_err(Error::from).map_err(issue_from_error)?;
+        let rows=store.db_ref().run_script("?[node_id,position] := *chain_member{chain_id:$id,position,node_id} :order position",BTreeMap::from([("id".into(),DataValue::Str(chain_id.clone().into()))]),ScriptMutability::Immutable).map_err(Error::from).map_err(issue_from_error)?;
         let all_members = rows
             .rows
             .into_iter()
@@ -63,7 +66,15 @@ pub(in crate::api) fn trails(
             .cloned()
             .collect::<Vec<_>>();
         let withheld = members.len() != all_members.len();
-        let snapshot=store.db_ref().run_script("?[fingerprints, stale] := *api_trail_summary{chain_id, fingerprints, stale}, chain_id = $id",BTreeMap::from([("id".into(),DataValue::Str(n.id.clone().into()))]),ScriptMutability::Immutable).map_err(Error::from).map_err(issue_from_error)?;
+        let snapshot = store
+            .db_ref()
+            .run_script(
+                "?[fingerprints, stale] := *api_trail_summary{chain_id:$id, fingerprints, stale}",
+                BTreeMap::from([("id".into(), DataValue::Str(n.id.clone().into()))]),
+                ScriptMutability::Immutable,
+            )
+            .map_err(Error::from)
+            .map_err(issue_from_error)?;
         let stale = if withheld {
             None
         } else if let Some(row) = snapshot.rows.first() {

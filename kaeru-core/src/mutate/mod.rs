@@ -757,7 +757,7 @@ pub fn initiatives_of_node(store: &Store, node_id: &NodeId) -> Result<Vec<String
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("nid".to_string(), DataValue::Str(node_id.clone().into()));
     let script = r#"
-        ?[initiative] := *node_initiative{initiative, node_id}, node_id = $nid
+        ?[initiative] := node_id=$nid,*node_initiative{initiative, node_id}
         :order initiative
     "#;
     let rows = store
@@ -911,8 +911,7 @@ mod tests {
         NODE_VALUE_COLUMNS, ReassertRow, merge_tags, node_version_seconds, now_validity_seconds,
         read_node_now, reassert_node_now, retract_node_at,
     };
-    use crate::graph::NodeId;
-    use crate::graph::{EdgeType, new_node_id};
+    use crate::graph::{EdgeType, NodeId, new_node_id};
     use crate::store::Store;
 
     /// The `node` schema and [`NODE_VALUE_COLUMNS`] must agree exactly.

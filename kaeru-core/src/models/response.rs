@@ -4,7 +4,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{ContextData, HistoryData, InitiativesData, MutationData, RecordData, SearchData};
+use super::{
+    ContextData, GraphData, HistoryData, InitiativesData, MutationData, RecordData, SearchData,
+};
 use crate::config::API_VERSION;
 
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
@@ -44,6 +46,7 @@ pub enum State {
 #[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ResponseData {
+    Graph(GraphData),
     Mutation(MutationData),
     Record(Box<RecordData>),
     Search(SearchData),

@@ -6,13 +6,16 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use kaeru_core::api::{
-    ApiOptions, FailedStep, Issue, Response, ResponseData, State, authorize_arguments, edge_mirror,
-    execute, finish_remote, normalize_arguments, output_schema_for, tool_definitions, validate,
+    ApiOptions, ExecutionControl, FailedStep, Issue, Response, ResponseData, State,
+    authorize_arguments, edge_mirror, execute_with_control, finish_remote, normalize_arguments,
+    output_schema_for, tool_definitions, validate,
 };
 use kaeru_core::{Store, Visibility, get_visibility};
 use rmcp::ErrorData as McpError;
 use rmcp::model::{CallToolResult, Tool, ToolAnnotations};
 use serde::de::DeserializeOwned;
+#[cfg(test)]
+use serde_json::from_str;
 use serde_json::{Value, from_value, json, to_value};
 use tokio::task::spawn_blocking;
 use tokio_util::sync::CancellationToken;
@@ -26,8 +29,6 @@ use crate::models::{
     CloudLinksParams, CloudRecallParams, CloudScopeParams, LinkCloudParams, PullParams,
     ShareParams, SyncReviewParams, UnshareParams,
 };
-#[cfg(test)]
-use serde_json::from_str;
 
 pub(crate) const CLOUD_TOOLS: &[&str] = &[
     "clouds",
@@ -125,10 +126,13 @@ pub(crate) async fn call_with_cancellation(
     let worker_store = store.clone();
     let operation = name.to_string();
     let input = args.clone();
-    let mut response =
-        spawn_blocking(move || execute(&worker_store, &operation, input, &worker_opts))
-            .await
-            .map_err(|e| McpError::internal_error(e.to_string(), None))?;
+    let worker_cancel = cancel.clone();
+    let control = ExecutionControl::new(move || worker_cancel.is_cancelled());
+    let mut response = spawn_blocking(move || {
+        execute_with_control(&worker_store, &operation, input, &worker_opts, &control)
+    })
+    .await
+    .map_err(|e| McpError::internal_error(e.to_string(), None))?;
     if !matches!(response.state, State::Rejected) && !response.replayed {
         if args.pointer("/sharing/visibility").and_then(Value::as_str) == Some("shared") {
             let id = match &response.data {

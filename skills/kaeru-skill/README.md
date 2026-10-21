@@ -4,8 +4,9 @@ A portable agent skill that teaches an LLM how to *use* kaeru: which verb
 carries which kind of knowledge, project continuity, and
 the habits that turn a pile of notes into a graph worth reading.
 
-There is no CLI — kaeru is the `kaeru-mcp` daemon, and the skill is written
-in the form the verbs are actually called: `context(initiative="x")`. An
+Agent memory operations use MCP/HTTP/Rig rather than a query CLI. The separate
+`kaeru-mcp amg` CLI is for offline operator knowledge transfer, not agent recall.
+This skill uses the form in which tools are called: `context(initiative="x")`. An
 MCP-aware runtime discovers the verbs themselves through `tools/list`; what
 this skill adds is the *when and why*, which no tool schema can carry.
 
@@ -55,7 +56,7 @@ server, and an installer that merges into your existing
 
 ### Cursor / Continue / other IDE-embedded agents
 
-These don't currently support a SKILL-MD format directly. Paste the
+When a runtime does not load this skill format, paste the
 **body of `SKILL.md`** (everything after the `---` frontmatter) into
 your agent's system-prompt or "rules" section.
 
@@ -72,10 +73,9 @@ its server instructions — so the tools work without this skill.
 
 What the skill still adds is judgement the tool list can't carry: which verb
 matches which epistemic state, project continuity, the
-habit of linking and chaining after a capture. The daemon's own instructions
-are capped at 2048 characters by the client — the skill is where the rest of
-the reasoning lives. Install it if you want that discipline taught
-explicitly; skip it if the built-in instructions are enough.
+habit of linking and chaining after a capture. The daemon’s instructions are
+intentionally compact; client context handling varies. The skill is where the
+fuller guidance lives. Install it if you want that discipline taught explicitly; skip it if the built-in instructions are enough.
 
 ## Updating
 

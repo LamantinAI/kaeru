@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use crate::errors::Result;
 
 /// Shared contract and transport defaults.
+pub mod amg;
 pub mod api;
 pub mod cloud;
 pub mod read_trace;
