@@ -8,6 +8,7 @@ use cozo::{DataValue, ScriptMutability};
 use super::access::check_node;
 use super::read::relations;
 use super::{ApiOptions, ApiResult, Issue, issue_from_error};
+use crate::api::control::checkpoint;
 use crate::config::api::API_TRAVERSAL_NODE_LIMIT;
 use crate::{Error, Store};
 
@@ -21,6 +22,7 @@ pub(super) fn provenance(
     let mut seen = BTreeSet::from([start.to_string()]);
     let mut result = vec![];
     while let Some((id, depth)) = queue.pop_front() {
+        checkpoint()?;
         if depth >= usize::from(store.config().provenance_max_hops) {
             truncated |= relations(store, &id, options)?.iter().any(|e| {
                 e.from == id
@@ -88,6 +90,7 @@ pub(super) fn path(
     let mut best = BTreeMap::new();
     let mut visited = 0;
     while let Some(route) = queue.pop() {
+        checkpoint()?;
         let current = route.path.last().unwrap();
         if current == end {
             return Ok(route.path);
@@ -130,6 +133,7 @@ pub(super) fn supersession_reaches(store: &Store, start: &str, end: &str) -> Api
     let mut queue = VecDeque::from([start.to_string()]);
     let mut seen = BTreeSet::new();
     while let Some(id) = queue.pop_front() {
+        checkpoint()?;
         if id == end {
             return Ok(true);
         }

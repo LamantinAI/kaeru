@@ -7,6 +7,7 @@ use serde_json::Value;
 use super::{node, scope_nodes};
 use crate::Store;
 use crate::api::access::check_scope;
+use crate::api::control::checkpoint;
 use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
 use crate::config::api::API_SEARCH_CANDIDATE_LIMIT;
 use crate::config::search::FTS_SCAN_LIMIT;
@@ -52,6 +53,7 @@ pub(in crate::api) fn search(
     let mut truncated = false;
     let mut scan_truncated = false;
     for scope in &scopes {
+        checkpoint()?;
         store.use_initiative(scope);
         let nodes = if let Some(query) = &query {
             let candidates =

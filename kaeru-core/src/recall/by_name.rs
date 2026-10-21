@@ -206,6 +206,10 @@ pub fn read_node_full(store: &Store, id: &NodeId) -> Result<Option<NodeFull>> {
     let Some(row) = rows.rows.first() else {
         return Ok(None);
     };
+    Ok(Some(full_from_row(id, row)))
+}
+
+pub(crate) fn full_from_row(id: &str, row: &[DataValue]) -> NodeFull {
     let node_type = row
         .first()
         .and_then(|v| v.get_str())
@@ -238,8 +242,8 @@ pub fn read_node_full(store: &Store, id: &NodeId) -> Result<Option<NodeFull>> {
         _ => None,
     };
 
-    Ok(Some(NodeFull {
-        id: id.clone(),
+    NodeFull {
+        id: id.into(),
         node_type,
         tier,
         name,
@@ -248,7 +252,7 @@ pub fn read_node_full(store: &Store, id: &NodeId) -> Result<Option<NodeFull>> {
         visibility,
         layer,
         properties,
-    }))
+    }
 }
 
 /// Returns the **full** records of every `visibility = local` node in

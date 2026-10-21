@@ -100,7 +100,18 @@ const MIGRATIONS: &[Migration] = &[
         name: "0012_amg_provenance",
         up: m0012_amg_provenance,
     },
+    Migration {
+        name: "0013_node_initiative_by_node",
+        up: m0013_node_initiative_by_node,
+    },
 ];
+
+fn m0013_node_initiative_by_node(db: &DbInstance) -> Result<()> {
+    if !index_exists(db, "node_initiative", "by_node")? {
+        run_mut(db, "::index create node_initiative:by_node {node_id}")?;
+    }
+    Ok(())
+}
 
 fn m0012_amg_provenance(db: &DbInstance) -> Result<()> {
     for (name, schema) in [

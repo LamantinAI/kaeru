@@ -23,4 +23,6 @@ uuid.workspace = true
 config.workspace = true
 
 [dev-dependencies]
+clap.workspace = true
 proptest.workspace = true
+tempfile.workspace = true

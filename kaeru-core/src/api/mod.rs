@@ -23,11 +23,14 @@ use crate::graph::audit::write_audit;
 use crate::{Error, Store, read_node_full};
 
 mod access;
+mod control;
 mod graph;
 pub(crate) mod read;
 mod schema;
 mod surface;
 mod write;
+pub use control::ExecutionControl;
+
 pub use crate::models::{
     ApiOptions, Artifact, ArtifactSource, Change, CheckEvidence, ContentRange, ContextData,
     Continuation, Coverage, EdgeChange, EdgeMirror, Entity, Evidence, EvidenceResult,
@@ -181,7 +184,38 @@ pub fn output_schema_for(name: &str) -> Value {
     schema
 }
 
-pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOptions) -> Response {
+pub fn execute(store: &Store, name: &str, arguments: Value, options: &ApiOptions) -> Response {
+    execute_with_control(
+        store,
+        name,
+        arguments,
+        options,
+        &ExecutionControl::default(),
+    )
+}
+
+/// Executes the same contract with host-controlled cancellation at safe read
+/// boundaries. Commands already started are not rolled back by cancellation.
+pub fn execute_with_control(
+    store: &Store,
+    name: &str,
+    arguments: Value,
+    options: &ApiOptions,
+    control: &ExecutionControl,
+) -> Response {
+    let _control = control::enter(control.clone());
+    if let Err(issue) = control::checkpoint() {
+        return Response::rejected(name, issue);
+    }
+    execute_inner(store, name, arguments, options)
+}
+
+fn execute_inner(
+    store: &Store,
+    name: &str,
+    mut arguments: Value,
+    options: &ApiOptions,
+) -> Response {
     normalize_arguments(name, &mut arguments);
     if let Err(issue) = validate(name, &arguments) {
         return Response::rejected(name, issue);
@@ -198,6 +232,7 @@ pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOpt
         .map(|_| store.api_requests.lock().unwrap_or_else(|p| p.into_inner()));
     if name == "retention" && action.as_deref() == Some("run_hygiene") {
         let replay = store.scoped(initiative.as_deref(), |store| {
+            control::checkpoint()?;
             cached(store, name, &args, options)
         });
         match replay {
@@ -208,6 +243,10 @@ pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOpt
             Err(e) => return Response::rejected(name, e),
             _ => {}
         }
+        if let Err(issue) = control::checkpoint() {
+            return Response::rejected(name, issue);
+        }
+        let _uninterrupted = control::suspend();
         let mut r = run_hygiene(store, &args, options)
             .unwrap_or_else(|issue| Response::rejected(name, issue));
         r.request_id = request_id;
@@ -222,12 +261,14 @@ pub fn execute(store: &Store, name: &str, mut arguments: Value, options: &ApiOpt
         return r;
     }
     let mut result = store.scoped(initiative.as_deref(), |store| {
+        control::checkpoint()?;
         if let Some(scope) = initiative.as_deref() {
             check_scope(scope, options)?;
         }
         if is_read(name, action.as_deref(), &args) {
             return read_dispatch(store, name, &args, options);
         }
+        let _uninterrupted = control::suspend();
         if name == "export" {
             if let Some(mut response) = cached(store, name, &args, options)? {
                 response.replayed = true;

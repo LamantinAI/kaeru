@@ -7,6 +7,7 @@ use chrono::Utc;
 use serde_json::{Value, json, to_string, to_vec};
 
 use super::node;
+use crate::api::control::{checkpoint, suspend};
 use crate::api::{ApiOptions, ApiResult, Args, hash, issue_from_error};
 use crate::config::api::{
     API_BODY_CHUNK_CHARS, API_DEFAULT_CONTEXT_BUDGET_CHARS, API_DEFAULT_READ_BUDGET_CHARS,
@@ -49,6 +50,7 @@ pub(in crate::api) fn continued(
     args: &Args,
     options: &ApiOptions,
 ) -> ApiResult<Response> {
+    checkpoint()?;
     let cursor = args.required_text("cursor")?;
     let (token, offset) = cursor
         .rsplit_once(':')
@@ -248,6 +250,7 @@ pub(in crate::api) fn paginate(
     offset: usize,
     token: Option<String>,
 ) -> ApiResult<Response> {
+    checkpoint()?;
     let budget = args
         .value("budget_chars")
         .as_u64()
@@ -313,6 +316,7 @@ pub(in crate::api) fn paginate(
     });
     let mut end = offset;
     for entry in entries.iter().skip(offset).take(limit) {
+        checkpoint()?;
         let previous = page.data.clone();
         push(&mut page.data, entry);
         if size(&page) > budget {
@@ -418,6 +422,10 @@ pub(in crate::api) fn paginate(
 }
 
 fn delivered(store: &Store, mut response: Response, options: &ApiOptions) -> ApiResult<Response> {
+    checkpoint()?;
+    // Reminder stamping and pending-report consumption form one delivery phase.
+    // Once begun, finish it even if the caller disconnects in the meantime.
+    let _uninterrupted = suspend();
     if response.operation == "context"
         && let ResponseData::Context(data) = &mut response.data
     {

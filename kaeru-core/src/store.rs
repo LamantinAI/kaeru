@@ -19,6 +19,8 @@ use crate::models::ReadTraceEvent;
 use crate::read_trace::ReadTrace;
 
 mod database;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub(crate) use database::Database;
 
 /// In-process handle to the kaeru substrate.
@@ -437,6 +439,7 @@ const SCHEMA_STATEMENTS: &[&str] = &[
     "::index create edge:by_edge_type { edge_type }",
     "::index create edge:by_dst_store { dst_store }",
     "::index create chain_member:by_node { node_id }",
+    "::index create node_initiative:by_node { node_id }",
 ];
 
 /// FTS indexes — created lazily after `SCHEMA_STATEMENTS` so vaults

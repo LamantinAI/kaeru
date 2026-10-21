@@ -15,3 +15,7 @@ pub const API_MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
 pub const API_MAX_CACHED_SNAPSHOTS: usize = 16;
 pub const API_SNAPSHOT_TTL: Duration = Duration::from_secs(15 * 60);
 pub const API_REPLAY_TTL_SECONDS: u64 = 24 * 60 * 60;
+
+/// Per-read loader batches and metadata cache, never shared across requests.
+pub const API_READ_BATCH_SIZE: usize = 64;
+pub const API_READ_CACHE_RECORDS: usize = 4096;

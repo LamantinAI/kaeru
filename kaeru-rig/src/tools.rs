@@ -4,8 +4,8 @@ use std::convert::Infallible;
 use std::path::PathBuf;
 
 use kaeru_core::api::{
-    FailedStep, Issue, Response, ResponseData, State, edge_mirror, execute, finish_remote,
-    normalize_arguments, tool_definitions, validate,
+    ExecutionControl, FailedStep, Issue, Response, ResponseData, State, edge_mirror,
+    execute_with_control, finish_remote, normalize_arguments, tool_definitions, validate,
 };
 use kaeru_core::{Visibility, get_visibility};
 use rig::agent::{AgentBuilder, NoToolConfig, WithBuilderTools};
@@ -13,6 +13,7 @@ use rig::completion::{CompletionModel, ToolDefinition};
 use rig::tool::Tool;
 use serde_json::{Value, json, to_value};
 use tokio::task::spawn_blocking;
+use tokio_util::sync::CancellationToken;
 
 use crate::KaeruMemory;
 use crate::cloud::{call as core_call, propagate_edge};
@@ -125,8 +126,13 @@ impl<const I: usize> Tool for MemoryTool<I> {
         let store = self.0.store.clone();
         let operation = name.clone();
         let input = args.clone();
-        let response =
-            spawn_blocking(move || execute(&store, &operation, input, &worker_opts)).await;
+        let cancel = CancellationToken::new();
+        let _cancel_on_drop = cancel.clone().drop_guard();
+        let control = ExecutionControl::new(move || cancel.is_cancelled());
+        let response = spawn_blocking(move || {
+            execute_with_control(&store, &operation, input, &worker_opts, &control)
+        })
+        .await;
         let mut response = match response {
             Ok(r) => r,
             Err(e) => Response::rejected(&name, Issue::new("EXECUTION_FAILED", e.to_string())),
@@ -434,9 +440,11 @@ impl KaeruMemory {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use kaeru_core::Store;
     use std::sync::Arc;
+
+    use kaeru_core::Store;
+
+    use super::*;
 
     #[tokio::test]
     async fn rig_calls_share_the_same_state_and_replay_contract() {

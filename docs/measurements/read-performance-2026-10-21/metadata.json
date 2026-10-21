@@ -1,0 +1,16 @@
+{
+  "baseline_commit": "93f825440564c0bb2b0141b1a24b397e0a9a03dc",
+  "baseline_preparation": "Frozen source archive; added identical read_perf example and only its dev dependencies/lock entries. No baseline query/schema changes.",
+  "fixed": "Kernel changes accompanying this evidence; UI unchanged.",
+  "fixture": "6 recorded versions/node; 2 outgoing edges/node; 38 initiatives; fixed recorded values 1792578012+version. All continuation pages consumed.",
+  "repeats": {
+    "500": 3,
+    "2300": 3,
+    "5000": 1
+  },
+  "profile": "release",
+  "execution": "Each process gets a disposable mem store or new temporary RocksDB directory. Serial measurements, no competing cargo builds.",
+  "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14)",
+  "host": "Linux x86_64",
+  "scope": "Kernel context map/work and single-record read, not full visualizer or live user vault. Fingerprints include IDs, revisions, bodies, currentness and initiatives, not every serialized response field."
+}

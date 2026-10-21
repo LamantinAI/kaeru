@@ -6,14 +6,14 @@ use chrono::DateTime;
 use cozo::{DataValue, ScriptMutability};
 use serde_json::{Value, json};
 
-use super::time_string;
-use super::{created_at, filter_references, node, relations, trails};
+use super::session::{memberships, raw_node};
+use super::{created_at, filter_references, node, relations, time_string, trails};
 use crate::api::access::{check_node, check_scope, resolve};
 use crate::api::graph::{path, provenance};
 use crate::api::{ApiOptions, ApiResult, Args, hash, issue_from_error};
 use crate::graph::temporal::parse_validity;
 use crate::models::{Issue, NodeData, NodeRef, Omission, RecordData, Response, ResponseData};
-use crate::{Error, Store, at, history as core_history, initiatives_of_node, read_node_full};
+use crate::{Error, Store, at, history as core_history};
 
 pub(in crate::api) fn historical_node(
     store: &Store,
@@ -25,7 +25,7 @@ pub(in crate::api) fn historical_node(
     let snap = at(store, &id.into(), when)
         .map_err(issue_from_error)?
         .ok_or_else(|| Issue::new("NOT_FOUND_AT_TIME", "node had no assertion at that instant"))?;
-    let metadata=store.db_ref().run_script("?[validity,properties,layer,visibility] := *node{id,validity,properties,layer,visibility},id=$id",BTreeMap::from([("id".into(),DataValue::Str(id.into()))]),ScriptMutability::Immutable).map_err(Error::from).map_err(issue_from_error)?;
+    let metadata=store.db_ref().run_script("?[validity,properties,layer,visibility] := *node{id:$id,validity,properties,layer,visibility}",BTreeMap::from([("id".into(),DataValue::Str(id.into()))]),ScriptMutability::Immutable).map_err(Error::from).map_err(issue_from_error)?;
     let latest = metadata
         .rows
         .iter()
@@ -53,7 +53,7 @@ pub(in crate::api) fn historical_node(
         .iter()
         .find_map(|t| t.strip_prefix("status:").map(str::to_string));
     Ok(NodeData {
-        initiatives: initiatives_of_node(store, &id.to_string())
+        initiatives: memberships(store, &id.to_string())
             .map_err(issue_from_error)?
             .into_iter()
             .filter(|s| check_scope(s, options).is_ok())
@@ -124,10 +124,7 @@ pub(in crate::api) fn read(
             scope,
         ));
     }
-    if read_node_full(store, &id)
-        .map_err(issue_from_error)?
-        .is_none()
-    {
+    if raw_node(store, &id).map_err(issue_from_error)?.is_none() {
         let latest = core_history(store, &id)
             .map_err(issue_from_error)?
             .into_iter()

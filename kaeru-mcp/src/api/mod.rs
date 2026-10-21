@@ -1,5 +1,7 @@
 //! Named HTTP routes over the same memory operations as MCP.
 
+#[cfg(test)]
+mod cancellation_tests;
 pub mod egress;
 mod handlers;
 pub mod principal;
@@ -8,13 +10,13 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::post;
-
-use self::handlers::invoke;
-use crate::cloud_client::CloudRegistry;
 pub use egress::ApiConfig;
 use kaeru_core::Store;
 use kaeru_core::api::tool_definitions;
 use kaeru_core::config::api::API_OPERATION_PREFIX;
+
+use self::handlers::invoke;
+use crate::cloud_client::CloudRegistry;
 
 #[derive(Clone)]
 pub struct ApiState {

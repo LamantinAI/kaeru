@@ -15,6 +15,7 @@ For the product overview, see [README.md](../README.md).
 5. [Instance UI and authentication](instance-ui.md) covers local accounts, access modes and containers.
 6. [AMG knowledge transfer](amg.md) covers scoped CBOR export, atomic import and force.
 7. [Offline builds](offline-build.md) covers vendored dependencies and toolchains.
+8. [Read performance](read-performance.md) explains batching, cancellation and disposable benchmarks.
 
 Kaeru stores typed records and relationships in an embedded CozoDB graph. Each
 project is an initiative, and a record can belong to several initiatives.
