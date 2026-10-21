@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 pub(in crate::api) use bulk::prefetch;
 use cozo::DataValue;
 pub(in crate::api) use fields::{
-    created, edge_rows, memberships, pin, raw_node, recorded, visibility,
+    created, edge_rows, memberships, pin, query, raw_node, recorded, visibility,
 };
 use serde_json::Value;
 

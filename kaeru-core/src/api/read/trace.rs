@@ -21,6 +21,21 @@ pub(in crate::api) fn delivered(store: &Store, response: &Response, fallback_sco
         initiatives.extend(node.initiatives.iter().cloned());
     };
     match &response.data {
+        ResponseData::Graph(data) => {
+            ids.extend(data.graph.nodes.iter().map(|n| n.id.clone()));
+            ids.extend(
+                data.graph
+                    .edges
+                    .iter()
+                    .flat_map(|e| [e.from.clone(), e.to.clone()]),
+            );
+            ids.extend(
+                data.graph
+                    .members
+                    .iter()
+                    .flat_map(|m| [m.chain_id.clone(), m.node_id.clone()]),
+            );
+        }
         ResponseData::Record(data) => {
             record(&data.node);
             for node in &data.provenance {

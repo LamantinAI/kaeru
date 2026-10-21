@@ -6,6 +6,38 @@ use crate::store::test_support::capture;
 use crate::{Layer, NodeType, Store, Tier, Visibility, upsert_node};
 
 #[test]
+fn compact_graph_uses_bulk_structural_queries_without_bodies_or_node_revisions() {
+    let store = Store::open_in_memory().unwrap();
+    store.run("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] := i in int_range(0,500),id=concat('node-',to_string(i)),validity=[1000.0,true],type='episode',tier='operational',name=id,body='not loaded',tags=null,initiatives=null,properties=null,visibility='shared',layer='warm' :put node {id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}").unwrap();
+    store.run("?[initiative,node_id] := *node{id:node_id @ 'NOW'},initiative='perf' :put node_initiative {initiative,node_id}").unwrap();
+    let (result, queries) = capture(|| {
+        api::execute(
+            &store,
+            "context",
+            json!({"view":"graph","budget_chars":64000}),
+            &ApiOptions::local(),
+        )
+    });
+    assert!(!result.is_error(), "{result:?}");
+    assert!(queries.len() < 15, "{} queries: {queries:?}", queries.len());
+    for (sql, params) in queries {
+        assert!(
+            !sql.contains("body")
+                && !sql.contains("properties")
+                && !sql.contains("api_trail_summary"),
+            "{sql}"
+        );
+        assert!(!params.contains_key("id"), "no scalar hydration: {sql}");
+        if sql.contains("*node{") {
+            assert!(
+                sql.contains("@ 'NOW'"),
+                "no history without created_at: {sql}"
+            );
+        }
+    }
+}
+
+#[test]
 fn real_api_point_reads_use_prefix_joins_including_quoted_legacy_ids() {
     let store = Store::open_in_memory().unwrap();
     let id = "legacy-'quoted\\id".to_string();

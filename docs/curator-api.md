@@ -12,7 +12,7 @@ including retained identities. This changes current membership metadata only.
 
 | Operation | Purpose |
 | --- | --- |
-| `context` | Restore rules, current slots, open work, reminders and saved reasoning. `view` selects work, map, board or diagnostics. |
+| `context` | Restore rules, current slots, open work, reminders and saved reasoning. Views: work, map, board, diagnostics, or a compact structural graph. |
 | `search` | Literal lexical text and explicit filters across named initiatives. |
 | `read` | Full record, currentness, conflicts and saved reasoning. Optional relations, provenance and directed path. |
 | `note` | Observation, decision, constraint, plan or outcome. |
@@ -64,7 +64,7 @@ First recover what matters now with `context`:
 ```
 
 This returns standing rules, current records, open work, reminders and saved
-reasoning. `context` also offers `work`, `map`, `board` and `diagnostics` views.
+reasoning. `context` also offers `work`, `map`, `board`, `diagnostics` and `graph` views.
 Use `search` to find something outside that initial context:
 
 ```json

@@ -65,7 +65,7 @@ function login(configured) {
 }
 function problem(message, { empty = false, showSettings = false } = {}) {
   shell(`<main class="account-status"><p class="account-eyebrow">${empty ? 'a fresh page' : 'connection paused'}</p><h1>${empty ? 'No visible memories yet.' : 'Memory is unavailable.'}</h1>
-    <p class="account-lead">${esc(message)}</p><p class="account-notice" data-notice hidden></p><div class="account-actions"><button class="btn go" data-retry>try again →</button>${showSettings ? '<a class="btn" href="/ui/admin">settings</a>' : ''}</div></main>`)
+    <p class="account-lead">${esc(message)}</p><p class="account-notice" data-notice hidden></p><div class="account-actions"><button class="btn go" data-retry>try again</button>${showSettings ? '<a class="btn" href="/ui/admin">settings</a>' : ''}</div></main>`)
   document.querySelector('[data-retry]').addEventListener('click', () => location.reload())
 }
 async function admin(session) {
@@ -79,11 +79,11 @@ async function admin(session) {
     <form id="account-form"><label for="account-username">Username</label><input id="account-username" name="username" value="${esc(cfg.username)}" autocomplete="username" required maxlength="128" />
     <label for="account-current">Current password</label><input id="account-current" name="current_password" type="password" autocomplete="current-password" required />
     <label for="account-new">New password <small>optional</small></label><input id="account-new" name="new_password" type="password" autocomplete="new-password" maxlength="1024" />
-    <button type="submit" class="btn go">save account →</button></form></section>
+    <button type="submit" class="btn go">save account</button></form></section>
     <section class="admin-card" id="sessions"><div class="admin-card-heading"><span>02</span><h2>Sessions</h2></div><p class="account-hint">Choose how long a sign-in lasts. Saving this setting signs out all sessions.</p>
     <form id="session-form"><label for="session-ttl">Lifetime in minutes</label><input id="session-ttl" name="ttl" type="number" min="5" max="1440" step="any" value="${cfg.ttl_seconds / 60}" required />
     <label for="session-current">Current password</label><input id="session-current" name="current_password" type="password" autocomplete="current-password" required />
-    <button type="submit" class="btn go">save session settings →</button></form></section>
+    <button type="submit" class="btn go">save session settings</button></form></section>
     <section class="admin-card" id="instance"><div class="admin-card-heading"><span>03</span><h2>Access</h2><span class="account-chip">read only</span></div>
     <dl class="instance-facts"><dt>Address</dt><dd>${esc(cfg.public_origin || location.origin)}</dd><dt>Visible initiatives</dt><dd>${chips(cfg.allow)}</dd><dt>Excluded initiatives</dt><dd>${chips(cfg.deny)}</dd><dt>Local records</dt><dd>${cfg.include_local ? 'included' : 'private'}</dd><dt>MCP token</dt><dd>${cfg.mcp_static_auth ? 'configured' : 'required; not configured'}</dd><dt>Connected clouds</dt><dd>${chips(cfg.clouds)}</dd></dl>
     <p class="account-hint">Memory permissions are managed separately.</p></section></div></main>`, { admin: true, username: session.username })
@@ -111,7 +111,9 @@ try {
   else if (location.pathname === '/ui/admin' && session.auth_enabled) await admin(session)
   else if (location.pathname === '/ui/login' || location.pathname === '/ui/admin') go('/ui/')
   else {
-    const graph = await memory.graph()
+    const graphAbort = new AbortController()
+    window.addEventListener('pagehide', () => graphAbort.abort(), { once: true })
+    const graph = await memory.graph(undefined, { signal: graphAbort.signal })
     if (!graph.nodes.length) problem('There are no visible records under the current access settings.', { empty: true, showSettings: session.auth_enabled })
     else {
       registerGraph(graph)
@@ -124,6 +126,7 @@ try {
     }
   }
 } catch (error) {
-  if (error.status === 401) go('/ui/login')
+  if (error.name === 'AbortError') { /* navigation cancelled the graph load */ }
+  else if (error.status === 401) go('/ui/login')
   else problem(error.status === 403 ? 'Your account cannot access the requested memory.' : error.message)
 }

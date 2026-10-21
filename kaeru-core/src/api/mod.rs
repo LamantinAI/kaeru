@@ -57,7 +57,11 @@ pub fn authorize_arguments(name: &str, arguments: &Value, options: &ApiOptions) 
     if let Some(scope) = args.text("initiative") {
         check_scope(&scope, options)?;
     }
-    if name == "search" {
+    if name == "search"
+        || name == "context"
+            && args.text("view").as_deref() == Some("graph")
+            && args.has("initiatives")
+    {
         for scope in args.parse::<Vec<String>>("initiatives")? {
             check_scope(&scope, options)?;
         }
@@ -145,6 +149,9 @@ pub fn output_schema_for(name: &str) -> Value {
     if kind != "MutationData" && name != "retention" {
         schema["properties"]["data"] =
             json!({"anyOf":[{"$ref":format!("#/$defs/{kind}")},{"$ref":"#/$defs/MutationData"}]});
+    }
+    if name == "context" {
+        schema["properties"]["data"] = json!({"anyOf":[{"$ref":"#/$defs/ContextData"},{"$ref":"#/$defs/GraphData"},{"$ref":"#/$defs/MutationData"}]});
     }
     let all = schema["$defs"].as_object().cloned().unwrap_or_default();
     let mut needed = BTreeSet::new();
@@ -371,7 +378,8 @@ pub fn normalize_arguments(name: &str, arguments: &mut Value) {
         }
     }
     walk(arguments);
-    if name == "search"
+    if (name == "search"
+        || name == "context" && arguments.get("view").and_then(Value::as_str) == Some("graph"))
         && let Some(a) = arguments
             .get_mut("initiatives")
             .and_then(Value::as_array_mut)

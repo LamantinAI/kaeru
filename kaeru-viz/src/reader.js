@@ -49,7 +49,7 @@ const clamp = (v, a, b) => Math.min(b, Math.max(a, v))
 export function createReader(data, { fmtDateTime }) {
   const world = $('rworld'), track = $('rtrack'), canvas = $('rcanvas'), sheet = $('manuscript')
   const N = {}, ADJ = {}
-  data.nodes.filter((n) => n.type !== 'chain').forEach((n) => { N[n.id] = { ...n }; ADJ[n.id] = [] })
+  data.nodes.filter((n) => n.type !== 'chain' || !data.chains.some((c) => c.id === n.id)).forEach((n) => { N[n.id] = { ...n }; ADJ[n.id] = [] })
   for (const e of data.edges) {
     if (!N[e.src] || !N[e.dst]) continue
     ADJ[e.src].push({ o: e.dst, t: e.type, dir: 'out' })
@@ -77,9 +77,13 @@ export function createReader(data, { fmtDateTime }) {
   // of what it is about to put on the page, which is one trail, not a vault.
   // Reports whether anything actually grew, so a caller that already drew the
   // page knows whether it is worth drawing again.
+  let bodyAbort = null, viewRequest = 0
   async function loadBodies(ids) {
+    bodyAbort?.abort()
+    const abort = new AbortController(); bodyAbort = abort
     let full
-    try { full = await bodiesFor(ids) } catch (error) {
+    try { full = await bodiesFor(ids, { signal: abort.signal }) } catch (error) {
+      if (error.name === 'AbortError') return false
       window.dispatchEvent(new CustomEvent('kaeru-api-error', { detail: error }))
       return false
     }
@@ -524,7 +528,6 @@ export function createReader(data, { fmtDateTime }) {
   function render(c, members) {
     chain = c
     steps = (members || []).map((id) => N[id]).filter(Boolean)
-      .sort((a, b) => (a.created_secs || 0) - (b.created_secs || 0))
     if (!steps.length) return false
     buildTrail(); buildManuscript(); setView(view)
     // Lanes are stacked from measured card heights. Measuring before the web
@@ -539,8 +542,10 @@ export function createReader(data, { fmtDateTime }) {
   return {
     /** Load a chain (by the picker's value) and render both views. */
     async show(chainId) {
+      const request = ++viewRequest
       const c = data.chains.find((x) => x.id === chainId) || data.chains.find((x) => x.name === chainId)
-      if (c && !(await hydrateChain(c.id))) await loadBodies(c.members)
+      if (c) await hydrateChain(c.id)
+      if (request !== viewRequest) return false
       hist = []; syncBack()
       return c ? render(c, c.members) : false
     },
@@ -549,12 +554,15 @@ export function createReader(data, { fmtDateTime }) {
      *  a saved chain, read that trail; otherwise make an ad-hoc one from the
      *  node, which the layout then grows along its derivation links. */
     async showNode(id) {
+      const request = ++viewRequest
       await loadBodies(trailOf(id))
+      if (request !== viewRequest) return false
       hist = []; syncBack()
       return openNode(id, false)
     },
 
     /** Step back to whatever was being read before the last link. */
+    cancel() { viewRequest++; bodyAbort?.abort() },
     back: goBack,
     canBack: () => hist.length > 0,
 

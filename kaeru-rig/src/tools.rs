@@ -91,7 +91,9 @@ impl<const I: usize> Tool for MemoryTool<I> {
                 if args.get("initiatives").is_none() {
                     args["initiatives"] = json!([scope]);
                 }
-            } else if args.get("initiative").is_none() {
+            } else if args.get("initiative").is_none()
+                && !(name == "context" && args.get("view").and_then(Value::as_str) == Some("graph"))
+            {
                 let schema = &definition.input_schema;
                 let accepts = schema.pointer("/properties/initiative").is_some()
                     || schema
@@ -508,6 +510,48 @@ mod tests {
         let replay = mem.note().call(args).await.unwrap();
         assert_eq!(replay["replayed"], true);
         assert_eq!(first["data"], replay["data"]);
+    }
+
+    #[tokio::test]
+    async fn graph_scope_selection_does_not_receive_an_implicit_singular_scope() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let first = KaeruMemory::with_initiative(store.clone(), "first");
+        let second = KaeruMemory::with_initiative(store, "second");
+        first
+            .note()
+            .call(json!({"name":"From first","body":"A"}))
+            .await
+            .unwrap();
+        second
+            .note()
+            .call(json!({"name":"From second","body":"B"}))
+            .await
+            .unwrap();
+        let all = first
+            .context()
+            .call(json!({"view":"graph","budget_chars":64000}))
+            .await
+            .unwrap();
+        let names = all["data"]["graph"]["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|n| n["name"].as_str())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"From first") && names.contains(&"From second"));
+        let selected = first
+            .context()
+            .call(json!({"view":"graph","initiatives":["second"],"budget_chars":64000}))
+            .await
+            .unwrap();
+        assert_ne!(selected["state"], "rejected", "{selected}");
+        assert!(
+            selected["data"]["graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|n| n["initiatives"] == json!(["second"]))
+        );
     }
 
     #[tokio::test]

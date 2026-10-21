@@ -1,4 +1,6 @@
 //! Reproducible public-API fixture. Never opens an existing/user vault.
+#[path = "support/graph_perf.rs"]
+mod graph_perf;
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -25,6 +27,9 @@ struct Arguments {
     backend: Backend,
     #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=100))]
     repeats: u32,
+    /// Compare whole-graph request patterns instead of individual kernel reads.
+    #[arg(long)]
+    graph: bool,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,6 +57,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .is_error()
     );
+    if args.graph {
+        return graph_perf::run(
+            &store,
+            n,
+            args.repeats,
+            &format!("{:?}", args.backend).to_lowercase(),
+        );
+    }
     for repeat in 0..args.repeats {
         for (name, input) in [
             (

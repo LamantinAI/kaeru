@@ -55,8 +55,9 @@ profiles/backends and no competing builds during measurement.
 
 These are kernel read measurements, not a complete visualizer load or a
 prediction for every real vault. `context` still materializes its selected view
-before pagination. Compact graph projection and visualizer request reduction
-are separate work. Existing continuation pages retain their existing generation,
+before pagination. The visualizer uses a separate compact graph projection
+through `context(view=graph)`, measured separately below. Ordinary continuation
+pages retain their existing generation,
 policy and expiry checks; the assembly snapshot does not turn them into a
 long-lived database transaction.
 
@@ -80,3 +81,25 @@ All 18 backend/size/operation pairs matched the delivered fingerprints, page
 counts and record counts. See [raw JSONL](measurements/read-performance-2026-10-21/results.jsonl)
 and [measurement metadata](measurements/read-performance-2026-10-21/metadata.json).
 The single 5000-node runs show direction, not a latency distribution.
+
+## Whole-graph request comparison
+
+```sh
+cargo run --release -p kaeru-core --example read_perf --locked -- \
+  --graph --backend rocksdb --nodes 2300 --repeats 3
+```
+
+Both pipelines use the optimized kernel and the same disposable fixture. This
+comparison assembles **all 2300 nodes and 4600 edges**, across 38 initiatives,
+including JSON response serialization. It excludes network latency, egress
+redaction and WebGL layout. The real browser path is tested separately.
+
+| Pipeline | API calls | Response bytes | Median, ms |
+| --- | ---: | ---: | ---: |
+| Per-initiative maps followed by per-node reads | 2339 | 4619617 | 2942.612 |
+| Compact paged structural graph | 12 | 763142 | 173.072 |
+
+Sorted node structural fields and local edges/weights matched on all three
+paired runs. Bodies are intentionally outside the compact projection. See
+[raw measurements](measurements/graph-performance-2026-10-21/results.jsonl) and
+[method details](measurements/graph-performance-2026-10-21/metadata.json).

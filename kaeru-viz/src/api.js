@@ -13,82 +13,86 @@ export function scopeFor(id) { return scopesByNode.get(id) }
 export function registeredGraph() { return registered }
 
 export function createClient({ baseUrl = '', headers = {}, fetcher = fetch, onError } = {}) {
-  async function call(operation, arguments_) {
+  async function call(operation, arguments_, { signal } = {}) {
     const response = await fetcher(`${baseUrl}/v1/${operation}`, {
-      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(typeof headers === 'function' ? headers() : headers) },
+      signal, method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json', ...(typeof headers === 'function' ? headers() : headers) },
       body: JSON.stringify(arguments_),
-    }).catch((error) => { onError?.(error); throw error })
-    const value = await response.json().catch(() => ({}))
+    }).catch((error) => { if (error.name !== 'AbortError') onError?.(error); throw error })
+    const value = await response.json().catch((error) => {
+      if (error.name === 'AbortError') throw error
+      if (response.ok) { onError?.(error); throw error }
+      return {}
+    })
     if (!response.ok || value.state === 'rejected' || value.state === 'partial') {
       const error = new Error(value.issues?.[0]?.message || `Memory HTTP ${response.status}`)
       error.code = value.issues?.[0]?.code
       error.status = response.status
-      onError?.(error)
+      if (error.code !== 'CURSOR_STALE') onError?.(error)
       throw error
     }
     return value
   }
   // Gather one coherent read. Restart a stale snapshot a bounded number of
   // times, rather than mixing revisions into a seemingly complete graph.
-  async function pages(operation, arguments_, stop = () => false) {
+  async function pages(operation, arguments_, stop = () => false, options = {}) {
     for (let attempt = 0; attempt < 3; attempt++) {
       const out = []
       let next = arguments_
       try {
         for (let page = 0; next && page < 10000; page++) {
-          const value = await call(operation, next)
+          const value = await call(operation, next, options)
           out.push(value)
           if (stop(value)) return out
           next = value.continuation?.next_arguments
         }
         if (next) throw new Error('Memory pagination limit exceeded')
         return out
-      } catch (error) { if (error.code !== 'CURSOR_STALE' || attempt === 2) throw error }
-    }
-  }
-  async function record(id) {
-    const initiative = scopeFor(id)
-    if (!initiative) throw new Error('No visible initiative for this record')
-    const responses = await pages('read', { initiative, node: id, budget_chars: 64000 })
-    return responses.map((value) => value.data.node.body || '').join('')
-  }
-  async function graph(selectedScopes) {
-    const scopePages = await pages('initiatives', {})
-    const available = scopePages.flatMap((page) => page.data.initiatives)
-    const scopes = selectedScopes?.length ? available.filter((s) => selectedScopes.includes(s)) : available
-    const nodes = new Map(), edges = new Map(), chains = new Map()
-    for (const initiative of scopes) {
-      for (const page of await pages('context', { initiative, view: 'map', budget_chars: 64000 })) {
-        for (const section of page.data.sections) for (const node of section.records) {
-          const previous = nodes.get(node.id)
-          nodes.set(node.id, { ...node, type: node.node_type, initiatives: [...new Set([...(previous?.initiatives || []), initiative])],
-            created_secs: (node.created_at || node.recorded_at) ? Date.parse(node.created_at || node.recorded_at) / 1000 : null, degree: 0, redacted: node.body === '[redacted]' })
-          scopesByNode.set(node.id, initiative)
-        }
+      } catch (error) {
+        if (error.code !== 'CURSOR_STALE') throw error
+        if (attempt === 2) { onError?.(error); throw error }
       }
     }
-    for (const node of nodes.values()) {
-      // Graph sections precede body chunks. Once body delivery starts, the
-      // graph is complete and loading the remainder of a source is unnecessary.
-      const responses = await pages('read', { initiative: scopeFor(node.id), node: node.id, include: ['relations', 'reasoning'], budget_chars: 64000 },
-        (page) => Boolean(page.data.node.body?.length))
-      for (const page of responses) {
-        for (const edge of page.data.relations) if (nodes.has(edge.from) && nodes.has(edge.to)) {
-          const key = `${edge.from}|${edge.to}|${edge.edge_type}`
-          edges.set(key, { src: edge.from, dst: edge.to, type: edge.edge_type, weight: edge.weight, dst_store: edge.dst_store })
-        }
-        for (const trail of page.data.reasoning || []) {
-          chains.set(trail.id, { id: trail.id, name: trail.name, members: trail.members.filter((id) => nodes.has(id)) })
-        }
+  }
+  async function record(id, options = {}) {
+    const initiative = scopeFor(id)
+    if (!initiative) throw new Error('No visible initiative for this record')
+    const responses = await pages('read', { initiative, node: { id }, budget_chars: 64000 }, () => false, options)
+    return responses.map((value) => value.data.node.body || '').join('')
+  }
+  async function graph(selectedScopes, options = {}) {
+    const args = { view: 'graph', include: ['created_at'], budget_chars: 64000 }
+    if (selectedScopes?.length) args.initiatives = selectedScopes
+    const responses = await pages('context', args, () => false, options)
+    const snapshot = responses[0].data.graph.snapshot_id
+    const nodes = new Map(), edges = new Map(), chains = new Map()
+    for (const page of responses) {
+      const graph = page.data.graph
+      if (graph.snapshot_id !== snapshot) throw new Error('Graph pages belong to different snapshots')
+      for (const node of graph.nodes) nodes.set(node.id, { ...node, type: node.node_type,
+        created_secs: node.created_at ? Date.parse(node.created_at) / 1000 : null,
+        degree: 0, body_loaded: false })
+    }
+    for (const page of responses) {
+      for (const edge of page.data.graph.edges) if (nodes.has(edge.from) && nodes.has(edge.to)) {
+        edges.set(`${edge.from}|${edge.to}|${edge.edge_type}`, { src: edge.from, dst: edge.to,
+          type: edge.edge_type, weight: edge.weight, dst_store: 'local' })
+      }
+      for (const member of page.data.graph.members) {
+        if (!nodes.has(member.chain_id) || !nodes.has(member.node_id)) throw new Error('Graph chain has an absent endpoint')
+        if (!chains.has(member.chain_id)) chains.set(member.chain_id, { id: member.chain_id, name: nodes.get(member.chain_id).name, entries: [] })
+        chains.get(member.chain_id).entries.push(member)
       }
     }
     for (const edge of edges.values()) { nodes.get(edge.src).degree++; nodes.get(edge.dst).degree++ }
     const times = [...nodes.values()].map((n) => n.created_secs).filter(Number.isFinite)
-    return { nodes: [...nodes.values()], edges: [...edges.values()], chains: [...chains.values()], project_links: [],
+    const scopes = responses[0].coverage?.initiatives || [...new Set([...nodes.values()].flatMap((n) => n.initiatives))]
+    return { snapshot_id: snapshot, nodes: [...nodes.values()], edges: [...edges.values()],
+      chains: [...chains.values()].map(({ entries, ...chain }) => ({ ...chain, members: entries.sort((a, b) => a.position - b.position).map((m) => m.node_id) })), project_links: [],
       initiatives: scopes.map((name) => ({ name, node_count: [...nodes.values()].filter((n) => n.initiatives.includes(name)).length })),
       meta: { node_count: nodes.size, edge_count: edges.size, chain_count: chains.size, initiative_count: scopes.length,
-        redacted_count: [...nodes.values()].filter((n) => n.redacted).length, earliest_secs: times.length ? Math.min(...times) : null, latest_secs: times.length ? Math.max(...times) : null } }
+        redacted_count: null, earliest_secs: times.length ? Math.min(...times) : null, latest_secs: times.length ? Math.max(...times) : null } }
   }
+
   return { call, pages, record, graph }
 }
 export const memory = createClient({ headers: sessionHeaders, onError(error) {

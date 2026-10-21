@@ -11,7 +11,7 @@ use crate::config::api::API_READ_BATCH_SIZE;
 use crate::graph::temporal::parse_validity;
 use crate::{Error, NodeFull, Store, initiatives_of_node, read_node_full};
 
-pub(super) fn query(
+pub(in crate::api) fn query(
     store: &Store,
     sql: &str,
     params: BTreeMap<String, DataValue>,

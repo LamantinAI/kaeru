@@ -1,7 +1,9 @@
 //! Bounded retrieval with currentness and stored reasoning on the ordinary path.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::time::Instant;
+mod graph;
 
 use chrono::Utc;
 use serde_json::{Value, json, to_string, to_vec};
@@ -27,7 +29,7 @@ pub(crate) struct Snapshot {
     policy_hash: String,
     generation: u64,
     expires: Instant,
-    response: Response,
+    response: Arc<Response>,
 }
 
 fn policy_hash(options: &ApiOptions) -> String {
@@ -81,7 +83,7 @@ pub(in crate::api) fn continued(
             "memory or access changed; repeat the initial read",
         ));
     }
-    paginate(
+    paginate_shared(
         store,
         snapshot.response,
         args,
@@ -151,7 +153,7 @@ fn items(data: &ResponseData) -> Vec<Item> {
                 .chain(body)
                 .collect()
         }
-        ResponseData::Mutation(_) => vec![],
+        ResponseData::Mutation(_) | ResponseData::Graph(_) => vec![],
     }
 }
 
@@ -180,7 +182,7 @@ fn empty_data(data: &ResponseData) -> ResponseData {
             d.provenance.clear();
             d.path.clear();
         }
-        ResponseData::Mutation(_) => {}
+        ResponseData::Mutation(_) | ResponseData::Graph(_) => {}
     }
     d
 }
@@ -244,13 +246,27 @@ fn delivery_reserve(response: &Response) -> usize {
 
 pub(in crate::api) fn paginate(
     store: &Store,
-    mut full: Response,
+    full: Response,
+    args: &Args,
+    options: &ApiOptions,
+    offset: usize,
+    token: Option<String>,
+) -> ApiResult<Response> {
+    paginate_shared(store, Arc::new(full), args, options, offset, token)
+}
+
+fn paginate_shared(
+    store: &Store,
+    mut full: Arc<Response>,
     args: &Args,
     options: &ApiOptions,
     offset: usize,
     token: Option<String>,
 ) -> ApiResult<Response> {
     checkpoint()?;
+    if matches!(full.data, ResponseData::Graph(_)) {
+        return graph::page(store, full, args, options, offset, token);
+    }
     let budget = args
         .value("budget_chars")
         .as_u64()
@@ -266,7 +282,7 @@ pub(in crate::api) fn paginate(
     } else {
         usize::MAX
     };
-    if to_vec(&full).unwrap().len() + delivery_reserve(&full) > API_MAX_SNAPSHOT_BYTES {
+    if to_vec(full.as_ref()).unwrap().len() + delivery_reserve(&full) > API_MAX_SNAPSHOT_BYTES {
         return Err(Issue::new(
             "SNAPSHOT_TOO_LARGE",
             "snapshot exceeds 8 MiB; narrow the view or use an authorized export for large sources",
@@ -280,9 +296,9 @@ pub(in crate::api) fn paginate(
         ));
     }
     if offset == 0 && entries.len() <= limit && size(&full) <= budget {
-        return delivered(store, full, options);
+        return delivered(store, Arc::unwrap_or_clone(full), options);
     }
-    let mut page = full.clone();
+    let mut page = (*full).clone();
     page.data = empty_data(&full.data);
     if let ResponseData::Record(data) = &mut page.data {
         let total = match &full.data {
@@ -367,7 +383,7 @@ pub(in crate::api) fn paginate(
     }
     page = delivered(store, page, options)?;
     if let (ResponseData::Context(original), ResponseData::Context(emitted)) =
-        (&mut full.data, &page.data)
+        (&mut Arc::make_mut(&mut full).data, &page.data)
     {
         let updated = emitted
             .sections

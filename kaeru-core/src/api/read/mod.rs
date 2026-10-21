@@ -8,6 +8,7 @@ use super::{ApiOptions, ApiResult, Args, Issue, Response, issue_from_error};
 use crate::api::control::checkpoint;
 use crate::{Error, Store};
 mod context;
+mod graph;
 mod history;
 mod node;
 mod paging;
@@ -40,6 +41,9 @@ pub(super) fn dispatch(
         .db_ref()
         .read_snapshot(|| {
             session::run(store, options, || match name {
+                "context" if args.text("view").as_deref() == Some("graph") => {
+                    graph::graph(store, args, options)
+                }
                 "context" => context(store, args, options),
                 "search" => search(store, args, options),
                 "read" => read(store, args, options),

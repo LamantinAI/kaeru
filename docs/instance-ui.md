@@ -4,6 +4,38 @@
 `/v1/` memory API. The binary includes HTML, JavaScript, styles and fonts.
 Installed instances need no Node.js, separate frontend process or exported graph.
 
+## Graph loading
+
+The UI requests `context` with `view="graph"` through `POST /v1/context`.
+It gathers compact nodes, local edges and ordered memberships of fully visible
+chains from one immutable, paginated snapshot. It does not list every initiative
+and then read every record. Text is fetched through the ordinary `read` operation
+only when a reader trail or board card is opened.
+
+The same structural read is available over MCP and Rig:
+
+```json
+{"view":"graph","initiatives":["project"],"include":["created_at"],"budget_chars":64000}
+```
+
+Omit `initiatives` for all accessible initiatives, or use singular `initiative`
+to select one. The selectors only narrow host permissions. Dates are optional;
+without `include=["created_at"]`, the graph read skips node history. Graph nodes
+have labels, types, layers, tags and memberships, without bodies, source
+properties or mutation revisions. `rules_complete` is false for this projection.
+Edges require two accessible local endpoints. A chain with an inaccessible,
+retired or out-of-selection member remains a readable node, but contributes no
+replay sequence; hidden steps are never removed to invent a shorter path.
+
+Follow `continuation.next_arguments` unchanged. Pages share an opaque snapshot
+ID; the host checks caller, policy, generation, expiry and current visibility.
+A scheduled private transition or retraction invalidates the graph continuation
+even without a new write. The UI restarts stale reads without mixing pages and
+cancels obsolete requests. Body caches belong to the registered graph session.
+
+Fonts are emitted as bundled files rather than data URLs; the strict same-origin
+font Content Security Policy remains enabled.
+
 ## Local installation and authentication
 
 The local installer asks whether to enable authentication. A new installation
