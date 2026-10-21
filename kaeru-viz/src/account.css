@@ -23,6 +23,7 @@
 .account-page form label { color: var(--fg-2); font: 11px/1.6 var(--mono); margin-top: 6px; }
 .account-page form label small { color: var(--dim); font-size: 11px; }
 .account-page input { width: 100%; height: 45px; border: 1px solid var(--line-2); border-radius: 3px; background: var(--ctl-bg); padding: 10px 12px; font: 14px var(--mono); color: var(--fg); outline: none; }
+.account-page input[aria-invalid="true"] { border-color: var(--kind); }
 .account-page input:focus-visible { border-color: var(--seal); box-shadow: 0 0 0 2px color-mix(in srgb, var(--seal) 20%, transparent); }
 .account-page .btn { text-decoration: none; }
 .account-page form button { align-self: start; margin-top: 15px; min-height: 38px; }

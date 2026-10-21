@@ -5,10 +5,16 @@ import './account.css'
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 const go = (path) => location.replace(path)
-const notice = (text, error = false) => {
-  const target = document.querySelector('[data-notice]')
+// A message lands in the nearest notice: a form's own, so an error sits beside
+// the fields it is about, or else the page's. Returns false where there is none.
+const notice = (text, error = false, scope = document) => {
+  const target = scope.querySelector('[data-notice]')
   if (target) { target.textContent = text; target.classList.toggle('error', error); target.hidden = !text }
+  return Boolean(target)
 }
+// Every way a session ends unasked (expiry, a revoked token) arrives at the
+// sign-in page saying so, rather than at a blank form.
+const expired = () => go('/ui/login?notice=expired')
 function theme() {
   let value = 'auto'
   try { value = localStorage.getItem('kaeru-viz-theme') || 'auto' } catch (_) {}
@@ -53,7 +59,9 @@ function shell(content, { admin = false, username = '' } = {}) {
 }
 async function logout() {
   try { await auth.logout(); go('/ui/login?notice=signed-out') } catch (error) {
-    if (error.status === 401) go('/ui/login'); else notice(error.message, true)
+    // the galaxy has no notice of its own; its live error bar carries the failure
+    if (error.status === 401) expired()
+    else if (!notice(error.message, true)) window.dispatchEvent(new CustomEvent('kaeru-api-error', { detail: error }))
   }
 }
 function login(configured) {
@@ -71,14 +79,18 @@ function login(configured) {
     </section></main>`)
   wireGalaxy()
   document.querySelector('[data-retry]')?.addEventListener('click', () => location.reload())
-  const known = { 'signed-out': 'All browser sessions have been signed out.', 'account-updated': 'Account updated. Sign in with your current credentials.', 'settings-updated': 'Session settings saved. Sign in again.' }
+  const known = { 'signed-out': 'All browser sessions have been signed out.', 'account-updated': 'Account updated. Sign in with your current credentials.', 'settings-updated': 'Session settings saved. Sign in again.', expired: 'Your session ended. Sign in again.' }
   notice(known[new URLSearchParams(location.search).get('notice')] || '')
   document.querySelector('#login-form')?.addEventListener('submit', async (event) => {
     event.preventDefault()
     const form = event.currentTarget, button = form.querySelector('button')
     button.disabled = true; notice('Signing in…')
     try { await auth.login(form.username.value, form.password.value); form.password.value = ''; go('/ui/') }
-    catch (error) { notice(error.message, true); form.password.value = ''; form.password.focus() }
+    catch (error) {
+      // a forgotten password has no reset link to follow; say where the reset lives
+      notice(error.status === 401 ? `${error.message}. Forgot the password? Run kaeru-mcp --reset-web-password on the machine running kaeru.` : error.message, true)
+      form.password.value = ''; form.password.focus()
+    }
     finally { button.disabled = false }
   })
 }
@@ -90,25 +102,35 @@ function problem(message, { empty = false, showSettings = false } = {}) {
 async function admin(session) {
   const cfg = await auth.request('/admin/settings')
   document.title = 'Settings — kaeru'
-  const chips = (items) => items.length ? items.map((value) => `<span class="account-chip">${esc(value)}</span>`).join('') : '<span class="account-muted">none configured</span>'
-  shell(`<main class="admin-layout"><aside class="admin-intro"><p class="account-eyebrow">settings</p><h1>A place<br>of your own.</h1>
-    <p class="account-lead">Manage access.<br>Memory stays in the same place.</p><a href="#account" class="admin-link">01 <span>account</span> ↗</a><a href="#sessions" class="admin-link">02 <span>sessions</span> ↗</a><a href="#instance" class="admin-link">03 <span>access</span> ↗</a><p class="account-version">kaeru ${esc(cfg.version)}</p></aside>
+  // `*` is the configuration's glob for every initiative; the page says it in words
+  const chips = (items) => items.length ? items.map((value) => `<span class="account-chip">${value === '*' ? 'all initiatives' : esc(value)}</span>`).join('') : '<span class="account-muted">none configured</span>'
+  // The space before <br> keeps the words apart where narrow screens hide the break.
+  shell(`<main class="admin-layout"><aside class="admin-intro"><p class="account-eyebrow">settings</p><h1>A place <br>of your own.</h1>
+    <p class="account-lead">Manage access.<br>Memory stays in the same place.</p><a href="#account" class="admin-link">01 <span>account</span> ↓</a><a href="#sessions" class="admin-link">02 <span>sessions</span> ↓</a><a href="#instance" class="admin-link">03 <span>access</span> ↓</a><p class="account-version">kaeru ${esc(cfg.version)}</p></aside>
     <div class="admin-panels"><p class="account-notice" data-notice role="alert" hidden></p>
     <section class="admin-card" id="account"><div class="admin-card-heading"><span>01</span><h2>Account</h2><span class="account-chip">local account</span></div><p class="account-hint">Changes sign out every browser session. Confirm them with your current password.</p>
     <form id="account-form"><label for="account-username">Username</label><input id="account-username" name="username" value="${esc(cfg.username)}" autocomplete="username" required maxlength="128" />
     <label for="account-current">Current password</label><input id="account-current" name="current_password" type="password" autocomplete="current-password" required />
     <label for="account-new">New password <small>optional</small></label><input id="account-new" name="new_password" type="password" autocomplete="new-password" maxlength="1024" />
-    <button type="submit" class="btn go">save account</button></form></section>
+    <p class="account-notice" data-notice role="alert" hidden></p><button type="submit" class="btn go">save account</button></form></section>
     <section class="admin-card" id="sessions"><div class="admin-card-heading"><span>02</span><h2>Sessions</h2></div><p class="account-hint">Choose how long a sign-in lasts. Saving this setting signs out all sessions.</p>
     <form id="session-form"><label for="session-ttl">Lifetime in minutes</label><input id="session-ttl" name="ttl" type="number" min="5" max="1440" step="any" value="${cfg.ttl_seconds / 60}" required />
     <label for="session-current">Current password</label><input id="session-current" name="current_password" type="password" autocomplete="current-password" required />
-    <button type="submit" class="btn go">save session settings</button></form></section>
+    <p class="account-notice" data-notice role="alert" hidden></p><button type="submit" class="btn go">save session settings</button></form></section>
     <section class="admin-card" id="instance"><div class="admin-card-heading"><span>03</span><h2>Access</h2><span class="account-chip">read only</span></div>
     <dl class="instance-facts"><dt>Address</dt><dd>${esc(cfg.public_origin || location.origin)}</dd><dt>Visible initiatives</dt><dd>${chips(cfg.allow)}</dd><dt>Excluded initiatives</dt><dd>${chips(cfg.deny)}</dd><dt>Local records</dt><dd>${cfg.include_local ? 'included' : 'private'}</dd><dt>MCP token</dt><dd>${cfg.mcp_static_auth ? 'configured' : 'required; not configured'}</dd><dt>Connected clouds</dt><dd>${chips(cfg.clouds)}</dd></dl>
     <p class="account-hint">Memory permissions are managed separately.</p></section></div></main>`, { admin: true, username: session.username })
   const submit = (selector, action) => document.querySelector(selector).addEventListener('submit', async (event) => {
-    event.preventDefault(); const form = event.currentTarget, button = form.querySelector('button'); button.disabled = true; notice('Saving…')
-    try { await action(form); form.reset() } catch (error) { if (error.status === 401) go('/ui/login'); else notice(error.message, true) }
+    event.preventDefault(); const form = event.currentTarget, button = form.querySelector('button'), current = form.current_password
+    button.disabled = true; current.removeAttribute('aria-invalid'); notice('Saving…', false, form)
+    try { await action(form); form.reset() } catch (error) {
+      if (error.status === 401) expired()
+      else {
+        notice(error.message, true, form)
+        // the one field the server can reject by itself: mark it and go back to it
+        if (/current password/i.test(error.message)) { current.setAttribute('aria-invalid', 'true'); current.select(); current.focus() }
+      }
+    }
     finally { button.disabled = false }
   })
   submit('#account-form', async (form) => { await auth.request('/admin/account', { method: 'PATCH', body: { username: form.username.value, current_password: form.current_password.value, new_password: form.new_password.value || null, revision: cfg.revision } }); go('/ui/login?notice=account-updated') })
@@ -117,7 +139,7 @@ async function admin(session) {
 
 theme()
 window.addEventListener('pageshow', (event) => { if (event.persisted) location.reload() })
-window.addEventListener('kaeru-auth-required', () => go('/ui/login'))
+window.addEventListener('kaeru-auth-required', expired)
 window.addEventListener('kaeru-api-error', (event) => {
   let target = document.getElementById('live-error')
   if (!target) { target = document.createElement('div'); target.id = 'live-error'; target.className = 'live-error'; target.setAttribute('role', 'alert'); document.body.append(target) }
@@ -125,7 +147,7 @@ window.addEventListener('kaeru-api-error', (event) => {
 })
 try {
   const session = await auth.session()
-  if (session.authenticated) setTimeout(() => go('/ui/login'), Math.max(0, session.expires_at * 1000 - Date.now()))
+  if (session.authenticated) setTimeout(expired, Math.max(0, session.expires_at * 1000 - Date.now()))
   if (session.auth_enabled && !session.authenticated) login(session.configured)
   else if (location.pathname === '/ui/admin' && session.auth_enabled) await admin(session)
   else if (location.pathname === '/ui/login' || location.pathname === '/ui/admin') go('/ui/')
@@ -138,7 +160,9 @@ try {
       registerGraph(graph)
       if (session.auth_enabled) {
         const nav = document.createElement('nav'); nav.className = 'account-nav'
-        nav.innerHTML = `<span>${esc(session.username)}</span><a class="btn" href="/ui/admin">settings ↗</a><button class="btn" type="button" data-logout>sign out all</button>`
+        // Signing out ends every session (the server revokes by account revision),
+        // so the consequence rides along as a hint; the settings page names it in full.
+        nav.innerHTML = `<span>${esc(session.username)}</span><a class="btn" href="/ui/admin">settings</a><button class="btn" type="button" data-logout title="Signs out every browser using this memory">sign out</button>`
         document.getElementById('hud').append(nav); nav.querySelector('[data-logout]').addEventListener('click', logout)
       }
       await import('./main.js')
@@ -146,6 +170,6 @@ try {
   }
 } catch (error) {
   if (error.name === 'AbortError') { /* navigation cancelled the graph load */ }
-  else if (error.status === 401) go('/ui/login')
+  else if (error.status === 401) expired()
   else problem(error.status === 403 ? 'Your account cannot access the requested memory.' : error.message)
 }
