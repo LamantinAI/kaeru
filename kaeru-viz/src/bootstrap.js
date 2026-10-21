@@ -106,7 +106,7 @@ async function admin(session) {
   const chips = (items) => items.length ? items.map((value) => `<span class="account-chip">${value === '*' ? 'all initiatives' : esc(value)}</span>`).join('') : '<span class="account-muted">none configured</span>'
   // The space before <br> keeps the words apart where narrow screens hide the break.
   shell(`<main class="admin-layout"><aside class="admin-intro"><p class="account-eyebrow">settings</p><h1>A place <br>of your own.</h1>
-    <p class="account-lead">Manage access.<br>Memory stays in the same place.</p><a href="#account" class="admin-link">01 <span>account</span> ↓</a><a href="#sessions" class="admin-link">02 <span>sessions</span> ↓</a><a href="#instance" class="admin-link">03 <span>access</span> ↓</a><p class="account-version">kaeru ${esc(cfg.version)}</p></aside>
+    <p class="account-lead">Manage access.<br>Memory stays in the same place.</p><p class="account-version">kaeru ${esc(cfg.version)}</p></aside>
     <div class="admin-panels"><p class="account-notice" data-notice role="alert" hidden></p>
     <section class="admin-card" id="account"><div class="admin-card-heading"><span>01</span><h2>Account</h2><span class="account-chip">local account</span></div><p class="account-hint">Changes sign out every browser session. Confirm them with your current password.</p>
     <form id="account-form"><label for="account-username">Username</label><input id="account-username" name="username" value="${esc(cfg.username)}" autocomplete="username" required maxlength="128" />
