@@ -173,14 +173,29 @@ fn compact_pages_roundtrip_and_preserve_chain_order_without_per_node_payloads() 
 fn graph_continuation_rejects_future_visibility_revocation_without_a_write() {
     let store = paged_fixture();
     let options = viewer();
+    let arguments = json!({"view":"graph","budget_chars":1500});
+    // The first API call compiles the shared validators. That setup must not
+    // consume the window in which the record is supposed to remain shared.
+    api::validate("context", &arguments).unwrap();
     let transition = Utc::now().timestamp_micros() + 200_000;
     store.run(&format!("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['record-000',[{transition}.0,true],'episode','operational','private','new private',null,null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}")).unwrap();
-    let first = call(
-        &store,
-        json!({"view":"graph","budget_chars":1500}),
-        &options,
-    );
+    let persisted = store
+        .run_read("?[validity,visibility] := *node{id:'record-000',validity,visibility}")
+        .unwrap()
+        .rows;
+    let first = call(&store, arguments, &options);
     assert!(!first.is_error(), "{first:?}");
+    let ResponseData::Graph(data) = &first.data else {
+        panic!("graph expected")
+    };
+    assert_eq!(
+        data.graph.counts.nodes, 26,
+        "initial snapshot must precede revocation"
+    );
+    assert!(
+        data.graph.nodes.iter().any(|node| node.id == "record-000"),
+        "the first page must include the initially shared record"
+    );
     let next = first.continuation.unwrap().next_arguments;
     while Utc::now().timestamp_micros() <= transition {
         sleep(Duration::from_millis(5));
@@ -189,6 +204,14 @@ fn graph_continuation_rejects_future_visibility_revocation_without_a_write() {
     assert!(
         response.issues.iter().any(|i| i.code == "CURSOR_STALE"),
         "{response:?}"
+    );
+    assert_eq!(
+        persisted,
+        store
+            .run_read("?[validity,visibility] := *node{id:'record-000',validity,visibility}")
+            .unwrap()
+            .rows,
+        "revocation follows time, not another write"
     );
 }
 
