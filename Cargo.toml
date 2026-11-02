@@ -3,7 +3,7 @@ resolver = "2"
 members = ["kaeru-core", "kaeru-mcp", "kaeru-cloud", "kaeru-rig"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 license = "LicenseRef-BSL-1.1"
 repository = "https://github.com/LamantinAI/kaeru"
@@ -58,13 +58,13 @@ config = "0.14"
 # bridge's daemon auto-start (flock on Unix, LockFileEx on Windows).
 fs2 = "0.4"
 
-# MCP server (kaeru-mcp). Official Anthropic-maintained Rust SDK.
+# MCP server (kaeru-mcp). Official MCP Rust SDK.
 # Streamable HTTP transport because kaeru-mcp is a long-lived service —
 # a single daemon owns the RocksDB lock; many agent sessions connect
 # concurrently over `http://127.0.0.1:<port>/mcp`. Stdio is intentionally
 # not available: it tied each session to its own subprocess and made
 # multi-session use impossible (RocksDB is single-writer).
-rmcp = { version = "1.6", features = ["server", "transport-streamable-http-server", "macros"] }
+rmcp = { version = "=3.8.0", features = ["server", "transport-streamable-http-server", "macros"] }
 # `io-std` and `process` are the stdio bridge: it reads stdin/stdout and, when
 # no daemon answers, starts one.
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "net", "time", "io-std", "io-util", "process"] }

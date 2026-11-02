@@ -107,6 +107,57 @@ is an example, not an enabled account:
 
 ## Access and sessions
 
+### MCP transport capacity
+
+Streamable-HTTP MCP stays stateful and supports the same protocol revisions
+through `2025-11-25`. `KAERU_MCP_MAX_SESSIONS` defaults to `256` and must be
+positive. Admission reservations, initializing sessions, closing workers and
+handlers still finishing after cancellation share that capacity.
+
+When capacity is full, new session initialization receives HTTP `503` with
+`Retry-After: 60`; existing sessions remain usable. This header suggests retrying,
+not a guarantee that a slot will become free within a minute. Close unused
+sessions with HTTP DELETE and do not create a fresh session for every tool call.
+
+`KAERU_MCP_KEEP_ALIVE_SECS` defaults to `300`: a session expires after five
+minutes without accepted activity and with no pending operation or response
+delivery. Completion starts a fresh full idle interval. Cleanup runs at most
+five seconds apart; it removes the SDK lookup entry and closes the worker,
+releasing its capacity only after shutdown. An open standalone SSE stream or
+transport heartbeat does not prevent expiry.
+
+An expired session receives HTTP `404` on subsequent calls. Direct HTTP clients
+must initialize a new session. The bundled stdio bridge restores its handshake
+and retries the rejected call once, without exposing the internal handshake to
+the editor. It does not replay calls after timeouts or unrelated HTTP/RPC errors,
+and does not transfer an old cancellation notification to a new session.
+
+Set `KAERU_MCP_KEEP_ALIVE_SECS=0` to disable expiry. Then abandoned sessions can
+fill the pool until clients send DELETE or the daemon stops. Session expiry and
+capacity bound retained transport state, not all process memory; large
+operations and Store caches have separate costs. Browser sessions and graph
+records are unaffected by MCP expiry.
+
+`KAERU_MCP_MAX_REQUEST_BODY_BYTES=0` preserves the previous unlimited MCP POST
+body behavior instead of inheriting the updated SDK's 4 MiB default. Set a
+positive byte count to opt into a transport body limit.
+
+HTTP memory handlers require a lease issued by the managed session, not merely
+a supplied SID. Per-request inline lifecycle metadata cannot switch them to an
+unmanaged stateless call; ordinary progress/custom metadata remains supported.
+
+The stdio bridge sends a best-effort DELETE on EOF, Ctrl-C or SIGTERM, bounded to
+two seconds. It leaves the shared daemon running. Forced termination or network
+failure can prevent that cleanup. The bridge echoes the negotiated
+`MCP-Protocol-Version`; HTTP-only failures such as admission 503 become correlated
+JSON-RPC errors instead of plain text on stdout.
+
+These transport settings are separate from browser login sessions below. The
+legacy `/sse` transport has its own connection lifecycle and is not counted in
+this streamable-HTTP pool.
+
+### Browser sessions
+
 Authentication mode does not widen `KAERU_MCP_VIZ_INITIATIVES`, `KAERU_MCP_VIZ_DENY` or
 `KAERU_MCP_VIZ_INCLUDE_LOCAL`. These variables constrain HTTP/UI access; MCP
 sessions retain their local owner capabilities. An empty allowed set shows no

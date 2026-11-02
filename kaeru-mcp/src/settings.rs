@@ -13,6 +13,15 @@ use config::{Config, ConfigError, Environment, File, FileFormat};
 use serde::Deserialize;
 
 /// Product identity advertised during MCP initialization.
+/// Protocol ceiling retained from Kaeru 0.8.0; SDK updates must not opt into new wire semantics.
+pub const MCP_PROTOCOL_VERSION: rmcp::model::ProtocolVersion =
+    rmcp::model::ProtocolVersion::V_2025_11_25;
+pub const MCP_SESSION_HEADER: &str = "mcp-session-id";
+pub const MCP_PROTOCOL_HEADER: &str = "mcp-protocol-version";
+pub const SESSION_RETRY_AFTER_SECS: u64 = 60;
+pub const STDIO_SESSION_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+pub const SESSION_REAP_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
 pub const MCP_SERVER_NAME: &str = "kaeru";
 pub const MCP_SERVER_TITLE: &str = "kaeru memory";
 pub const MCP_SERVER_WEBSITE_URL: &str = "https://lamantin-ai.com/products/kaeru/";
@@ -127,15 +136,27 @@ pub struct KaeruMcpConfig {
     #[serde(default, rename = "default")]
     pub default_cloud: String,
 
-    /// Idle timeout for rmcp MCP sessions, in seconds. After this
-    /// many seconds without activity the session manager drops the
-    /// session (rmcp's own default behaviour is 300s). Editor-attached
-    /// clients like Claude Code sit idle between user prompts, so we
-    /// disable reaping by default — set to non-zero to restore it
-    /// (useful for proxy-style deployments where hung clients should
-    /// free server-side state).
-    #[serde(default)]
+    /// Idle timeout for managed MCP sessions, in seconds. Defaults to 300;
+    /// zero disables expiry. Pending operations and response delivery are
+    /// protected, then start a new full idle interval on completion.
+    #[serde(default = "default_keep_alive_secs")]
     pub keep_alive_secs: u64,
+
+    /// Maximum admitted, initializing or closing streamable-HTTP sessions.
+    /// Existing sessions remain usable when new admission is full.
+    #[serde(default = "default_max_sessions")]
+    pub max_sessions: usize,
+
+    /// Optional POST body limit for the SDK; zero preserves the previous
+    /// unlimited transport behavior (including large reference captures).
+    #[serde(default)]
+    pub max_request_body_bytes: usize,
+
+    /// Opt-in HTTP/session diagnostic sampling interval; zero disables it.
+    /// Request logs contain timings and session fingerprints, never payloads
+    /// or authorization headers. Env: `KAERU_MCP_DIAGNOSTICS_INTERVAL_SECS`.
+    #[serde(default)]
+    pub diagnostics_interval_secs: u64,
 }
 
 impl KaeruMcpConfig {
@@ -151,10 +172,17 @@ impl KaeruMcpConfig {
             // case, not an error.
             builder = builder.add_source(File::from(path).format(FileFormat::Toml).required(false));
         }
-        builder
+        let settings: Self = builder
             .add_source(Environment::with_prefix("KAERU_MCP").try_parsing(true))
             .build()?
-            .try_deserialize()
+            .try_deserialize()?;
+        if settings.max_sessions == 0 || settings.max_sessions > tokio::sync::Semaphore::MAX_PERMITS
+        {
+            return Err(ConfigError::Message(
+                "KAERU_MCP_MAX_SESSIONS must be positive and within semaphore capacity".into(),
+            ));
+        }
+        Ok(settings)
     }
 }
 
@@ -183,6 +211,14 @@ fn clouds_file_path() -> Option<PathBuf> {
 
 fn default_listen_address() -> Ipv4Addr {
     Ipv4Addr::LOCALHOST
+}
+
+fn default_max_sessions() -> usize {
+    256
+}
+
+fn default_keep_alive_secs() -> u64 {
+    300
 }
 
 fn default_listen_port() -> u16 {
@@ -227,6 +263,15 @@ mod tests {
     use std::io::Write;
 
     use super::KaeruMcpConfig;
+
+    #[test]
+    fn session_expiry_defaults_to_five_minutes_and_zero_disables_it() {
+        let defaults: KaeruMcpConfig = serde_json::from_value(serde_json::json!({})).unwrap();
+        assert_eq!(defaults.keep_alive_secs, 300);
+        let disabled: KaeruMcpConfig =
+            serde_json::from_value(serde_json::json!({"keep_alive_secs":0})).unwrap();
+        assert_eq!(disabled.keep_alive_secs, 0);
+    }
 
     /// A clouds TOML file is parsed into the `clouds` map and `default`,
     /// proving the config-crate File source is wired correctly.

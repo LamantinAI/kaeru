@@ -106,7 +106,7 @@ The optional Claude memory-of-record setup is documented in
 | `KAERU_MCP_MOUNT_PATH` | `/mcp` | Streamable HTTP mount. |
 | `KAERU_MCP_SSE_PATH` | `/sse` | Legacy GET endpoint. |
 | `KAERU_MCP_MESSAGES_PATH` | `/messages` | Legacy POST endpoint. |
-| `KAERU_MCP_KEEP_ALIVE_SECS` | `0` | MCP idle reaping; zero disables it. |
+| `KAERU_MCP_KEEP_ALIVE_SECS` | `300` | MCP idle expiry; active calls and response delivery are protected. Zero disables expiry. |
 | `KAERU_MCP_LOG_LEVEL` | `info` | Tracing level. |
 | `KAERU_MCP_WEB_CONFIG_FILE` | Platform config path | Local account/authentication-mode file. |
 | `KAERU_MCP_AUTH_TOKEN` | Empty | Overrides the stored MCP token while authentication is enabled. |

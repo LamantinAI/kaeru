@@ -3,10 +3,10 @@
 use kaeru_core::api::{ApiOptions, NodeRef, resolve_node};
 use kaeru_core::{Error, NodeId, Store};
 use rmcp::ErrorData as McpError;
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, ContentBlock};
 
 pub fn text(message: &str) -> CallToolResult {
-    CallToolResult::success(vec![Content::text(message.to_string())])
+    CallToolResult::success(vec![ContentBlock::text(message.to_string())])
 }
 pub fn to_mcp(error: Error) -> McpError {
     McpError::internal_error(error.to_string(), None)

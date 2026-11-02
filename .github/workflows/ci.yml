@@ -39,7 +39,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: bash -n contrib/install/install.sh
-      - run: python3 -m unittest discover -s contrib/install -p test_install.py -v
+      - run: python3 -m unittest discover -s contrib/install -p 'test_*.py' -v
 
   test-update-worker:
     runs-on: ubuntu-latest

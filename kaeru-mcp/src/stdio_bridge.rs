@@ -1,22 +1,7 @@
-//! `kaeru-mcp --stdio` — a relay from a client that speaks stdio to the daemon
-//! that owns the vault.
-//!
-//! kaeru is deliberately not a stdio server: the substrate is a single-writer
-//! RocksDB, so a subprocess per agent session would race for the LOCK and the
-//! second one would lose. That decision is right and this module does not
-//! revisit it — but it left every stdio-only MCP client unable to reach kaeru
-//! at all, which is most of them.
-//!
-//! So: the client spawns *this*, and this forwards to the one daemon. Each
-//! session gets a process of its own, as stdio clients expect, and the vault
-//! still has exactly one writer.
-//!
-//! **It relays frames rather than modelling them.** A proxy built out of an
-//! MCP client and server would have to understand every method to pass it on,
-//! and would silently drop whatever it had not been taught — a new method, a
-//! notification, a capability added upstream. This forwards the JSON-RPC that
-//! arrives and returns what comes back, so it stays correct as the protocol
-//! grows.
+//! Frame-preserving stdio relay to the shared HTTP daemon that owns the vault.
+//! Each relay owns one MCP session, echoes the negotiated protocol version,
+//! and closes its session on EOF or shutdown without stopping the daemon.
+//! Method payloads pass through unchanged; HTTP-only failures become RPC errors.
 
 use std::fs::OpenOptions;
 use std::io;
@@ -26,13 +11,14 @@ use std::time::Duration;
 
 use fs2::FileExt;
 use reqwest::Client;
-use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderValue};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderValue, RETRY_AFTER};
+use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::process::Command;
 use tokio::time::sleep;
 
-/// Header the streamable-HTTP transport uses to bind a client to its session.
-const SESSION_HEADER: &str = "mcp-session-id";
+use crate::settings::{
+    MCP_PROTOCOL_HEADER, MCP_SESSION_HEADER as SESSION_HEADER, STDIO_SESSION_CLOSE_TIMEOUT,
+};
 
 /// How long to wait for a daemon we just started to begin answering.
 const START_TIMEOUT: Duration = Duration::from_secs(20);
@@ -43,6 +29,8 @@ pub struct Bridge {
     token: Option<String>,
     http: Client,
     session: Option<String>,
+    protocol_version: Option<String>,
+    initialize_request: Option<String>,
 }
 
 impl Bridge {
@@ -53,6 +41,8 @@ impl Bridge {
             token: token.filter(|t| !t.trim().is_empty()),
             http: Client::new(),
             session: None,
+            protocol_version: None,
+            initialize_request: None,
         }
     }
 
@@ -160,8 +150,34 @@ impl Bridge {
     /// Reads newline-delimited JSON-RPC from stdin, forwards each message to
     /// the daemon, and writes whatever comes back to stdout.
     pub async fn run(mut self) -> io::Result<()> {
-        let mut lines = BufReader::new(tokio::io::stdin()).lines();
-        let mut out = tokio::io::stdout();
+        self.run_io(
+            BufReader::new(tokio::io::stdin()),
+            tokio::io::stdout(),
+            crate::shutdown(tokio_util::sync::CancellationToken::new()),
+        )
+        .await
+    }
+
+    async fn run_io<I: AsyncBufRead + Unpin, O: AsyncWrite + Unpin>(
+        &mut self,
+        input: I,
+        output: O,
+        stop: impl Future<Output = ()>,
+    ) -> io::Result<()> {
+        let result = tokio::select! {
+            result = self.relay(input, output) => result,
+            () = stop => Ok(()),
+        };
+        self.close_session().await;
+        result
+    }
+
+    async fn relay<I: AsyncBufRead + Unpin, O: AsyncWrite + Unpin>(
+        &mut self,
+        input: I,
+        mut out: O,
+    ) -> io::Result<()> {
+        let mut lines = input.lines();
 
         while let Some(line) = lines.next_line().await? {
             if line.trim().is_empty() {
@@ -186,6 +202,92 @@ impl Bridge {
     }
 
     async fn forward(&mut self, body: &str) -> Result<Vec<String>, reqwest::Error> {
+        let method = serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .and_then(|value| value["method"].as_str().map(str::to_owned));
+        if self.session.is_none()
+            && self.initialize_request.is_some()
+            && !matches!(
+                method.as_deref(),
+                Some("initialize" | "notifications/initialized" | "notifications/cancelled")
+            )
+            && let Some(error) = self.restore_session(body).await?
+        {
+            return Ok(error);
+        }
+        let response = self.send_http(body).await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND
+            && self.session.is_some()
+            && self.initialize_request.is_some()
+            && method.as_deref() != Some("initialize")
+        {
+            // Only this transport rejection proves the operation never ran.
+            // A timeout, RPC error or unrelated HTTP 404 must not replay a write.
+            let text = response.text().await?;
+            if text.trim() == "Not Found: Session not found" {
+                if method.as_deref() == Some("notifications/cancelled") {
+                    return Ok(Vec::new());
+                }
+                self.session = None;
+                self.protocol_version = None;
+                if let Some(error) = self.restore_session(body).await? {
+                    return Ok(error);
+                }
+                let response = self.send_http(body).await?;
+                return self.finish_response(body, response).await;
+            }
+            return Ok(Self::http_error(body, 404, None, text));
+        }
+        self.finish_response(body, response).await
+    }
+
+    async fn restore_session(
+        &mut self,
+        original: &str,
+    ) -> Result<Option<Vec<String>>, reqwest::Error> {
+        let Some(initialize) = self.initialize_request.clone() else {
+            return Ok(None);
+        };
+        self.protocol_version = None;
+        let response = self.send_http(&initialize).await?;
+        let frames = self.finish_response(&initialize, response).await?;
+        if self.session.is_none() || self.protocol_version.is_none() {
+            let id = serde_json::from_str::<serde_json::Value>(original)
+                .ok()
+                .and_then(|value| value.get("id").cloned());
+            let mut errors: Vec<_> = frames
+                .into_iter()
+                .filter_map(|frame| {
+                    let mut value: serde_json::Value = serde_json::from_str(&frame).ok()?;
+                    if !value["error"].is_object() {
+                        return None;
+                    }
+                    value["id"] = id.clone()?;
+                    Some(value.to_string())
+                })
+                .collect();
+            if errors.is_empty()
+                && let Some(id) = id
+            {
+                let error =
+                    rmcp::ErrorData::internal_error("MCP session reinitialization failed", None);
+                errors.push(serde_json::json!({"jsonrpc":"2.0","id":id,"error":error}).to_string());
+            }
+            self.close_session().await;
+            return Ok(Some(errors));
+        }
+        let initialized = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+        let response = self.send_http(initialized).await?;
+        if !response.status().is_success() {
+            let errors = self.finish_response(original, response).await?;
+            self.close_session().await;
+            return Ok(Some(errors));
+        }
+        let _ = response.bytes().await?;
+        Ok(None)
+    }
+
+    async fn send_http(&self, body: &str) -> Result<reqwest::Response, reqwest::Error> {
         let mut req = self
             .http
             .post(&self.url)
@@ -199,11 +301,33 @@ impl Bridge {
         if let Some(s) = &self.session {
             req = req.header(SESSION_HEADER, s);
         }
+        if let Some(version) = &self.protocol_version {
+            req = req.header(MCP_PROTOCOL_HEADER, version);
+        }
         if let Some(t) = &self.token {
             req = req.bearer_auth(t);
         }
 
-        let resp = req.send().await?;
+        req.send().await
+    }
+
+    async fn finish_response(
+        &mut self,
+        body: &str,
+        resp: reqwest::Response,
+    ) -> Result<Vec<String>, reqwest::Error> {
+        if !resp.status().is_success() {
+            // A stdio client cannot see the HTTP status. Return a correlated
+            // RPC error instead of forwarding a plain-text 503 as JSON.
+            let retry = resp
+                .headers()
+                .get(RETRY_AFTER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok());
+            let status = resp.status().as_u16();
+            let text = resp.text().await?;
+            return Ok(Self::http_error(body, status, retry, text));
+        }
         // The session id arrives on the initialize response and must be echoed
         // on everything after it.
         if self.session.is_none()
@@ -220,7 +344,7 @@ impl Bridge {
             .to_string();
         let text = resp.text().await?;
 
-        Ok(if content_type.starts_with("text/event-stream") {
+        let frames = if content_type.starts_with("text/event-stream") {
             parse_sse(&text)
         } else if text.trim().is_empty() {
             // 202 to a notification: nothing to relay, and writing an empty
@@ -228,7 +352,66 @@ impl Bridge {
             Vec::new()
         } else {
             vec![text]
-        })
+        };
+        if self.protocol_version.is_none()
+            && serde_json::from_str::<serde_json::Value>(body)
+                .ok()
+                .is_some_and(|value| value["method"] == "initialize")
+        {
+            self.protocol_version = frames.iter().find_map(|frame| {
+                serde_json::from_str::<serde_json::Value>(frame)
+                    .ok()?
+                    .pointer("/result/protocolVersion")?
+                    .as_str()
+                    .map(str::to_owned)
+            });
+            if self.session.is_some() && self.protocol_version.is_some() {
+                self.initialize_request = Some(body.to_owned());
+            }
+        }
+        Ok(frames)
+    }
+
+    fn http_error(body: &str, status: u16, retry: Option<u64>, text: String) -> Vec<String> {
+        if serde_json::from_str::<serde_json::Value>(&text)
+            .ok()
+            .is_some_and(|value| value["jsonrpc"] == "2.0" && value["error"].is_object())
+        {
+            return vec![text];
+        }
+        let id = serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .and_then(|value| value.get("id").cloned());
+        let error = rmcp::ErrorData::internal_error(
+            format!("MCP HTTP backend returned {status}"),
+            Some(serde_json::json!({"http_status":status,"retry_after_seconds":retry})),
+        );
+        id.map(|id| vec![serde_json::json!({"jsonrpc":"2.0","id":id,"error":error}).to_string()])
+            .unwrap_or_default()
+    }
+
+    async fn close_session(&mut self) {
+        let Some(id) = self.session.take() else {
+            return;
+        };
+        let mut request = self
+            .http
+            .delete(&self.url)
+            .header(SESSION_HEADER, id)
+            .timeout(STDIO_SESSION_CLOSE_TIMEOUT);
+        if let Some(version) = &self.protocol_version {
+            request = request.header(MCP_PROTOCOL_HEADER, version);
+        }
+        if let Some(token) = &self.token {
+            request = request.bearer_auth(token);
+        }
+        match request.send().await {
+            Ok(response)
+                if response.status().is_success()
+                    || response.status() == reqwest::StatusCode::NOT_FOUND => {}
+            Ok(response) => tracing::warn!(status = %response.status(), "MCP session close failed"),
+            Err(error) => tracing::warn!(%error, "MCP session close failed"),
+        }
     }
 }
 
@@ -245,23 +428,4 @@ fn parse_sse(body: &str) -> Vec<String> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::parse_sse;
-
-    #[test]
-    fn only_data_lines_survive_an_sse_frame() {
-        let body = ": keep-alive\nevent: message\nid: 3\ndata: {\"jsonrpc\":\"2.0\",\"id\":1}\n\n";
-        assert_eq!(parse_sse(body), vec![r#"{"jsonrpc":"2.0","id":1}"#]);
-    }
-
-    #[test]
-    fn a_stream_carrying_several_messages_relays_all_of_them() {
-        let body = "data: {\"id\":1}\n\ndata: {\"id\":2}\n\n";
-        assert_eq!(parse_sse(body), vec![r#"{"id":1}"#, r#"{"id":2}"#]);
-    }
-
-    #[test]
-    fn a_keep_alive_only_frame_relays_nothing() {
-        assert!(parse_sse(": ping\n\n").is_empty());
-    }
-}
+mod tests;

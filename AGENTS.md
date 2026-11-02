@@ -74,7 +74,7 @@ The workspace targets Rust `1.95+` with edition `2024` and uses a shared depende
 Workspace members:
 
 - `kaeru-core/` — library crate: substrate, schema, primitives and shared exchange models (`src/models/`).
-- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 1.6, streamable HTTP transport). The agent's surface; also proxies into `kaeru-cloud` for sharing / recall. Its `ui/` module serves the embedded visualizer and browser routes; JWT/account services live in `auth/`. Generated assets in `ui-dist/` are rebuilt from `kaeru-viz/` with `npm run build:embedded` and checked with `npm run check:embedded`.
+- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 3.8, streamable HTTP transport). The agent's surface; also proxies into `kaeru-cloud` for sharing / recall. Its `ui/` module serves the embedded visualizer and browser routes; JWT/account services live in `auth/`. Generated assets in `ui-dist/` are rebuilt from `kaeru-viz/` with `npm run build:embedded` and checked with `npm run check:embedded`.
 - `kaeru-cloud/` — binary crate `kaeru-cloud`: the shared cloud tier (Axum REST over `kaeru-core`, bearer-token auth). One per team; local daemons connect to it.
 - `kaeru-rig/` — embedded `rig` adapter over the shared `kaeru-core::api`
   catalogue. `MemoryTool<I>` gives each operation a distinct static name;
@@ -495,6 +495,26 @@ the set-scope-then-operate sequence (`kaeru-core/src/store.rs`).
 - Replacing PKM tools — `kaeru` is for **agent** memory. Humans can inspect it through the embedded UI and Markdown ZIP/AMG exports; the offline CLI handles AMG transfer and local account setup.
 
 ## Current operator documentation
+
+Streamable HTTP remains stateful with a protocol ceiling of `2025-11-25`.
+`kaeru-mcp/src/session/` bounds session admission and expires sessions after
+five idle minutes by default (`KEEP_ALIVE_SECS=0` disables expiry). Application
+work and request-response delivery hold activity leases; standalone SSE and
+heartbeats do not prevent expiry. Keep the SDK's transport-only timer disabled.
+Slots outlive transport close while handler extensions
+still hold them. Admission runs after bearer authentication; overflow is 503
+with Retry-After, not eviction of existing clients. Preserve this ownership in
+SDK changes and keep vendor snapshots consistent with `Cargo.lock`. The stdio
+bridge closes its own MCP session on EOF/shutdown and propagates the negotiated
+protocol version. After a transport session-not-found404 it restores initialization
+and retries the rejected operation once, never a timeout or ambiguous failure.
+Its shutdown must never stop the shared daemon.
+
+Database transactions reuse a dedicated worker per `Database`, outside Rayon.
+Preserve separate commit/abort boundaries, caller-thread ownership and the
+completion acknowledgement after Cozo cleanup. Close the job queue before
+joining on drop. Do not replace this with a thread per operation: resetting
+RocksDB thread-local state can degrade fresh memtables on macOS.
 
 Start at `docs/README.md`; use `docs/curator-api.md` for the 35 agent operations,
 `docs/instance-ui.md` for optional authentication and HTTP/UI scope, and

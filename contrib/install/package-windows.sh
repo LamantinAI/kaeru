@@ -18,10 +18,8 @@
 #   Static CRT (`+crt-static`) is what lets the .exe import only system DLLs,
 #   so users need no VC++ redistributable — which the release notes promise.
 #
-#   3. The mtime check at the end. **A failed cargo-xwin run leaves the
-#      previous release's kaeru-mcp.exe in target/**, so packaging succeeds
-#      and ships a stale binary. v0.6.0 nearly went out that way. The check
-#      is not paranoia; it is the reason this script exists as a script.
+#   3. Remove the old output before building and require a successful build.
+#      Cargo hard-links artifacts, so mtime cannot prove a binary is fresh.
 
 set -euo pipefail
 
@@ -39,9 +37,8 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 cd "$ROOT"
 mkdir -p dist "$XWIN_CACHE"
 
-# Record where we start, so a build that silently does nothing is caught.
-before=$(stat -c %Y "target/$TARGET/release/kaeru-mcp.exe" 2>/dev/null || echo 0)
-started=$(date +%s)
+# Keep the Windows cache separate from native Linux and Darwin builds.
+exe="target-windows-release/$TARGET/release/kaeru-mcp.exe"
 
 echo "==> building $TARGET in $IMAGE"
 docker run --rm \
@@ -50,24 +47,17 @@ docker run --rm \
     -e http_proxy="${http_proxy:-}" -e https_proxy="${https_proxy:-}" \
     -e NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}" \
     -e XWIN_CACHE_DIR=/xwin \
-    -e CARGO_TERM_COLOR=never \
+    -e CARGO_HOME=/root/.cargo -e RUSTUP_HOME=/rustup \
+    -e CARGO_TERM_COLOR=never -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-3}" \
     -e RUSTFLAGS="-C target-feature=+crt-static" \
-    -v "$ROOT:/io" -v "$XWIN_CACHE:/xwin" \
-    -v "$HOME/.cargo/registry:/root/.cargo/registry" \
+    -v "$ROOT:/io" -v "$XWIN_CACHE:/xwin" -v "$HOME/.rustup:/rustup:ro" \
+    -v "$HOME/.cargo/registry:/root/.cargo/registry" -v "$HOME/.cargo/git:/root/.cargo/git" \
     -w /io \
     "$IMAGE" \
-    cargo xwin build --release --target x86_64-pc-windows-msvc -p kaeru-mcp --bin kaeru-mcp
+    bash -c 'rm -f /io/target-windows-release/x86_64-pc-windows-msvc/release/kaeru-mcp.exe &&
+             cargo xwin build --locked --release --target-dir /io/target-windows-release --target x86_64-pc-windows-msvc -p kaeru-mcp --bin kaeru-mcp'
 
-exe="target/$TARGET/release/kaeru-mcp.exe"
 [[ -f "$exe" ]] || { echo "!!  $exe does not exist — the build produced nothing" >&2; exit 1; }
-
-after=$(stat -c %Y "$exe")
-if [[ "$after" == "$before" || "$after" -lt "$started" ]]; then
-    echo "!!  $exe was not rebuilt by this run — it is left over from an" >&2
-    echo "!!  earlier build. Something failed inside the container without" >&2
-    echo "!!  stopping the script. Do NOT ship this." >&2
-    exit 1
-fi
 
 stage=$(mktemp -d)
 cp "$exe" "$stage/"
@@ -76,7 +66,6 @@ archive="kaeru-${TAG}-${TARGET}.zip"
 rm -rf "$stage"
 
 echo "==> dist/$archive"
-echo "    built $(date -d "@$after" '+%Y-%m-%d %H:%M')"
 echo
 echo "Add it to SHA256SUMS alongside the other targets:"
 echo "    (cd dist && sha256sum $archive >> SHA256SUMS)"

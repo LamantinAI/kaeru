@@ -22,12 +22,14 @@ mod canonical;
 mod cli;
 mod cloud;
 mod cloud_client;
+mod diagnostics;
 mod exports;
 mod hygiene;
 mod models;
 #[cfg(test)]
 mod parity;
 mod server;
+mod session;
 mod settings;
 mod sse;
 mod stdio_bridge;
@@ -289,16 +291,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let mut session_manager = LocalSessionManager::default();
-    // rmcp defaults to a 5-minute idle timeout that reaps Claude Code MCP
-    // sessions during normal interactive pauses, surfacing as
-    // `kaeru · ✘ failed` until auto-reconnect. Default is `0` = disabled
-    // (sessions live as long as the underlying connection); set
-    // `KAERU_MCP_KEEP_ALIVE_SECS` to a non-zero value for proxy-style
-    // deployments where hung clients should free server-side state.
-    session_manager.session_config.keep_alive = match mcp_config.keep_alive_secs {
-        0 => None,
-        secs => Some(Duration::from_secs(secs)),
-    };
+    // The SDK timer observes transport events rather than active handlers.
+    // Managed expiry below waits for application work and response delivery.
+    session_manager.session_config.keep_alive = None;
 
     // Asks once a day whether this binary is behind, and leaves the answer
     // where initialization will hand it to an agent. Spawned: a slow or unreachable
@@ -330,19 +325,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     tracing::info!(?allowed_hosts, "host allow-list for inbound MCP requests");
 
+    let session_manager = Arc::new(session::BoundedSessionManager::new(
+        session_manager,
+        mcp_config.max_sessions,
+    ));
+    session_manager.spawn_idle_reaper(
+        Duration::from_secs(mcp_config.keep_alive_secs),
+        cancel.child_token(),
+    );
     let service = StreamableHttpService::new(
         // Each MCP session reuses the same KaeruServer (and therefore
         // the same Arc<Store> / RocksDB lock); cloning the server is
         // cheap and shares state across sessions.
-        move || Ok(server.clone()),
-        Arc::new(session_manager),
+        move || Ok(server.clone().stateful_http()),
+        session_manager.clone(),
         default_config
             .with_allowed_hosts(allowed_hosts)
+            .with_legacy_session_mode(true)
+            .with_max_request_body_bytes(if mcp_config.max_request_body_bytes == 0 {
+                usize::MAX
+            } else {
+                mcp_config.max_request_body_bytes
+            })
             .with_cancellation_token(cancel.child_token()),
     );
 
     let router = axum::Router::new()
         .nest_service(&mcp_config.mount_path, service)
+        .layer(axum::middleware::from_fn_with_state(
+            session_manager.clone(),
+            session::admit,
+        ))
         .merge(sse_router);
 
     // Authentication is one installation-level choice for MCP, HTTP and UI.
@@ -381,6 +394,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
         mount,
         normalize_mcp_accept,
     ));
+    let router = if mcp_config.diagnostics_interval_secs == 0 {
+        router
+    } else {
+        diagnostics::attach(
+            router,
+            session_manager,
+            Duration::from_secs(mcp_config.diagnostics_interval_secs),
+            cancel.child_token(),
+        )
+    };
 
     let address = format!("{}:{}", mcp_config.listen_address, mcp_config.listen_port);
     let listener = TcpListener::bind(&address).await?;

@@ -9,9 +9,14 @@ use std::thread::{self, ThreadId};
 use cozo::{
     DataValue, DbInstance, Error as CozoError, MultiTransaction, NamedRows, ScriptMutability,
 };
-use crossbeam_channel::bounded;
+use crossbeam_channel::{Receiver, bounded};
 
 use crate::errors::{Error, Result};
+
+mod worker;
+use worker::{TransactionJob, TransactionWorker};
+#[cfg(test)]
+mod tests;
 
 struct ActiveTransaction {
     owner: ThreadId,
@@ -24,12 +29,14 @@ struct ActiveTransaction {
 /// Ordinary scripts retain their existing execution behavior. During an atomic
 /// command or read assembly, its thread shares one Cozo transaction and temporal
 /// NOW. Read assemblies reject writes; atomic commands commit their primitives
-/// together.
+/// together. Separate transactions reuse a per-database worker, retaining
+/// RocksDB's thread-local state without occupying Cozo's Rayon compute pool.
 pub(crate) struct Database {
     raw: DbInstance,
     writers: Mutex<()>,
     active: Mutex<Option<ActiveTransaction>>,
     generation: AtomicU64,
+    worker: Mutex<Option<TransactionWorker>>,
 }
 
 impl Database {
@@ -39,6 +46,7 @@ impl Database {
             writers: Mutex::new(()),
             active: Mutex::new(None),
             generation: AtomicU64::new(0),
+            worker: Mutex::new(None),
         }
     }
 
@@ -125,11 +133,13 @@ impl Database {
         let _writer = self.writers.lock().unwrap_or_else(|p| p.into_inner());
         let (sender, commands) = bounded(1);
         let (results, receiver) = bounded(1);
-        let db = self.raw.clone();
-        // A waiting transaction must not occupy Cozo's shared Rayon compute pool.
-        let worker = thread::Builder::new()
-            .name("kaeru-transaction".into())
-            .spawn(move || db.run_multi_transaction(is_write, commands, results))?;
+        let (done, completed) = bounded(1);
+        self.submit_transaction(TransactionJob {
+            write: is_write,
+            commands,
+            results,
+            done,
+        })?;
         *self.active.lock().unwrap_or_else(|p| p.into_inner()) = Some(ActiveTransaction {
             owner: thread::current().id(),
             handle: MultiTransaction { sender, receiver },
@@ -168,13 +178,42 @@ impl Database {
             }
             Err(panic) => {
                 let _ = tx.handle.abort();
-                let _ = worker.join();
+                drop(tx);
+                self.complete_transaction(completed);
                 resume_unwind(panic)
             }
         };
         drop(tx);
-        let _ = worker.join();
+        self.complete_transaction(completed);
         result
+    }
+
+    fn submit_transaction(&self, job: TransactionJob) -> Result<()> {
+        let mut worker = self.worker.lock().unwrap_or_else(|p| p.into_inner());
+        if worker.as_ref().is_some_and(TransactionWorker::is_finished) {
+            drop(worker.take());
+        }
+        if worker.is_none() {
+            *worker = Some(TransactionWorker::spawn(self.raw.clone())?);
+        }
+        if let Err(job) = worker.as_ref().unwrap().submit(job) {
+            // The worker stopped before accepting this empty transaction job.
+            // No caller code has run yet. Never retry an accepted transaction.
+            drop(worker.take());
+            *worker = Some(TransactionWorker::spawn(self.raw.clone())?);
+            worker.as_ref().unwrap().submit(job).map_err(|_| {
+                Error::Substrate("transaction worker stopped before accepting work".into())
+            })?;
+        }
+        Ok(())
+    }
+
+    fn complete_transaction(&self, completed: Receiver<()>) {
+        if completed.recv().is_err() {
+            // Join any worker unwind before releasing the writer guard. A
+            // confirmed commit remains successful even if later cleanup failed.
+            drop(self.worker.lock().unwrap_or_else(|p| p.into_inner()).take());
+        }
     }
 
     pub(crate) fn generation(&self) -> u64 {

@@ -16,6 +16,7 @@ For the product overview, see [README.md](../README.md).
 6. [AMG knowledge transfer](export_format_amg.md) covers live Markdown ZIP/CBOR exports, offline atomic import and force.
 7. [Offline builds](offline-build.md) covers vendored dependencies and toolchains.
 8. [Read performance](read-performance.md) explains batching, cancellation and disposable benchmarks.
+9. [MCP diagnostics](mcp-diagnostics.md) explains opt-in session and HTTP handler logs.
 
 Kaeru stores typed records and relationships in an embedded CozoDB graph. Each
 project is an initiative, and a record can belong to several initiatives.

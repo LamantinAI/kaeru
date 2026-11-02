@@ -41,9 +41,9 @@ RestartSec=2
 #Environment=KAERU_MCP_LISTEN_PORT=9876
 #Environment=KAERU_MCP_MOUNT_PATH=/mcp
 #Environment=KAERU_MCP_LOG_LEVEL=info
-# Idle session reaping in seconds; 0 = disabled (default; recommended
-# for editor-attached clients). Set non-zero for proxy-style deployments.
-#Environment=KAERU_MCP_KEEP_ALIVE_SECS=0
+# Idle session expiry in seconds; 300 = default, 0 = disabled.
+# Active calls and response delivery are protected from idle expiry.
+#Environment=KAERU_MCP_KEEP_ALIVE_SECS=300
 
 # kaeru-core tunables (vault path + caps).
 #Environment=KAERU_VAULT_PATH=%h/.local/share/kaeru

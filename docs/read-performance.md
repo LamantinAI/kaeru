@@ -32,6 +32,20 @@ The store still serializes scoped API operations. A cancelled request waiting
 for that guard skips its storage work after the guard becomes available. This
 change does not remove the mutex or provide preemptive database cancellation.
 
+Atomic commands and read snapshots reuse one dedicated worker per database.
+Each operation still creates and finishes its own Cozo transaction; completion
+is acknowledged after snapshot and storage-lock cleanup. The worker is outside
+Cozo's Rayon pool and is joined when the store closes. Caller errors and panics
+abort the current transaction; accepted work is never automatically replayed.
+
+Keeping this thread alive also preserves RocksDB's thread-local random state.
+Repeatedly creating transaction threads can reuse the same native thread identity
+and restart that state, producing poorly balanced memtable skip lists under
+repeated write patterns. Reading freshly written data can then become much
+slower until the memtable is flushed. Worker reuse addresses the thread lifetime;
+it does not add forced compaction, change query semantics or disable RocksDB
+performance counters.
+
 ## Reproduce the kernel measurements
 
 The example creates synthetic data in memory or a **new temporary RocksDB

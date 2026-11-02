@@ -46,7 +46,10 @@ async fn rpc(
         .post(url)
         .header("accept", "application/json, text/event-stream")
         .header("mcp-session-id", session)
-        .header("mcp-protocol-version", ProtocolVersion::LATEST.to_string())
+        .header(
+            "mcp-protocol-version",
+            ProtocolVersion::V_2025_11_25.to_string(),
+        )
         .json(&json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
         .send()
         .await
@@ -128,7 +131,7 @@ async fn mcp_delivers_both_export_formats_as_resources_and_http_uses_the_same_co
         "{}",
         fs::read_to_string(dir.path().join("daemon.log")).unwrap()
     );
-    let initialized=client.post(&url).header("accept","application/json, text/event-stream").json(&json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":ProtocolVersion::LATEST,"capabilities":{},"clientInfo":{"name":"export-test","version":"1"}}})).send().await.unwrap();
+    let initialized=client.post(&url).header("accept","application/json, text/event-stream").json(&json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":ProtocolVersion::V_2025_11_25,"capabilities":{},"clientInfo":{"name":"export-test","version":"1"}}})).send().await.unwrap();
     assert!(initialized.status().is_success());
     let session = initialized
         .headers()
@@ -148,8 +151,39 @@ async fn mcp_delivers_both_export_formats_as_resources_and_http_uses_the_same_co
         .await
         .unwrap();
     assert!(notification.status().is_success());
+    // Inline metadata must not make HTTP handlers bypass the managed session,
+    // whether the supplied SID is genuine or forged.
+    for supplied in [session.as_str(), "forged-session"] {
+        let response = client
+            .post(&url)
+            .header("accept", "application/json, text/event-stream")
+            .header("mcp-session-id", supplied)
+            .header("mcp-protocol-version", "2025-11-25")
+            .json(
+                &json!({"jsonrpc":"2.0","id":90,"method":"tools/list","params":{"_meta":{
+                "io.modelcontextprotocol/protocolVersion":"2025-11-25",
+                "io.modelcontextprotocol/clientCapabilities":{}}}}),
+            )
+            .send()
+            .await
+            .unwrap();
+        let rejected = parse(&response.text().await.unwrap());
+        assert_eq!(rejected["error"]["code"], -32600, "{rejected}");
+        assert!(rejected.get("result").is_none());
+    }
     let tools = rpc(&client, &url, &session, 2, "tools/list", json!({})).await;
     assert_eq!(tools["result"]["tools"].as_array().unwrap().len(), 35);
+    // The SDK upgrade must not silently impose its new 4 MiB input default.
+    let large = rpc(
+        &client,
+        &url,
+        &session,
+        91,
+        "tools/list",
+        json!({"_meta":{"example/padding":"x".repeat(4*1024*1024+16)}}),
+    )
+    .await;
+    assert_eq!(large["result"]["tools"].as_array().unwrap().len(), 35);
     for (index, format) in ["amg", "markdown"].into_iter().enumerate() {
         let exported=rpc(&client,&url,&session,10+index as u32,"tools/call",json!({"name":"export","arguments":{"format":format,"initiative":"alpha","destination":format,"request_id":format!("export-{index}")}})).await;
         assert!(exported.get("error").is_none(), "{exported}");

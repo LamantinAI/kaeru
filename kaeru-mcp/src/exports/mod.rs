@@ -9,14 +9,14 @@ use std::time::Instant;
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use kaeru_core::{models::Artifact, new_node_id};
-use rmcp::model::{RawResource, ResourceContents};
+use rmcp::model::{Resource, ResourceContents};
 use sha2::{Digest, Sha256};
 
 use crate::settings::archive::{EXPORT_RESOURCE_PREFIX, ExportResourceLimits};
 
 #[derive(Clone)]
 struct Entry {
-    resource: RawResource,
+    resource: Resource,
     bytes: Arc<[u8]>,
     path: String,
     digest: String,
@@ -42,7 +42,7 @@ impl ExportResources {
     fn prune(&self, entries: &mut BTreeMap<String, Entry>, now: Instant) {
         entries.retain(|_, e| now.saturating_duration_since(e.created) < self.limits.lifetime);
     }
-    pub fn register(&self, artifact: &Artifact, root: &Path) -> Result<RawResource, String> {
+    pub fn register(&self, artifact: &Artifact, root: &Path) -> Result<Resource, String> {
         self.register_at(artifact, root, Instant::now())
     }
     fn register_at(
@@ -50,7 +50,7 @@ impl ExportResources {
         artifact: &Artifact,
         root: &Path,
         now: Instant,
-    ) -> Result<RawResource, String> {
+    ) -> Result<Resource, String> {
         if artifact.bytes > self.limits.file_bytes
             || artifact.bytes > self.limits.total_bytes
             || self.limits.entries == 0
@@ -96,12 +96,12 @@ impl ExportResources {
         {
             return Err("exported file no longer matches its receipt".into());
         }
-        let mut resource = RawResource::new(
+        let mut resource = Resource::new(
             format!("{EXPORT_RESOURCE_PREFIX}{}", new_node_id()),
             actual.file_name().unwrap_or_default().to_string_lossy(),
         );
         resource.mime_type = Some(artifact.format.media_type().into());
-        resource.size = Some(artifact.bytes as u32);
+        resource.size = Some(artifact.bytes as u64);
         resource.description=Some("Generated knowledge archive; download expires after 15 minutes or daemon restart. Read with resources/read.".into());
         let entry = Entry {
             resource: resource.clone(),

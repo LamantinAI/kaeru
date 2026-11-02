@@ -216,8 +216,8 @@ Environment=KAERU_MCP_VIZ_INCLUDE_LOCAL=1
 #Environment=KAERU_MCP_LISTEN_PORT=9876
 #Environment=KAERU_MCP_MOUNT_PATH=/mcp
 #Environment=KAERU_MCP_LOG_LEVEL=info
-# Idle session reaping in seconds; 0 = disabled (default).
-#Environment=KAERU_MCP_KEEP_ALIVE_SECS=0
+# Idle session expiry in seconds; 300 = default, 0 = disabled.
+#Environment=KAERU_MCP_KEEP_ALIVE_SECS=300
 #Environment=KAERU_VAULT_PATH=%h/.local/share/kaeru
 
 [Install]

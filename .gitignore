@@ -2,6 +2,7 @@
 # The Linux release build runs in a container (natively, not cross-compiled)
 # and writes here as root.
 /target-linux-release
+/target-windows-release
 /dist
 /.kaeru-vault/
 *.swp

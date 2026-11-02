@@ -209,7 +209,8 @@ _serve_and_write() {
 
     local ready=0 i
     for i in $(seq 1 40); do
-        if docker logs "$cid" 2>&1 | grep -q "substrate ready"; then ready=1; break; fi
+        if docker logs "$cid" 2>&1 | grep -q "substrate ready" &&
+            curl --noproxy '*' -sS --connect-timeout 1 --max-time 2 -o /dev/null "http://127.0.0.1:$port/auth/session" 2>/dev/null; then ready=1; break; fi
         if [[ "$(docker inspect -f '{{.State.Running}}' "$cid")" != "true" ]]; then break; fi
         sleep 0.5
     done
@@ -227,13 +228,19 @@ _serve_and_write() {
     local body result
     if [[ "$mode" == "write" ]]; then
         for n in 1 2 3; do
-            body='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"jot","arguments":{"body":"release check note '"$n"'","initiative":"release-check"}}}'
-            _mcp_call "$port" "$body" >/dev/null
+            body='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"note","arguments":{"body":"release check note '"$n"'","initiative":"release-check"}}}'
+            result=$(_mcp_call "$port" "$body")
+            if ! python3 "$ROOT/contrib/install/check_release_rpc.py" <<<"$result"; then
+                docker rm -f "$cid" >/dev/null 2>&1 || true
+                exit 1
+            fi
         done
     else
-        body='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"query":"release*","initiative":"release-check"}}}'
+        body='{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"text":"release","prefix":true,"initiatives":["release-check"]}}}'
         result=$(_mcp_call "$port" "$body")
-        if ! grep -q "release check note" <<<"$result"; then
+        if ! python3 "$ROOT/contrib/install/check_release_rpc.py" \
+            --expect "release check note 1" --expect "release check note 2" \
+            --expect "release check note 3" <<<"$result"; then
             echo "!!  $label started but could not read the vault's existing content:" >&2
             echo "$result" | head -5 >&2
             docker rm -f "$cid" >/dev/null 2>&1 || true
@@ -248,19 +255,27 @@ _serve_and_write() {
 # One MCP tool call over the streamable-HTTP transport: initialize, then the
 # call itself. rmcp refuses a request whose Accept does not include
 # text/event-stream, which is why it is spelled out here.
-_mcp_call() {
+_mcp_call() (
     local port="$1" body="$2" sid
-    sid=$(curl -sS -D - -o /dev/null -X POST "http://127.0.0.1:$port/mcp" \
+    sid=$(curl --noproxy '*' --fail-with-body --connect-timeout 3 --max-time 30 -sS -D - -o /dev/null -X POST "http://127.0.0.1:$port/mcp" \
         -H 'Content-Type: application/json' \
         -H 'Accept: application/json, text/event-stream' \
         -d '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"release-check","version":"1"}}}' \
         | tr -d '\r' | awk -F': ' 'tolower($1)=="mcp-session-id"{print $2}')
-    curl -sS -X POST "http://127.0.0.1:$port/mcp" \
+    [[ -n "$sid" ]] || { echo "MCP initialization returned no session ID" >&2; exit 1; }
+    trap 'curl --noproxy "*" -sS --connect-timeout 2 --max-time 5 -X DELETE "http://127.0.0.1:$port/mcp" -H "Mcp-Session-Id: $sid" >/dev/null 2>&1 || true' EXIT
+    curl --noproxy '*' --fail-with-body --connect-timeout 3 --max-time 30 -sS -o /dev/null \
+        -X POST "http://127.0.0.1:$port/mcp" \
+        -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+        -H "Mcp-Session-Id: $sid" -H 'MCP-Protocol-Version: 2025-06-18' \
+        -d '{"jsonrpc":"2.0","method":"notifications/initialized"}'
+    curl --noproxy '*' --fail-with-body --connect-timeout 3 --max-time 30 -sS -X POST "http://127.0.0.1:$port/mcp" \
         -H 'Content-Type: application/json' \
         -H 'Accept: application/json, text/event-stream' \
         -H "Mcp-Session-Id: $sid" \
+        -H 'MCP-Protocol-Version: 2025-06-18' \
         -d "$body"
-}
+)
 
 build_linux_in_container() {
     echo "==> building $LINUX_TARGET natively in $LINUX_IMAGE"
@@ -274,13 +289,13 @@ build_linux_in_container() {
         -e HTTP_PROXY="${HTTP_PROXY:-}" -e HTTPS_PROXY="${HTTPS_PROXY:-}" \
         -e http_proxy="${http_proxy:-}" -e https_proxy="${https_proxy:-}" \
         -e NO_PROXY="${NO_PROXY:-localhost,127.0.0.1}" \
-        -e CARGO_TERM_COLOR=never \
-        -v "$ROOT:/io" -v "$HOME/.cargo/registry:/root/.cargo/registry" \
+        -e CARGO_HOME=/root/.cargo -e CARGO_TERM_COLOR=never -e CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" \
+        -v "$ROOT:/io" -v "$HOME/.cargo/registry:/root/.cargo/registry" -v "$HOME/.cargo/git:/root/.cargo/git" \
         -w /io \
         "$LINUX_IMAGE" \
         bash -c 'rm -f /io/target-linux-release/release/kaeru-mcp &&
                  apt-get update -qq && apt-get install -y -qq clang libclang-dev >/dev/null &&
-                 cargo build --release --target-dir /io/target-linux-release -p kaeru-mcp --bin kaeru-mcp' \
+                 cargo build --locked --release --target-dir /io/target-linux-release -p kaeru-mcp --bin kaeru-mcp' \
         || status=$?
 
     # Two questions, and the container's own exit code is the honest answer
@@ -319,11 +334,9 @@ for target in "${TARGETS[@]}"; do
     # "exit status 1" and an empty note. Scoped to the package we ship, that
     # dependency is not in the graph and kaeru-mcp reaches rustls via `ring`.
     #
-    # NOTE: this target is still CROSS-COMPILED, which is what broke the Linux
-    # binary in 0.7.1/0.7.2 (see `build_linux_in_container`). Nobody has opened
-    # an existing vault with a released darwin build and confirmed it survives.
-    # Until someone does, treat it as unverified.
-    cargo zigbuild --release --target "$target" -p kaeru-mcp --bin kaeru-mcp
+    # Validate the packaged Darwin binary on a Mac before release; native QA
+    # builds do not verify this cross-compiled artifact.
+    cargo zigbuild --locked --release --target "$target" -p kaeru-mcp --bin kaeru-mcp
 
     package_target "$target" "target/$target/release/kaeru-mcp"
 done
@@ -348,7 +361,7 @@ for target in "${ALL_TARGETS[@]}"; do
       \"registryType\": \"mcpb\",
       \"identifier\": \"$REL/$bundle\",
       \"fileSha256\": \"$sum\",
-      \"transport\": { \"type\": \"streamable-http\", \"url\": \"http://127.0.0.1:9876/mcp\" }
+      \"transport\": { \"type\": \"stdio\" }
     }"
 done
 sed -e "s/__VERSION__/${TAG#v}/" "$ROOT/contrib/mcpb/server.json.template" \
