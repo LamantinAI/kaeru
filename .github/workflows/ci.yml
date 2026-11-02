@@ -53,6 +53,10 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    env:
+      # Bundled RocksDB headers rely on an indirect <cstdint> include removed
+      # by newer libstdc++. Supply it explicitly when compiling C++ in CI.
+      CXXFLAGS: "-include cstdint"
     steps:
       - uses: actions/checkout@v4
 
