@@ -1,0 +1,40 @@
+[package]
+name = "kaeru-memory-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "kaeru — memory service with MCP, HTTP, UI and transactional TiKV storage"
+repository.workspace = true
+
+[features]
+default = ["storage-tikv"]
+storage-tikv = ["kaeru-server/storage-tikv"]
+
+[[bin]]
+name = "kaeru-memory-service"
+path = "src/main.rs"
+required-features = ["storage-tikv"]
+
+[dependencies]
+kaeru-server.workspace = true
+clap.workspace = true
+tokio-util.workspace = true
+kaeru-core.workspace = true
+axum.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+config.workspace = true
+thiserror.workspace = true
+utoipa.workspace = true
+utoipa-axum.workspace = true
+utoipa-swagger-ui.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+# Router-level tests: `tower::util::ServiceExt::oneshot` drives the axum
+# app without binding a socket; `http-body-util` collects response bodies.
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"

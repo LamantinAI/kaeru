@@ -68,7 +68,7 @@ pub fn formulate_hypothesis_with_status(
         let script = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-                [[$id, [{now_secs}.0, true], 'hypothesis', 'operational', $name, $body, {tags}, null, null, $layer]]
+                [[$id, [{now_secs}, true], 'hypothesis', 'operational', $name, $body, {tags}, null, null, $layer]]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
             "#
         );
@@ -109,7 +109,7 @@ pub fn run_experiment(
         let s1 = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [[$id, [{now_secs}.0, true], 'experiment', 'operational', $name, $body, {tags}, null, null]]
+                [[$id, [{now_secs}, true], 'experiment', 'operational', $name, $body, {tags}, null, null]]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
             "#
         );
@@ -128,7 +128,7 @@ pub fn run_experiment(
         let s2 = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties] <-
-                [[$src, $dst, 'targets', [{edge_secs}.0, true], 1.0, null]]
+                [[$src, $dst, 'targets', [{edge_secs}, true], 1.0, null]]
             :put edge {{src, dst, edge_type, validity => weight, properties}}
             "#
         );
@@ -230,7 +230,7 @@ pub fn update_hypothesis_status(
             let s3 = format!(
                 r#"
                 ?[src, dst, edge_type, validity, weight, properties] <-
-                    [[$src, $dst, '{edge_type_str}', [{edge_secs}.0, true], 1.0, null]]
+                    [[$src, $dst, '{edge_type_str}', [{edge_secs}, true], 1.0, null]]
                 :put edge {{src, dst, edge_type, validity => weight, properties}}
                 "#
             );

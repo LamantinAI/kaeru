@@ -8,7 +8,7 @@ use crate::{Layer, NodeType, Store, Tier, Visibility, upsert_node};
 #[test]
 fn compact_graph_uses_bulk_structural_queries_without_bodies_or_node_revisions() {
     let store = Store::open_in_memory().unwrap();
-    store.run("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] := i in int_range(0,500),id=concat('node-',to_string(i)),validity=[1000.0,true],type='episode',tier='operational',name=id,body='not loaded',tags=null,initiatives=null,properties=null,visibility='shared',layer='warm' :put node {id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}").unwrap();
+    store.run("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] := i in int_range(0,500),id=concat('node-',to_string(i)),validity=[1000,true],type='episode',tier='operational',name=id,body='not loaded',tags=null,initiatives=null,properties=null,visibility='shared',layer='warm' :put node {id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}").unwrap();
     store.run("?[initiative,node_id] := *node{id:node_id @ 'NOW'},initiative='perf' :put node_initiative {initiative,node_id}").unwrap();
     let (result, queries) = capture(|| {
         api::execute(
@@ -150,7 +150,7 @@ fn indexed_incident_edges_match_full_scan_payload_across_versions_and_retraction
                asserted: bool,
                weight: f64,
                scope: &str| {
-        store.db_ref().run_script(&format!("?[src,dst,edge_type,validity,weight,properties,dst_store] <- [[$src,$dst,$kind,[{time}.0,{asserted}],$weight,$props,$scope]] :put edge {{src,dst,edge_type,validity=>weight,properties,dst_store}}"),BTreeMap::from([("src".into(),DataValue::Str(src.into())),("dst".into(),DataValue::Str(dst.into())),("kind".into(),DataValue::Str(kind.into())),("weight".into(),DataValue::from(weight)),("props".into(),DataValue::Json(JsonData(json!({"version":time})))),("scope".into(),DataValue::Str(scope.into()))]),ScriptMutability::Mutable).unwrap();
+        store.db_ref().run_script(&format!("?[src,dst,edge_type,validity,weight,properties,dst_store] <- [[$src,$dst,$kind,[{time},{asserted}],$weight,$props,$scope]] :put edge {{src,dst,edge_type,validity=>weight,properties,dst_store}}"),BTreeMap::from([("src".into(),DataValue::Str(src.into())),("dst".into(),DataValue::Str(dst.into())),("kind".into(),DataValue::Str(kind.into())),("weight".into(),DataValue::from(weight)),("props".into(),DataValue::Json(JsonData(json!({"version":time})))),("scope".into(),DataValue::Str(scope.into()))]),ScriptMutability::Mutable).unwrap();
     };
     compare();
     put(&a, &a, "refers_to", 10, true, 0.25, "local");

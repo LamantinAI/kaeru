@@ -16,7 +16,7 @@ git clone https://github.com/LamantinAI/kaeru.git && cd kaeru
 git checkout "$KAERU_VERSION"
 ./contrib/offline/fetch-vendor.sh          # matching published vendor tag; needs network
 # …carry the whole directory to the offline machine…
-cargo build --release --offline -p kaeru-mcp
+cargo build --release --offline -p kaeru-local
 ```
 
 ---
@@ -52,7 +52,7 @@ source.
 
 ## What you still need on the build machine
 
-Cargo embeds the checked-in `kaeru-mcp/ui-dist/`, so an unchanged frontend
+Cargo embeds the checked-in `kaeru-server/ui-dist/`, so an unchanged frontend
 needs no npm or Node.js during an offline Rust build. To change the UI, prepare
 its Node dependencies/build separately before transfer; the Rust vendor tree
 does not contain npm packages. The Dockerfile’s frontend stage runs `npm ci`
@@ -96,7 +96,7 @@ network rather than quietly succeeding because a cache happened to be warm.
 To prove it end to end, build with an empty `CARGO_HOME`:
 
 ```sh
-CARGO_HOME="$(mktemp -d)" cargo build --release --offline -p kaeru-mcp
+CARGO_HOME="$(mktemp -d)" cargo build --release --offline -p kaeru-local
 ```
 
 If that succeeds, nothing came from the network.

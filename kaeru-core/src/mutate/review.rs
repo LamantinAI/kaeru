@@ -40,7 +40,7 @@ pub fn mark_resolved(store: &Store, question_id: &NodeId, by: &NodeId) -> Result
         let script = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties] <-
-                [[$src, $dst, 'supersedes', [{edge_secs}.0, true], 1.0, null]]
+                [[$src, $dst, 'supersedes', [{edge_secs}, true], 1.0, null]]
             :put edge {{src, dst, edge_type, validity => weight, properties}}
             "#
         );
@@ -95,7 +95,7 @@ pub fn mark_under_review(store: &Store, target_id: &NodeId, reason: &str) -> Res
         let s1 = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [[$id, [{assert_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
+                [[$id, [{assert_secs}, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
             "#
         );
@@ -111,7 +111,7 @@ pub fn mark_under_review(store: &Store, target_id: &NodeId, reason: &str) -> Res
         let s2 = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties] <-
-                [[$src, $dst, 'contradicts', [{edge_secs}.0, true], 1.0, null]]
+                [[$src, $dst, 'contradicts', [{edge_secs}, true], 1.0, null]]
             :put edge {{src, dst, edge_type, validity => weight, properties}}
             "#
         );
@@ -183,7 +183,7 @@ pub fn resolve_review(
             let script = format!(
                 r#"
                 ?[src, dst, edge_type, validity, weight, properties] <-
-                    [[$src, $dst, 'contradicts', [{edge_secs}.0, false], 1.0, null]]
+                    [[$src, $dst, 'contradicts', [{edge_secs}, false], 1.0, null]]
                 :put edge {{src, dst, edge_type, validity => weight, properties}}
                 "#
             );
@@ -219,7 +219,7 @@ pub fn resolve_review(
             let sn = format!(
                 r#"
                 ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                    [[$id, [{assert_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
+                    [[$id, [{assert_secs}, true], 'episode', 'operational', $name, $body, {tags}, null, null]]
                 :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
                 "#
             );
@@ -239,7 +239,7 @@ pub fn resolve_review(
                 let se = format!(
                     r#"
                     ?[src, dst, edge_type, validity, weight, properties] <-
-                        [[$src, $dst, 'supersedes', [{edge_secs}.0, true], 1.0, null]]
+                        [[$src, $dst, 'supersedes', [{edge_secs}, true], 1.0, null]]
                     :put edge {{src, dst, edge_type, validity => weight, properties}}
                     "#
                 );

@@ -2,7 +2,7 @@
 //!
 //! The pass itself lives in `kaeru_core::hygiene` and takes only a `&Store`,
 //! so it is adapter-agnostic; this module is the *when*, ported from the
-//! daemon's scheduler (`kaeru-mcp/src/hygiene.rs`) with the properties that
+//! daemon's scheduler (`kaeru-server/src/hygiene.rs`) with the properties that
 //! matter kept intact:
 //!
 //! * **Non-blocking** — every pass runs on the blocking pool, so the tool call
@@ -180,6 +180,14 @@ impl HygieneScheduler {
     #[cfg(test)]
     pub(crate) fn passes_started(&self) -> usize {
         self.passes_started.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_idle(&self) -> bool {
+        self.in_flight
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .is_empty()
     }
 }
 

@@ -7,6 +7,7 @@ use super::read::session::{check as cached_check, memberships, visibility};
 use super::{ApiOptions, ApiResult, Issue, NodeRef, issue_from_error};
 use crate::api::control::checkpoint;
 use crate::export_json::pat_match;
+use crate::graph::temporal::recorded_at_expr;
 use crate::{Error, Store};
 
 pub(super) fn check_scope(scope: &str, options: &ApiOptions) -> ApiResult<()> {
@@ -152,9 +153,8 @@ pub(super) fn resolve(
     } else {
         ""
     };
-    let at = when
-        .map(|n| format!(" @ {}", n.floor()))
-        .unwrap_or_else(|| " @ 'NOW'".into());
+    let at = recorded_at_expr(when.map(f64::floor)).map_err(issue_from_error)?;
+    let at = format!(" @ {at}");
     let script = format!("?[id] := name=$name, *node{{id, name{at}}}{scope_clause}");
     let mut rows = store
         .db_ref()

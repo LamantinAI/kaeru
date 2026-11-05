@@ -90,7 +90,7 @@ pub(crate) fn carry_identity(
             store.db_ref().run_script(
                 &format!(
                     "?[src, dst, edge_type, validity, weight, properties, dst_store] <- \
-                 [[$src, $dst, $kind, [{seconds}.0, true], $weight, $properties, $dst_store]] \
+                 [[$src, $dst, $kind, [{seconds}, true], $weight, $properties, $dst_store]] \
                  :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}"
                 ),
                 params.clone(),
@@ -111,7 +111,7 @@ pub(crate) fn carry_identity(
         store.db_ref().run_script(
             &format!(
                 "?[src, dst, edge_type, validity, weight, properties, dst_store] <- \
-             [[$src, $dst, $kind, [{seconds}.0, false], $weight, $properties, $dst_store]] \
+             [[$src, $dst, $kind, [{seconds}, false], $weight, $properties, $dst_store]] \
              :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}"
             ),
             params,

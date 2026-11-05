@@ -898,7 +898,10 @@ mod tests {
         put.insert("id".to_string(), DataValue::Str(id.clone().into()));
         put.insert(
             "validity".to_string(),
-            DataValue::List(vec![DataValue::from(secs as f64), DataValue::Bool(true)]),
+            DataValue::List(vec![
+                DataValue::from(i64::try_from(secs).expect("recorded seconds fit i64")),
+                DataValue::Bool(true),
+            ]),
         );
         for (index, column) in crate::mutate::NODE_VALUE_COLUMNS.iter().enumerate() {
             put.insert((*column).to_string(), row[index + 1].clone());

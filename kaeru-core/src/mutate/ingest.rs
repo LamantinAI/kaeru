@@ -99,7 +99,7 @@ pub fn upsert_node(
         let script = format!(
             r#"
             ?[id, validity, {cols}] <-
-                [[$id, [{now_secs}.0, true], {row_values}]]
+                [[$id, [{now_secs}, true], {row_values}]]
             :put node {{id, validity => {cols}}}
             "#
         );
@@ -172,7 +172,7 @@ pub fn upsert_edge(
         let script = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties] <-
-                [[$src, $dst, $edge_type, [{now_secs}.0, true], {w:.6}, null]]
+                [[$src, $dst, $edge_type, [{now_secs}, true], {w:.6}, null]]
             :put edge {{src, dst, edge_type, validity => weight, properties}}
             "#
         );

@@ -1,0 +1,17 @@
+# Small synthetic test stand. Production deployments need independent sizing.
+[storage]
+reserve-space = "0MiB"
+
+[storage.block-cache]
+capacity = "256MiB"
+
+[rocksdb]
+max-open-files = 256
+max-background-jobs = 2
+
+[raftdb]
+max-open-files = 128
+max-background-jobs = 2
+
+[server]
+grpc-concurrency = 2

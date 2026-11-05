@@ -89,7 +89,7 @@ jobs:
           cache: npm
           cache-dependency-path: kaeru-viz/package-lock.json
       - name: Build MCP for browser integration tests
-        run: cargo build -p kaeru-mcp --locked
+        run: cargo build -p kaeru-local --locked
       - name: Test embedded UI against a temporary MCP instance
         working-directory: kaeru-viz
         run: |

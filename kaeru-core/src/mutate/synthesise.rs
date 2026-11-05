@@ -58,7 +58,7 @@ pub fn synthesise(
         let s1 = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [[$id, [{assert_secs}.0, true], '{target_type_str}', '{target_tier_str}', $name, $body, {tags}, null, null]]
+                [[$id, [{assert_secs}, true], '{target_type_str}', '{target_tier_str}', $name, $body, {tags}, null, null]]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
             "#
         );
@@ -90,7 +90,7 @@ pub fn synthesise(
             let s_edge = format!(
                 r#"
                 ?[src, dst, edge_type, validity, weight, properties] <-
-                    [[$src, $dst, 'derived_from', [{edge_secs}.0, true], 1.0, null]]
+                    [[$src, $dst, 'derived_from', [{edge_secs}, true], 1.0, null]]
                 :put edge {{src, dst, edge_type, validity => weight, properties}}
                 "#
             );

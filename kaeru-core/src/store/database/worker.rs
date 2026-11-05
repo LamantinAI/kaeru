@@ -1,8 +1,11 @@
-//! One reusable transaction executor per database, outside Cozo's Rayon pool.
+//! One reusable database executor, outside Cozo's Rayon pool and async runtimes.
 
-use std::thread::{self, JoinHandle};
+use std::{
+    collections::BTreeMap,
+    thread::{self, JoinHandle},
+};
 
-use cozo::{DbInstance, Error, NamedRows, TransactionPayload};
+use cozo::{DataValue, DbInstance, Error, NamedRows, ScriptMutability, TransactionPayload};
 use crossbeam_channel::{Receiver, Sender, bounded};
 
 pub(super) struct TransactionJob {
@@ -12,22 +15,42 @@ pub(super) struct TransactionJob {
     pub done: Sender<()>,
 }
 
+pub(super) struct ScriptJob {
+    pub script: String,
+    pub params: BTreeMap<String, DataValue>,
+    pub mutability: ScriptMutability,
+    pub result: Sender<Result<NamedRows, Error>>,
+}
+
+pub(super) enum DatabaseJob {
+    Transaction(TransactionJob),
+    Script(ScriptJob),
+}
+
 pub(super) struct TransactionWorker {
-    jobs: Option<Sender<TransactionJob>>,
+    jobs: Option<Sender<DatabaseJob>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl TransactionWorker {
     pub fn spawn(db: DbInstance) -> std::io::Result<Self> {
-        let (jobs, incoming) = bounded::<TransactionJob>(1);
+        let (jobs, incoming) = bounded::<DatabaseJob>(1);
         let thread = thread::Builder::new()
             .name("kaeru-transaction".into())
             .spawn(move || {
                 while let Ok(job) = incoming.recv() {
-                    db.run_multi_transaction(job.write, job.commands, job.results);
-                    // Commit/abort replies precede full transaction cleanup.
-                    // Acknowledge only after snapshots and storage locks drop.
-                    let _ = job.done.send(());
+                    match job {
+                        DatabaseJob::Transaction(job) => {
+                            db.run_multi_transaction(job.write, job.commands, job.results);
+                            // Commit/abort replies precede full transaction cleanup.
+                            // Acknowledge only after snapshots and storage locks drop.
+                            let _ = job.done.send(());
+                        }
+                        DatabaseJob::Script(job) => {
+                            let result = db.run_script(&job.script, job.params, job.mutability);
+                            let _ = job.result.send(result);
+                        }
+                    }
                 }
             })?;
         Ok(Self {
@@ -40,7 +63,7 @@ impl TransactionWorker {
         self.thread.as_ref().is_none_or(JoinHandle::is_finished)
     }
 
-    pub fn submit(&self, job: TransactionJob) -> Result<(), TransactionJob> {
+    pub fn submit(&self, job: DatabaseJob) -> Result<(), DatabaseJob> {
         match &self.jobs {
             Some(jobs) => jobs.send(job).map_err(|error| error.0),
             None => Err(job),

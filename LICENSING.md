@@ -50,8 +50,10 @@ conversion and any commercial licensing. See `CLA.md` for how to sign.
 ## Dependencies
 
 Dependencies and bundled assets retain their respective licenses; the project’s
-BSL does not replace those terms. Kaeru consumes CozoDB, the **MPL-2.0**
-substrate, unmodified. Check the relevant dependency/asset license when
+BSL does not replace those terms. Kaeru consumes Mnestic, a **MPL-2.0**
+CozoDB fork with the engine changes pinned in `Cargo.toml`. The engine retains
+its own license and notices; its exact source revision is recorded in the lockfile.
+Check the relevant dependency/asset license when
 redistributing a build.
 
 ## History

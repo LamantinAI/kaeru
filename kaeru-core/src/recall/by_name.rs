@@ -9,6 +9,7 @@ use super::fts::fuzzy_recall;
 use super::{NodeBrief, NodeFull, parse_brief};
 use crate::errors::Result;
 use crate::graph::NodeId;
+use crate::graph::temporal::recorded_seconds;
 use crate::store::Store;
 
 /// Looks up a node id by its `name` at the current moment.
@@ -125,6 +126,7 @@ pub fn recall_id_by_name_ever(store: &Store, name: &str) -> Result<Option<NodeId
 /// `node_initiative` junction is append-only, so a retracted node's membership
 /// still scopes it.
 pub fn recall_id_by_name_at(store: &Store, name: &str, at_seconds: f64) -> Result<Option<NodeId>> {
+    let at_seconds = recorded_seconds(at_seconds)?;
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("name".to_string(), DataValue::Str(name.into()));
 

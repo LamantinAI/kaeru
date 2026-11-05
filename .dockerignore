@@ -14,3 +14,4 @@ dist/
 .cargo/config.toml
 benchmarks/
 kaeru-viz/public/graph.json
+target-windows-release/

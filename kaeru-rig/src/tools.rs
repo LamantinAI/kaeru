@@ -613,6 +613,15 @@ mod tests {
         }
         assert!(enabled.hygiene.passes_started() > 0);
         enabled.shutdown_hygiene();
+        // Shutdown signals cancellation; it does not join an active pass.
+        // Wait for its final bookkeeping before replacing the test headline.
+        for _ in 0..500 {
+            if enabled.hygiene.is_idle() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(enabled.hygiene.is_idle(), "hygiene pass did not stop");
         // Inject a known completed headline to test delivery independently of
         // whether this young store had any nodes eligible for cooling.
         store.run("?[initiative,last_run_at,nodes_at_last_run,pending_report] <- [['rig-test',1.0,2,'Layers changed']] :put initiative_hygiene {initiative=>last_run_at,nodes_at_last_run,pending_report}").unwrap();

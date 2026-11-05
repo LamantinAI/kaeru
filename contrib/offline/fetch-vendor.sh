@@ -120,7 +120,7 @@ ready — $crates crates, $size
 
 This directory now builds with no network:
 
-  cargo build --release -p kaeru-mcp
+  cargo build --release -p kaeru-local
 
 kaeru still needs a C++ toolchain: cozo builds RocksDB from source, and zstd
 and lz4 from C. That is a property of kaeru, not of building offline — see

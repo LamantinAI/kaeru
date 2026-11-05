@@ -17,8 +17,10 @@ For the product overview, see [README.md](../README.md).
 7. [Offline builds](offline-build.md) covers vendored dependencies and toolchains.
 8. [Read performance](read-performance.md) explains batching, cancellation and disposable benchmarks.
 9. [MCP diagnostics](mcp-diagnostics.md) explains opt-in session and HTTP handler logs.
+10. [TiKV backend](tikv-backend.md) covers optional storage configuration, ownership and the isolated PD/TiKV Compose stand.
 
-Kaeru stores typed records and relationships in an embedded CozoDB graph. Each
+Kaeru stores typed records and relationships in an embedded Mnestic graph,
+using its Cozo-compatible model. Each
 project is an initiative, and a record can belong to several initiatives.
 Operational and archival tiers separate ongoing work from settled knowledge;
 recall layers control how eagerly records return to context. Recorded versions
@@ -30,3 +32,5 @@ combines project context, lexical search, typed links and saved reasoning trails
 There is currently no embedding index or query language for agents to learn.
 The API makes these capabilities available without prescribing a mandatory
 sequence of calls.
+
+For central deployment, see [memory-service configuration](../kaeru-cloud/memory-service/README.md); the optional [local host](../kaeru-local/README.md) retains the installed kaeru-mcp command.

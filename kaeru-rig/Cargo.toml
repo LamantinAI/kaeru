@@ -4,8 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+
 authors.workspace = true
 description = "rig Tools that give a rig agent persistent memory backed by kaeru (kaeru-core)."
+
+[features]
+storage-tikv = ["kaeru-core/storage-tikv"]
 
 [dependencies]
 kaeru-core = { workspace = true }

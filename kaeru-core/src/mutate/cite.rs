@@ -67,7 +67,7 @@ pub fn cite_with_layer(
         let script = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-                [[$id, [{now_secs}.0, true], 'reference', 'archival', $name, $body, {tags}, null, $properties, $layer]]
+                [[$id, [{now_secs}, true], 'reference', 'archival', $name, $body, {tags}, null, $properties, $layer]]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
             "#
         );

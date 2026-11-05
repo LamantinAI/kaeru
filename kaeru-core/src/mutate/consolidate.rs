@@ -126,7 +126,7 @@ fn consolidate(
     let s2 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [[$id, [{assert_secs}.0, true], '{new_type_str}', '{new_tier_str}', $name, $body, {tags}, null, null, '{inherited_layer}']]
+            [[$id, [{assert_secs}, true], '{new_type_str}', '{new_tier_str}', $name, $body, {tags}, null, null, '{inherited_layer}']]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );
@@ -155,7 +155,7 @@ fn consolidate(
     let s_link = format!(
         r#"
         ?[src, dst, edge_type, validity, weight, properties] <-
-            [[$src, $dst, 'consolidated_to', [{edge_secs}.0, true], 1.0, null]]
+            [[$src, $dst, 'consolidated_to', [{edge_secs}, true], 1.0, null]]
         :put edge {{src, dst, edge_type, validity => weight, properties}}
         "#
     );
@@ -182,7 +182,7 @@ fn consolidate(
     let s1 = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$old_id, [{retract_secs}.0, false], 'placeholder', 'operational', '', null, null, null, null]]
+            [[$old_id, [{retract_secs}, false], 'placeholder', 'operational', '', null, null, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );

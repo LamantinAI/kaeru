@@ -14,7 +14,7 @@ use crossbeam_channel::{Receiver, bounded};
 use crate::errors::{Error, Result};
 
 mod worker;
-use worker::{TransactionJob, TransactionWorker};
+use worker::{DatabaseJob, ScriptJob, TransactionJob, TransactionWorker};
 #[cfg(test)]
 mod tests;
 
@@ -26,8 +26,9 @@ struct ActiveTransaction {
     read_only: bool,
 }
 
-/// Ordinary scripts retain their existing execution behavior. During an atomic
-/// command or read assembly, its thread shares one Cozo transaction and temporal
+/// Embedded standalone scripts retain direct execution; TiKV scripts also use
+/// the blocking worker. During an atomic command or read assembly, its thread
+/// shares one Cozo transaction and temporal
 /// NOW. Read assemblies reject writes; atomic commands commit their primitives
 /// together. Separate transactions reuse a per-database worker, retaining
 /// RocksDB's thread-local state without occupying Cozo's Rayon compute pool.
@@ -37,11 +38,17 @@ pub(crate) struct Database {
     active: Mutex<Option<ActiveTransaction>>,
     generation: AtomicU64,
     worker: Mutex<Option<TransactionWorker>>,
+    blocking_backend: bool,
 }
 
 impl Database {
     pub(crate) fn new(raw: DbInstance) -> Self {
+        #[cfg(feature = "storage-tikv")]
+        let blocking_backend = matches!(&raw, DbInstance::TiKv(_));
+        #[cfg(not(feature = "storage-tikv"))]
+        let blocking_backend = false;
         Self {
+            blocking_backend,
             raw,
             writers: Mutex::new(()),
             active: Mutex::new(None),
@@ -83,14 +90,36 @@ impl Database {
         // reader/writer may wait for commit, which must still obtain that mutex.
         if matches!(mutability, ScriptMutability::Mutable) {
             let _writer = self.writers.lock().unwrap_or_else(|p| p.into_inner());
-            let result = self.raw.run_script(script, params, mutability);
+            let result = self.run_standalone(script, params, mutability);
             if result.is_ok() {
                 self.generation.fetch_add(1, Ordering::Release);
             }
             result
         } else {
-            self.raw.run_script(script, params, mutability)
+            self.run_standalone(script, params, mutability)
         }
+    }
+
+    fn run_standalone(
+        &self,
+        script: &str,
+        params: BTreeMap<String, DataValue>,
+        mutability: ScriptMutability,
+    ) -> std::result::Result<NamedRows, CozoError> {
+        if !self.blocking_backend {
+            return self.raw.run_script(script, params, mutability);
+        }
+        let (result, incoming) = bounded(1);
+        self.submit_job(DatabaseJob::Script(ScriptJob {
+            script: script.into(),
+            params,
+            mutability,
+            result,
+        }))
+        .map_err(|error| CozoError::msg(error.to_string()))?;
+        incoming.recv().map_err(|_| {
+            CozoError::msg("database worker stopped before delivering script result")
+        })?
     }
 
     pub(crate) fn atomic<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -189,6 +218,10 @@ impl Database {
     }
 
     fn submit_transaction(&self, job: TransactionJob) -> Result<()> {
+        self.submit_job(DatabaseJob::Transaction(job))
+    }
+
+    fn submit_job(&self, job: DatabaseJob) -> Result<()> {
         let mut worker = self.worker.lock().unwrap_or_else(|p| p.into_inner());
         if worker.as_ref().is_some_and(TransactionWorker::is_finished) {
             drop(worker.take());
@@ -197,8 +230,8 @@ impl Database {
             *worker = Some(TransactionWorker::spawn(self.raw.clone())?);
         }
         if let Err(job) = worker.as_ref().unwrap().submit(job) {
-            // The worker stopped before accepting this empty transaction job.
-            // No caller code has run yet. Never retry an accepted transaction.
+            // The worker stopped before accepting this job. It has executed
+            // neither a script nor caller code. Never retry accepted work.
             drop(worker.take());
             *worker = Some(TransactionWorker::spawn(self.raw.clone())?);
             worker.as_ref().unwrap().submit(job).map_err(|_| {

@@ -64,7 +64,7 @@ Node.js is unnecessary unless rebuilding the frontend: Cargo uses the checked-in
 git clone https://github.com/LamantinAI/kaeru.git
 cd kaeru
 cargo test --workspace --all-targets --locked
-cargo install --path kaeru-mcp --locked
+cargo install --path kaeru-local --locked
 kaeru-mcp
 ```
 
@@ -249,7 +249,7 @@ Before upgrading:
 
    ```sh
    git pull --ff-only
-   cargo install --path kaeru-mcp --locked --force
+   cargo install --path kaeru-local --locked --force
    systemctl --user restart kaeru-mcp
    ```
 
@@ -280,40 +280,59 @@ exports need no daemon shutdown. They contain current knowledge, not historical
 backups; import remains an offline operator action. See [AMG and archive
 export](docs/export_format_amg.md) for scope and bounded downloads.
 
-## 6. Team Cloud (Sharing & Recall)
+## 6. Central memory service and optional local sharing
 
-By default everything stays on your machine. To share settled knowledge with a
-trusted group (a team, a family), run the shared `kaeru-cloud` service and point
-the daemon at it.
+Agents can connect directly to `kaeru-memory-service` at `/mcp`; installing
+`kaeru-local` is optional. The service defaults to TiKV and requires explicit
+PD endpoints and a namespace. Build it with:
 
-### Run the stack
-
-The simplest way is docker-compose, which starts `kaeru-cloud` and a `kaeru-mcp`
-already wired to it:
-
-```bash
-KAERU_CLOUD_API_TOKEN=replace-with-a-long-random-secret docker compose up --build
+```sh
+cargo build -p kaeru-memory-service --locked
+KAERU_MEMORY_API_TOKEN=replace-with-a-long-random-secret \
+KAERU_STORAGE__END_POINTS=pd.example:2379 \
+KAERU_STORAGE__NAMESPACE=team-memory \
+  kaeru-memory-service
 ```
 
-Or run the cloud yourself and wire each daemon by env:
+The listener defaults to loopback port9877. Configure `KAERU_MEMORY_LISTEN_ADDRESS`
+and `KAERU_MEMORY_ALLOWED_HOSTS` before exposing it. Off-host binds require an
+instance token. This bootstrap access policy is not platform identity or
+multi-tenant grants; Control/Auth integration is a separate stage.
 
-```bash
-KAERU_CLOUD_API_TOKEN=<secret> kaeru-cloud        # the shared service (port 9877)
+Main Compose starts PD, TiKV and memory-service together, with persistent data
+volumes and internal Docker addresses. Set the service token, then run:
 
-# on each machine, point the local daemon at it:
-KAERU_MCP_CLOUD_URL=http://<cloud-host>:9877 \
-KAERU_MCP_CLOUD_TOKEN=<secret> \
+```sh
+export KAERU_MEMORY_API_TOKEN=replace-with-a-long-random-secret
+docker compose up --build -d
+```
+
+The `local` profile is independent and forces RocksDB with cloud sharing disabled:
+
+```sh
+docker compose --profile local up --build -d kaeru-local
+```
+
+Name the local service explicitly: Compose profiles add to unprofiled services,
+so `--profile local up` without a service target also starts the default stack.
+The default stack's namespace is `memory`; override it with
+`KAERU_STORAGE__NAMESPACE` when needed. Storage ports are not published.
+Both modes are defined in the same Compose file.
+
+An optional private local host uses the retained compatibility sharing API:
+
+```sh
+KAERU_MCP_CLOUD_URL=https://memory.example \
+KAERU_MCP_CLOUD_TOKEN=replace-with-the-instance-token \
   kaeru-mcp
 ```
 
-`KAERU_CLOUD_API_TOKEN` is **mandatory** for any non-loopback bind: with an
-empty token on a routable address `kaeru-cloud` refuses to start (an empty
-token disables auth, which would leave the shared store open). Empty is allowed
-only on `127.0.0.1` for local dev.
-
-If the cloud is reachable beyond a trusted network, terminate TLS with a reverse
-proxy in front of it — the service speaks plain HTTP. The proxy must forward all
-paths (`/health`, `/api/v1/*`), not just one prefix.
+Sharing still requires initiative policy and explicit shared records. The local
+host uses RocksDB by default and retains its existing configuration and CLI.
+The old `kaeru-cloud` executable is replaced by memory-service;
+`KAERU_CLOUD_*` listener/token/log settings remain lower-priority aliases for
+`KAERU_MEMORY_*`. See [service configuration](kaeru-cloud/memory-service/README.md)
+and [TiKV operations](docs/tikv-backend.md).
 
 ### Multiple clouds (optional)
 

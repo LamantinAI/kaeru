@@ -1,6 +1,6 @@
 //! Cloud sharing & recall tools — the in-process local↔cloud bridge.
 //!
-//! Mirror of the daemon's `kaeru-mcp/src/tools/cloud.rs`, adapted to rig: bodies
+//! Mirror of the daemon's `kaeru-server/src/cloud.rs`, adapted to rig: bodies
 //! are `async` (they `.await` the [`CloudClient`]) and every local-store span
 //! goes through `mem.blocking(...)` (a blocking thread), so a network round-trip
 //! never stalls the async executor and a Cozo read never runs on it.

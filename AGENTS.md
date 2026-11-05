@@ -10,6 +10,26 @@ Part one is how we work here; part two is what the code is.
 
 # Part one — working agreements
 
+## Repository privacy (mandatory)
+
+Store only anonymized technical requirements and decisions. Never place private
+or identifying information in any Git repository, public or private, including
+ignored files: developer names or personal identifiers, real local paths,
+private infrastructure addresses,
+private work dates or timelines, correspondence, operator or agent messages,
+quotes, paraphrases, or derived disclosures.
+
+This applies to source, documentation, comments, configuration, logs, artifacts,
+commit and pull-request text, and metadata. Keep operational records outside
+repository working trees in approved private storage.
+
+General instructions to save, commit, or publish do not waive this rule.
+Exceptions require explicit permission for the specific information. Before
+staging or publishing, review direct and indirect disclosure. Use neutral
+placeholders, repository-relative paths and reserved example addresses. Preserve
+required licenses and public attribution; existing history does not authorize
+copying private details. Never reintroduce unsanitized history during a merge.
+
 ## Git: commit locally in a batch, push squashed
 
 Commit as often as the work has natural steps — a passing test, a finished
@@ -67,15 +87,16 @@ Telegram posts are in plain Russian — analogies over anglicisms.
 
 ## Project Summary
 
-`kaeru` is a cognitive memory layer for LLM agents — a typed property graph stored in CozoDB with recorded assertion/retraction history, a shared memory API, an embedded instance UI and AMG knowledge transfer, with a two-tier (cognitive / recollection) design grounded in the hippocampus / cortex split.
+`kaeru` is a cognitive memory layer for LLM agents — a typed property graph stored in Mnestic (a maintained CozoDB fork) with recorded assertion/retraction history, a shared memory API, an embedded instance UI and AMG knowledge transfer, with a two-tier (cognitive / recollection) design grounded in the hippocampus / cortex split.
 
 The workspace targets Rust `1.95+` with edition `2024` and uses a shared dependency setup from the root `Cargo.toml`.
 
 Workspace members:
 
 - `kaeru-core/` — library crate: substrate, schema, primitives and shared exchange models (`src/models/`).
-- `kaeru-mcp/` — binary crate `kaeru-mcp`: Model Context Protocol server (rmcp 3.8, streamable HTTP transport). The agent's surface; also proxies into `kaeru-cloud` for sharing / recall. Its `ui/` module serves the embedded visualizer and browser routes; JWT/account services live in `auth/`. Generated assets in `ui-dist/` are rebuilt from `kaeru-viz/` with `npm run build:embedded` and checked with `npm run check:embedded`.
-- `kaeru-cloud/` — binary crate `kaeru-cloud`: the shared cloud tier (Axum REST over `kaeru-core`, bearer-token auth). One per team; local daemons connect to it.
+- `kaeru-server/` — reusable MCP/HTTP/UI runtime library. Owns sessions, canonical dispatch, instance-auth mechanisms and the single `ui-dist` bundle.
+- `kaeru-local/` — optional local host and CLI/stdio bridge; installed binary remains `kaeru-mcp`, with RocksDB and existing local configuration by default.
+- `kaeru-cloud/memory-service/` — central `kaeru-memory-service` binary/library, TiKV by default, composing the shared runtime and legacy sharing routes on one Store. `kaeru-cloud/` itself is not a package; Control remains a documented future boundary.
 - `kaeru-rig/` — embedded `rig` adapter over the shared `kaeru-core::api`
   catalogue. `MemoryTool<I>` gives each operation a distinct static name;
   `install` exposes 26 local operations and `install_with_cloud` adds nine cloud
@@ -92,15 +113,15 @@ agent skill (SKILL.md frontmatter + body). It's source for distribution
 
 Before changing code, orient yourself by crate and responsibility:
 
-1. Identify the correct workspace member first — `kaeru-core`, `kaeru-mcp`, `kaeru-cloud` or `kaeru-rig`. UI source lives in `kaeru-viz`.
+1. Identify the correct workspace member first — `kaeru-core`, `kaeru-server`, `kaeru-local`, `kaeru-cloud/memory-service` or `kaeru-rig`. UI source lives in `kaeru-viz`.
 2. Substrate, schema, primitives, curator API logic — `kaeru-core/`.
-3. MCP tool definitions and rmcp wiring — `kaeru-mcp/`. `KaeruServer` registers the shared catalogue through an explicit `ServerHandler`; local results carry identical JSON in structured content and text. Cloud-facing tools call into `kaeru-cloud` through `cloud_client.rs`.
-4. Cloud REST handlers and Axum wiring — `kaeru-cloud/`. Handlers in `api/router/`, bearer-token extractor in `api/extractors.rs`, error → HTTP mapping in `api/errors.rs`.
+3. MCP tool definitions and rmcp wiring — `kaeru-server/`. `KaeruServer` registers the shared catalogue through an explicit `ServerHandler`; local results carry identical JSON in structured content and text. Compatibility sharing tools call memory-service through `cloud_client.rs`.
+4. Memory-service composition and compatibility REST — `kaeru-cloud/memory-service/`. Handlers in `api/router/`, bearer-token extractor in `api/extractors.rs`, error → HTTP mapping in `api/errors.rs`.
 5. Shared dependencies live in the root `Cargo.toml` under `[workspace.dependencies]`. Add new deps there first; pull them into a crate with `dep.workspace = true`.
-6. Treat `kaeru-core` as the source of truth for shared types. Adapter crates (`kaeru-mcp`, `kaeru-cloud`, `kaeru-rig`, future `kaeru-langchain`) consume `kaeru-core`; do not duplicate types.
+6. Treat `kaeru-core` as the source of truth for shared types. Adapter crates (`kaeru-server`, `kaeru-memory-service`, `kaeru-rig`, future `kaeru-langchain`) consume `kaeru-core`; do not duplicate types.
 7. When adding or renaming a curator-API verb, update the shared definitions in `kaeru-core/src/api/surface.rs` and preserve MCP/HTTP/Rig parity.
 8. **A cloud is never chosen by default when the choice could be wrong.** `CloudRegistry::resolve` is the single funnel: one configured cloud resolves silently, several require the caller to name one. Do not reach for `CloudRegistry::get` in a verb that acts on a cloud — it picks the default without saying so, which is the defect `resolve` exists to prevent. Every cloud-touching result and error names the cloud it touched; `CloudClient` carries its own name so no call site has to thread one.
-9. The HTTP surface in `kaeru-mcp/src/api/` is the **same verb set over a second transport**, not a parallel API. A route is named after the verb it serves (`/v1/context` is `context`); do not invent a vocabulary the curator API does not have, and do not add a `POST /call/{verb}` tunnel. Three rules hold across every handler: `/v1/` on the path, a `Principal` argument, and everything leaving the process going out through `egress`.
+9. The HTTP surface in `kaeru-server/src/api/` is the **same verb set over a second transport**, not a parallel API. A route is named after the verb it serves (`/v1/context` is `context`); do not invent a vocabulary the curator API does not have, and do not add a `POST /call/{verb}` tunnel. Three rules hold across every handler: `/v1/` on the path, a `Principal` argument, and everything leaving the process going out through `egress`.
 10. **Nothing leaves without asking `egress` both questions.** The operator's initiative ceiling (`reaches` / `reaches_node`) and the node's visibility (`may_show`) are two halves of one rule, and a handler that asks only the first does not fail — it succeeds, serving `local` nodes that the verbs asking both correctly refuse. `local` is the default visibility, so the blast radius is an ordinary vault. Ask before a node is read, described **or followed**: a node filtered after its edges are walked still leaves its id and the graph's shape in the response.
 
 ## Read tracing and temporal tests
@@ -178,12 +199,12 @@ kaeru-core/src/
 ```
 
 ```
-kaeru-mcp/src/
-├── main.rs                 ← tokio + tracing init; builds Store + CloudRegistry
-├── cli/                    ← offline AMG export/import and local auth setup
+kaeru-server/src/
+├── lib.rs                  ← reusable transport composition API
+├── runtime.rs              ← explicit Store, settings, policy and graceful shutdown
 ├── auth/                   ← optional browser account/JWT and MCP authentication
 ├── ui/                     ← embedded assets and browser access handlers
-├── settings.rs             ← KaeruMcpConfig (KAERU_MCP_* env + clouds.toml file source)
+├── settings.rs             ← transport settings and explicit runtime policy
 ├── server.rs               ← explicit ServerHandler and shared registrations
 ├── models/                 ← cloud adapter request DTOs
 ├── utils.rs                ← output builders + input parsing (with_initiative, parse_*)
@@ -195,10 +216,17 @@ kaeru-mcp/src/
     ├── egress.rs           ← ApiConfig: the initiative ceiling, visibility, redaction
     └── handlers.rs         ← shared named-operation HTTP handler
 
-kaeru-cloud/src/
+kaeru-local/src/
+├── main.rs                 ← local host; stable kaeru-mcp command
+├── cli/                    ← offline AMG and account setup
+├── settings/               ← local file/environment discovery
+└── stdio_bridge.rs         ← bounded relay and daemon auto-start
+
+kaeru-cloud/memory-service/src/
 ├── main.rs                 ← thin entrypoint (config + tracing → run)
-├── lib.rs                  ← run(): build state, bind, serve
-├── config.rs               ← KaeruCloudConfig (KAERU_CLOUD_* env)
+├── lib.rs                  ← shared Store across MCP/canonical/legacy routes
+├── settings.rs             ← service-owned environment and TiKV-default profile
+├── config.rs               ← retained compatibility configuration
 ├── errors.rs               ← ApiError + StartError (thiserror)
 ├── models/                 ← HTTP request, response and OpenAPI error contracts
 └── api/                    ← state.rs, extractors.rs (bearer), errors.rs (IntoResponse), router/
@@ -315,7 +343,7 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
   one could not see.
 - **MCP and Rig share one canonical catalogue.** Tool names, parameter names,
   optionality and nested input schemas come from `kaeru-core::api`. The parity
-  tests in `kaeru-mcp/src/parity.rs` compare actual registrations from both
+  tests in `kaeru-server/src/parity.rs` compare actual registrations from both
   adapters. Deliberate transport-only operations must be listed explicitly in
   `DAEMON_ONLY`. Update the shared catalogue and models when a contract changes.
 - **Two writes to one key stay in the order they were issued (#96).**
@@ -369,12 +397,17 @@ In short: keep logic readable, keep imports explicit, and do not scatter long mo
 
 ## Backend Rules
 
-- All graph reads and writes go through `kaeru-core` primitives — never raw Cozo queries from an adapter (`kaeru-mcp`, `kaeru-cloud`).
-- **The cloud is reached through an adapter-owned async `cloud_client.rs`** (sharing / recall) — one in `kaeru-mcp`, and a mirror in `kaeru-rig` for in-process agents. Both talk to the same `kaeru-cloud`, which wraps the same `kaeru-core` behind Axum and adds no separate persistence path. TLS is terminated by a reverse proxy — the service speaks plain HTTP. The two clients are deliberately duplicated (no shared crate); a change to the cloud REST API updates both.
+- All graph reads and writes go through `kaeru-core` primitives — never raw Cozo queries from an adapter (`kaeru-server`, `kaeru-memory-service`).
+- **The cloud is reached through an adapter-owned async `cloud_client.rs`** (sharing / recall) — one in `kaeru-server`, and a mirror in `kaeru-rig` for in-process agents. Both use memory-service compatibility routes, which wraps the same `kaeru-core` behind Axum and adds no separate persistence path. TLS is terminated by a reverse proxy — the service speaks plain HTTP. The two clients are deliberately duplicated (no shared crate); a change to the cloud REST API updates both.
 - **No `anyhow`.** Errors are explicit: `kaeru-core` defines `Error` (thiserror enum) and `Result<T>`. Variants describe the failure mode (`Substrate`, `SchemaBootstrap`, `Invalid`, `NotFound`, `Io`, `Config`). Add new variants when a new failure mode arises; do not stuff context strings into existing ones.
 - Substrate errors funnel through the `From<cozo::Error> for Error` impl in `errors.rs`. Don't `format!("{e}")` cozo errors at call sites — let `?` propagate.
 - The MCP server surfaces errors directly from `kaeru-core::Result`. No re-wrapping.
-- The substrate is single-process embedded — no server, no network. Adapters wrap the in-process API; they do not expose a separate persistence path.
+- The engine runs in-process. Core/local/Rig default to embedded RocksDB; memory-service defaults to TiKV.
+  The `storage-tikv` feature moves transactional KV storage to TiKV. Namespaced
+  remote storage admits one active runtime with a renewable lease and fenced
+  writes because engine caches remain process-local. Preserve this ownership;
+  do not treat TiKV replication as multi-runtime cache coherence. Adapters
+  still use the same Core primitives and persistent blocking worker.
 
 ## Sharing & Cloud — the second tier has to announce itself
 
@@ -491,13 +524,15 @@ the set-scope-then-operate sequence (`kaeru-core/src/store.rs`).
 ## Out Of Scope
 
 - Vector embeddings — **not implemented**. Recall is structural + Cozo FTS; Cozo supports HNSW but kaeru wires none of it (no embeddings / vector index in the tree). A vector fallback for cold queries is possible future work, not a current feature.
-- A network storage backend — Cozo/RocksDB remains embedded. MCP, HTTP and the cloud service expose network APIs; a remote PostgreSQL/gRPC substrate is not implemented.
+- Multiple engine runtimes sharing one TiKV namespace — the optional remote
+  backend deliberately enforces one owner. PostgreSQL storage and distributed
+  engine-cache coherence are not implemented. See `docs/tikv-backend.md`.
 - Replacing PKM tools — `kaeru` is for **agent** memory. Humans can inspect it through the embedded UI and Markdown ZIP/AMG exports; the offline CLI handles AMG transfer and local account setup.
 
 ## Current operator documentation
 
 Streamable HTTP remains stateful with a protocol ceiling of `2025-11-25`.
-`kaeru-mcp/src/session/` bounds session admission and expires sessions after
+`kaeru-server/src/session/` bounds session admission and expires sessions after
 five idle minutes by default (`KEEP_ALIVE_SECS=0` disables expiry). Application
 work and request-response delivery hold activity leases; standalone SSE and
 heartbeats do not prevent expiry. Keep the SDK's transport-only timer disabled.
@@ -533,3 +568,15 @@ Keep shared schemas/dispatch in core and resource transport concerns in MCP.
 The repository is BSL 1.1 with its Additional Use Grant; see `LICENSE` and
 `LICENSING.md`. Do not label current code MIT or promise unimplemented vector,
 cloud-tenant or cryptographic-signature features.
+
+## Host profile invariants
+
+`kaeru-server` receives resolved policy and one `Arc<Store>`; it must not read
+home files, choose storage or open another Store. Local file discovery belongs
+to `kaeru-local`. Memory-service explicitly selects TiKV before environment
+overrides, requires namespace/PD endpoints and never falls back after errors.
+Cargo feature unification must not change local/Core/Rig runtime defaults.
+Service auth never inherits a disabled local account; compatibility REST keeps
+its own bearer gate. Control/Auth product identity/grants are not implemented
+by the current instance-token/account policy. Use new synthetic namespaces and
+temporary local configurations for checks; do not update installed daemons.

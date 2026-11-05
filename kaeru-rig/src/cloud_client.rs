@@ -1,6 +1,6 @@
 //! Thin async HTTP client to the shared `kaeru-cloud` service.
 //!
-//! Mirror of the daemon's client (`kaeru-mcp/src/cloud_client.rs`): `kaeru-rig`
+//! Mirror of the daemon's client (`kaeru-server/src/cloud_client.rs`): `kaeru-rig`
 //! embeds `kaeru-core` directly for local memory, and reaches the cloud over
 //! this same client so a rig agent can `share` / `pull` team knowledge in
 //! process — no separate daemon required. Methods return `(status_code,

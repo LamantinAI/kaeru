@@ -18,7 +18,7 @@ use serde_json::Value;
 use super::truncate_excerpt;
 use crate::errors::Result;
 use crate::graph::NodeId;
-use crate::graph::temporal::validity_seconds;
+use crate::graph::temporal::{recorded_at_expr, validity_seconds};
 use crate::store::Store;
 
 /// The built-in status vocabulary an initiative starts with, before it
@@ -77,17 +77,6 @@ pub struct BoardView {
     pub columns: Vec<BoardColumn>,
 }
 
-/// The bi-temporal read modifier: `'NOW'` for the present, or a literal unix
-/// timestamp to read the graph as it stood at that moment. Every board read
-/// funnels its `@ …` through here so the whole board — columns *and* cards —
-/// can be rewound together.
-fn at_expr(at: Option<f64>) -> String {
-    match at {
-        Some(secs) => format!("{secs}"),
-        None => "'NOW'".to_string(),
-    }
-}
-
 /// The `Board` node's id for `initiative` (as of `at`, or NOW), or `None` when
 /// the initiative hasn't customized its board yet. Datalog guarantees at most
 /// one board per initiative in practice (created find-or-create); the first is
@@ -104,7 +93,7 @@ pub fn board_node_id(store: &Store, initiative: &str, at: Option<f64>) -> Result
                  initiative = $init,
                  *node{{id, type @ {at}}}, type = 'board'
     "#,
-        at = at_expr(at)
+        at = recorded_at_expr(at)?
     );
     let rows = store
         .db_ref()
@@ -130,7 +119,7 @@ pub(crate) fn read_board_statuses(
         r#"
         ?[properties] := *node{{id, properties @ {at}}}, id = $bid
     "#,
-        at = at_expr(at)
+        at = recorded_at_expr(at)?
     );
     let rows = store
         .db_ref()
@@ -224,7 +213,7 @@ pub fn board_view_at(store: &Store, initiative: &str, at: Option<f64>) -> Result
             *node_initiative{{initiative, node_id: id}}, initiative = $init,
             *node{{id, type, name, body, tags, visibility, validity @ {at}}}, type = 'task'
     "#,
-        at = at_expr(at)
+        at = recorded_at_expr(at)?
     );
     let rows = store
         .db_ref()

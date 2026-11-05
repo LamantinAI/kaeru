@@ -54,7 +54,7 @@ fn structural_graph_respects_scope_visibility_remote_edges_and_incomplete_trails
         Visibility::Shared,
     );
     record(&store, "trail", NodeType::Chain, "work", Visibility::Shared);
-    store.run("?[src,dst,edge_type,validity,weight,properties,dst_store] <- [['a','b','causal',[1000.0,true],0.5,null,'local'],['a','hidden','refers_to',[1000.0,true],1.0,null,'local'],['b','a','refers_to',[1000.0,true],1.0,null,'cloud']] :put edge {src,dst,edge_type,validity=>weight,properties,dst_store}").unwrap();
+    store.run("?[src,dst,edge_type,validity,weight,properties,dst_store] <- [['a','b','causal',[1000,true],0.5,null,'local'],['a','hidden','refers_to',[1000,true],1.0,null,'local'],['b','a','refers_to',[1000,true],1.0,null,'cloud']] :put edge {src,dst,edge_type,validity=>weight,properties,dst_store}").unwrap();
     store.run("?[chain_id,position,node_id] <- [['trail',0,'a'],['trail',1,'hidden'],['trail',2,'b']] :put chain_member {chain_id,position=>node_id}").unwrap();
     let response = call(
         &store,
@@ -115,7 +115,7 @@ fn paged_fixture() -> Store {
         .collect::<Vec<_>>()
         .join(",");
     store.run(&format!("?[chain_id,position,node_id] <- [{rows}] :put chain_member {{chain_id,position=>node_id}}")).unwrap();
-    store.run("?[src,dst,edge_type,validity,weight,properties,dst_store] := *node{id:src,type @ 'NOW'},type='episode',dst='trail',edge_type='causal',validity=[1000.0,true],weight=1.0,properties=null,dst_store='local' :put edge {src,dst,edge_type,validity=>weight,properties,dst_store}").unwrap();
+    store.run("?[src,dst,edge_type,validity,weight,properties,dst_store] := *node{id:src,type @ 'NOW'},type='episode',dst='trail',edge_type='causal',validity=[1000,true],weight=1.0,properties=null,dst_store='local' :put edge {src,dst,edge_type,validity=>weight,properties,dst_store}").unwrap();
     store
 }
 
@@ -178,7 +178,7 @@ fn graph_continuation_rejects_future_visibility_revocation_without_a_write() {
     // consume the window in which the record is supposed to remain shared.
     api::validate("context", &arguments).unwrap();
     let transition = Utc::now().timestamp_micros() + 200_000;
-    store.run(&format!("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['record-000',[{transition}.0,true],'episode','operational','private','new private',null,null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}")).unwrap();
+    store.run(&format!("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['record-000',[{transition},true],'episode','operational','private','new private',null,null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}")).unwrap();
     let persisted = store
         .run_read("?[validity,visibility] := *node{id:'record-000',validity,visibility}")
         .unwrap()

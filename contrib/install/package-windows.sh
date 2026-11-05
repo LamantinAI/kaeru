@@ -55,7 +55,7 @@ docker run --rm \
     -w /io \
     "$IMAGE" \
     bash -c 'rm -f /io/target-windows-release/x86_64-pc-windows-msvc/release/kaeru-mcp.exe &&
-             cargo xwin build --locked --release --target-dir /io/target-windows-release --target x86_64-pc-windows-msvc -p kaeru-mcp --bin kaeru-mcp'
+             cargo xwin build --locked --release --target-dir /io/target-windows-release --target x86_64-pc-windows-msvc -p kaeru-local --bin kaeru-mcp'
 
 [[ -f "$exe" ]] || { echo "!!  $exe does not exist — the build produced nothing" >&2; exit 1; }
 

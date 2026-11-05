@@ -17,7 +17,7 @@ pasted as a system-prompt rule into any agent runtime.
 ## Prerequisites
 
 - The `kaeru-mcp` daemon installed and running
-  (`cargo install --path kaeru-mcp`, then register it with your agent —
+  (`cargo install --path kaeru-local`, then register it with your agent —
   see the repo README). MCP-aware runtimes discover the verbs themselves;
   this skill adds the *when and why* on top.
 - A vault location either at the platform default

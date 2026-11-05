@@ -7,9 +7,19 @@ named operations over that graph.
 
 ## Storage and recorded history
 
-The daemon owns one embedded CozoDB instance with a RocksDB backend. Agent
-sessions connect to the daemon rather than opening the same vault independently.
-Embedded Rig applications instead own their Store in process.
+The central `kaeru-memory-service` owns one Mnestic runtime over transactional
+TiKV. The optional `kaeru-local` host owns embedded RocksDB and retains the
+installed `kaeru-mcp` command. Both compose the same `kaeru-server` MCP/HTTP/UI
+library; embedded Rig applications own their Store directly.
+
+`kaeru-cloud/` contains memory-service and the future Control boundary. It is
+not another executable. Control/Auth business implementation is a separate
+stage; the current service instance token/account is not platform identity.
+Legacy `/api/v1` sharing routes and canonical `/v1`/MCP use one `Arc<Store>`.
+
+Each TiKV namespace admits one active engine runtime through an expiring lease
+and transaction-level fencing. Storage replication does not synchronize several
+engine caches. See [TiKV operations](tikv-backend.md) for deployment limits.
 
 Node and edge keys include Cozo's `Validity`, a timestamp plus an assertion or
 retraction marker. Content changes retain earlier assertions and retract the
@@ -37,8 +47,15 @@ the same key within one second, mutation helpers advance that key's timestamp
 to preserve order. A burst can therefore put its recorded timestamp slightly
 ahead of wall time. Cozo's native clock uses microseconds while these stored
 values use seconds, so its `NOW` read sees the highest committed version
-immediately. This existing representation must be preserved when changing
-storage or interpreting historical timestamps.
+immediately. Writes and historical selectors use integer values in this
+existing seconds domain; fractional historical cutoffs are rejected. This
+representation is preserved when changing the substrate.
+
+The pinned engine patch keeps FTS corpus statistics consistent with posting
+transactions and storage snapshots. Successful serialized writes maintain a
+committed cache; aborted writes and old snapshots cannot contaminate it.
+Ranking uses Mnestic's BM25 default and phrase semantics. The public memory API
+and AMG schema remain independent of the engine version.
 
 ## Local commands and separate effects
 

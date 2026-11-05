@@ -724,15 +724,15 @@ mod tests {
 
         let s1 = r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [['c1', [1000.0, true], 'concept', 'archival', 'TestConcept', 'first', null, null, null]]
+                [['c1', [1000, true], 'concept', 'archival', 'TestConcept', 'first', null, null, null]]
             :put node {id, validity => type, tier, name, body, tags, initiatives, properties}
         "#;
         store.run(s1).expect("insert at t1");
 
         let s2 = r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [['c1', [2000.0, false], 'concept', 'archival', 'TestConcept', null, null, null, null],
-                 ['c1', [2000.0, true],  'concept', 'archival', 'TestConcept', 'second', null, null, null]]
+                [['c1', [2000, false], 'concept', 'archival', 'TestConcept', null, null, null, null],
+                 ['c1', [2000, true],  'concept', 'archival', 'TestConcept', 'second', null, null, null]]
             :put node {id, validity => type, tier, name, body, tags, initiatives, properties}
         "#;
         store.run(s2).expect("retract + reassert at t2");

@@ -67,7 +67,7 @@ pub fn write_episode_with_layer(
         let script = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-                [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
+                [[$id, [{now_secs}, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
             "#
         );
@@ -117,7 +117,7 @@ pub fn jot_with_layer(store: &Store, body: &str, layer: Layer) -> Result<NodeId>
         let script = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-                [[$id, [{now_secs}.0, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
+                [[$id, [{now_secs}, true], 'episode', 'operational', $name, $body, {tags}, null, null, $layer]]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
             "#
         );

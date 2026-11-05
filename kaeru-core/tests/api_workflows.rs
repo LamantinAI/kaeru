@@ -561,7 +561,7 @@ fn hygiene_preview_pages_reasons_without_writing_and_force_keeps_a_durable_log()
     let store = Store::open_in_memory().unwrap();
     for i in 0..16 {
         let record = kaeru_core::new_node_id();
-        store.run(&format!("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['{record}',[1.0,true],'episode','operational','old-{i}','Old observation.',null,null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}")).unwrap();
+        store.run(&format!("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['{record}',[1,true],'episode','operational','old-{i}','Old observation.',null,null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}")).unwrap();
         kaeru_core::attach_node(&store, &record, "work").unwrap();
     }
     let before = store

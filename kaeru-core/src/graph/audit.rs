@@ -60,7 +60,7 @@ pub(crate) fn write_audit_details(
     let script = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [[$id, [{now_secs}.0, true], 'audit_event', 'operational', $name, null, null, null, $properties, 'warm']]
+            [[$id, [{now_secs}, true], 'audit_event', 'operational', $name, null, null, null, $properties, 'warm']]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );

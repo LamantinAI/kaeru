@@ -89,9 +89,9 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
             p_children.insert("init".to_string(), DataValue::Str(init.clone().into()));
             r#"
                 candidates[child, et, outgoing] := *edge{src, dst: child, edge_type: et @ 'NOW'},
-                                     src = $seed, et = 'derived_from', outgoing = true
+                                     src = $seed, et = 'derived_from', outgoing = true;
                 candidates[child, et, outgoing] := *edge{src: child, dst, edge_type: et @ 'NOW'},
-                                     dst = $seed, et = 'part_of', outgoing = false
+                                     dst = $seed, et = 'part_of', outgoing = false;
                 ?[id, type, name, body, edge_type, outgoing, validity] := candidates[id, edge_type, outgoing],
                                             *node{id, type, name, body, validity @ 'NOW'},
                                             *node_initiative{initiative, node_id: id},
@@ -101,9 +101,9 @@ pub fn summary_view(store: &Store, seed: &NodeId) -> Result<SummaryView> {
         None => {
             r#"
                 candidates[child, et, outgoing] := *edge{src, dst: child, edge_type: et @ 'NOW'},
-                                     src = $seed, et = 'derived_from', outgoing = true
+                                     src = $seed, et = 'derived_from', outgoing = true;
                 candidates[child, et, outgoing] := *edge{src: child, dst, edge_type: et @ 'NOW'},
-                                     dst = $seed, et = 'part_of', outgoing = false
+                                     dst = $seed, et = 'part_of', outgoing = false;
                 ?[id, type, name, body, edge_type, outgoing, validity] := candidates[id, edge_type, outgoing], *node{id, type, name, body, validity @ 'NOW'}
             "#
         }

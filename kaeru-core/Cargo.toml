@@ -6,6 +6,9 @@ license.workspace = true
 description = "kaeru — cognitive memory core: substrate, schema, primitives"
 repository.workspace = true
 
+[features]
+storage-tikv = ["cozo/storage-tikv"]
+
 [dependencies]
 zip.workspace = true
 tempfile.workspace = true
@@ -25,6 +28,7 @@ uuid.workspace = true
 config.workspace = true
 
 [dev-dependencies]
+tokio.workspace = true
 clap.workspace = true
 proptest.workspace = true
 tempfile.workspace = true

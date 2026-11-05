@@ -138,7 +138,7 @@ fn put_board(
     let script = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties, layer] <-
-            [[$id, [{secs}.0, true], 'board', 'operational', $name, null, {tags}, null, $properties, 'warm']]
+            [[$id, [{secs}, true], 'board', 'operational', $name, null, {tags}, null, $properties, 'warm']]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, layer}}
         "#
     );

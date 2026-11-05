@@ -1,6 +1,6 @@
 # 蛙 kaeru
 
-`kaeru` is a **cross-agent cognitive engine** for LLM agents — a typed graph that agents think in, plus a recollection layer for long-term ideas and outcomes. Local-first for each agent, with an optional shared cloud tier so a whole team of agents and people build on one another's memory.
+`kaeru` is a **cross-agent cognitive engine** for LLM agents — a typed graph that agents think in, plus a recollection layer for long-term ideas and outcomes. Use the central memory service directly, or keep private embedded memory through the optional local host. Agents and people can share knowledge through the same memory API.
 
 Designed for **multi-session, multi-agent continuity**: when an agent opens a project, it has full context of what was being thought about, can follow provenance chains, can consolidate outcomes into stable long-term knowledge, and can pull in what the rest of the team has shared.
 
@@ -16,7 +16,7 @@ Name: 蛙 (*kaeru*, "frog"; homophonic with 帰る "to return" and 変える "to
 
 ![A kaeru vault rendered as a knowledge galaxy by kaeru-viz](kaeru-viz/screenshot.png)
 
-`kaeru` is built around a typed property graph stored in CozoDB. Two tiers, biological analogy:
+`kaeru` is built around a typed property graph stored in Mnestic, a maintained CozoDB fork. Two tiers, biological analogy:
 
 - **cognitive (operational / hippocampus)** — high-velocity working graph where the agent actively thinks: episodes, scratch, drafts, hypotheses, experiments, audit events.
 - **recollection (archival / cortex)** — settled ideas, outcomes, summaries, references; mostly read.
@@ -41,7 +41,7 @@ this contract. See [the API reference](docs/curator-api.md).
 - **Role slots** — `initiative_manage(action="set_slot")` gives an initiative one current pointer per role (`handoff`, `entrypoint`, `queue`). `context` returns the holder and slot revision. Replacing the pointer does not archive or retire the previous record; those remain explicit lifecycle decisions.
 - **It tells you when you are behind** — the daemon checks for newer releases daily and surfaces an update notice to the agent. It uses `updates.lamantin-ai.com` with a GitHub fallback; version, platform, installation channel and environment are sent, never vault content. The endpoint keeps daily aggregate counts; see [the update Worker](contrib/update-worker/) for retention details. `KAERU_MCP_UPDATE_CHECK=0` disables the check.
 - **Automatic hygiene** — a background pass moves old unreferenced journal entries to Cold, lowers untouched unreferenced Core nodes and raises heavily referenced nodes. It triggers on accumulated writes, Core growth and elapsed time, runs off the reactor in batches, and changes only recall layers. On by default in the daemon: `KAERU_MCP_HYGIENE_ENABLE=0` disables it. Embedded `kaeru-rig` hygiene remains opt-in through `KaeruMemory::with_hygiene()`. `retention(action="preview_hygiene")` shows proposed moves without applying them.
-- **Cross-agent sharing** — local-first by default; an optional `kaeru-cloud` tier lets a trusted team share knowledge through initiative policy, allowed cloud destinations and a deterministic secret guard. `cloud_recall` searches the shared tier, `unshare` withdraws a shared record, and several configured clouds require an explicit destination. See [Local & cloud](#local--cloud--sharing-memory-across-a-team).
+- **Cross-agent sharing** — local-first by default; the memory service lets a trusted team share knowledge through initiative policy, allowed cloud destinations and a deterministic secret guard. `cloud_recall` searches the shared tier, `unshare` withdraws a shared record, and several configured clouds require an explicit destination. See [Local & cloud](#local--cloud--sharing-memory-across-a-team).
 - **Structural recall** — scoped name / ID lookup, literal lexical search and typed graph traversal. `read` expands relations, provenance and paths on demand; returned records carry currentness, material conflicts and saved reasoning. Source references preserve the supplied text exactly.
 - **Read-back on re-entry** — `context` restores what was *touched* and also what is still *owed*: project rules, current slots, open tasks, claims, reminders and saved reasoning. Bounded results report coverage and provide continuation arguments.
 - **Initiative management** — `initiative_manage` renames, merges or deletes an initiative, or attaches an existing record to another initiative to repair fragmentation.
@@ -49,13 +49,13 @@ this contract. See [the API reference](docs/curator-api.md).
 
 ## Architecture Notes
 
-- **Substrate is CozoDB** with the embedded RocksDB backend. `Validity` stores recorded assertions and retractions natively; current metadata is not presented as a second historical axis.
+- **Substrate is Mnestic**, a maintained CozoDB fork, with embedded RocksDB for the local host and transactional TiKV for memory-service. `Validity` stores recorded assertions and retractions natively; current metadata is not presented as a second historical axis.
 - **Edges carry operational semantics** — `derived_from` powers provenance, `contradicts` records counterevidence, and `supersedes` runs from the replacement to what it replaced. `replace` creates a successor and retires the previous identity; `revise` updates the same identity. Edges are not just associations.
 - **`audit_event` is a first-class node type** — mutations record operational audit alongside domain changes. Substrate history tracks prior assertions; audit records explain the operation and actor. Intrinsic mutations, audit and replay records commit together.
 - **Per-initiative scope through junction relations** rather than column filtering — a record can belong to several initiatives. The shared API applies scope and visibility checks before returning content or following links.
 - **Retrieval is structural-first** — explicit name / ID lookup, lexical search, typed graph traversal and saved summaries. No embedding index is wired into the current retrieval path.
 - **Two-tier with explicit promotion** — `lifecycle(target_tier="archival")` moves settled knowledge into the archival tier while preserving content and references; promotion can report an identity change. Recall layers remain independent of the tier.
-- **Single binary, embedded substrate** — the local service owns the vault and serves MCP, named HTTP operations and the visualizer. The vault lives under a platform-specific default (Linux `$XDG_DATA_HOME/kaeru`, macOS `~/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`); override with `KAERU_VAULT_PATH`.
+- **Shared runtime, explicit storage profile** — memory-service defaults to TiKV; the optional local service owns an embedded vault. Both serve the same MCP and named HTTP operations. The vault lives under a platform-specific default (Linux `$XDG_DATA_HOME/kaeru`, macOS `~/Library/Application Support/ai.lamantin.kaeru`, Windows `%LOCALAPPDATA%\ai.lamantin.kaeru`); override with `KAERU_VAULT_PATH`.
 
 ## Layout
 
@@ -63,8 +63,11 @@ this contract. See [the API reference](docs/curator-api.md).
 kaeru/
 ├── Cargo.toml                  ← workspace root
 ├── kaeru-core/                 ← library: substrate, shared API, memory primitives and models
-├── kaeru-mcp/                  ← binary `kaeru-mcp`: MCP, HTTP API, instance UI and local auth
-├── kaeru-cloud/                ← binary `kaeru-cloud`: shared cloud tier (Axum REST over kaeru-core)
+├── kaeru-server/               ← shared MCP, HTTP and instance UI runtime
+├── kaeru-local/                ← optional local host; installed binary `kaeru-mcp`
+├── kaeru-cloud/                ← platform services (directory, not a crate)
+│   ├── memory-service/         ← binary `kaeru-memory-service`, TiKV by default
+│   └── control-service/        ← ownership boundary; implementation follows separately
 ├── kaeru-rig/                  ← library: `rig` Tools that give a rig agent kaeru memory
 ├── kaeru-viz/                  ← visualizer source and embedded frontend build
 └── skills/
@@ -141,7 +144,7 @@ one tag per release:
 git checkout <release-tag>
 ./contrib/offline/fetch-vendor.sh     # ~600 MB, needs network once
 # carry the whole directory across, then:
-cargo build --release --offline -p kaeru-mcp
+cargo build --release --offline -p kaeru-local
 ```
 
 Rust alone is not enough on either side of that line — cozo builds RocksDB from
@@ -152,7 +155,7 @@ checksum at once.
 
 ## Connecting to an MCP-aware agent
 
-`kaeru-mcp` is a long-lived HTTP service: **one daemon per vault** owns the substrate, any number of agent sessions (Claude Code, Opencode, Cursor, …) connect concurrently. This is intentional — RocksDB is single-writer, so a stdio MCP that forks a subprocess per session would hit lock contention. See `kaeru-mcp/README.md` for systemd / launchd unit templates and the full HTTP config.
+`kaeru-mcp` is a long-lived HTTP service: **one daemon per vault** owns the substrate, any number of agent sessions (Claude Code, Opencode, Cursor, …) connect concurrently. This is intentional — RocksDB is single-writer, so a stdio MCP that forks a subprocess per session would hit lock contention. See [`kaeru-local/README.md`](kaeru-local/README.md) for systemd / launchd unit templates and the full HTTP config.
 
 Run the daemon (or set up the systemd user unit from `contrib/install/`):
 
@@ -171,7 +174,7 @@ After restart the agent sees `context`, `search`, `read`, `note`, `claim` and th
 
 ## Local & cloud — sharing memory across a team
 
-`kaeru` runs **local-first**: your vault lives on your machine and nothing leaves it by default. A second, optional tier — `kaeru-cloud` — is a shared store for a trusted group (a team, a family). Each initiative carries a sticky `share_policy`:
+When using `kaeru-local`, the vault lives on your machine and nothing leaves it by default. The central `kaeru-memory-service` exposes MCP and HTTP directly with TiKV storage. An optional local host keeps a private embedded vault and can share selected records with that service. Each initiative carries a sticky `share_policy`:
 
 - `private` (default) — nothing ever leaves; personal projects.
 - `team` — nodes you explicitly mark `shared` may sync to the cloud.
@@ -182,7 +185,7 @@ Verbs (over MCP): `policy` (mark an initiative `team`), `share` (push a node), `
 
 `cloud_recall(initiative="project", id="<uuid>")` reads a complete shared record without importing it. `pull` copies it locally and restores its incident edges while preserving local weights and explicit unlinks. Local reads do not search the cloud automatically.
 
-A single daemon can also reach **several named clouds** (e.g. a `family` and a `work` cloud) via a `clouds.toml` file; the cloud verbs then take an optional `cloud: <name>` and soft links remember which cloud they point at. See [`kaeru-mcp/README.md`](kaeru-mcp/README.md#configuration) for the file format.
+A single daemon can also reach **several named clouds** (e.g. a `family` and a `work` cloud) via a `clouds.toml` file; the cloud verbs then take an optional `cloud: <name>` and soft links remember which cloud they point at. See [`kaeru-local/README.md`](kaeru-local/README.md#configuration) for the file format.
 
 Per-user / per-org isolation (multi-tenant) is a future addition; today each cloud is one shared space scoped by initiative. See [`kaeru-cloud/README.md`](kaeru-cloud/README.md).
 

@@ -38,7 +38,7 @@ fn bulk_fixture(count: usize) -> Store {
         .map(|n| DataValue::List(vec![DataValue::Str(format!("node-{n:03}").into())]))
         .collect();
     store.db_ref().run_script(
-        "input[id] <- $nodes\n?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] := input[id],validity=[1000.0,true],type='episode',tier='operational',name=id,body='body',tags=null,initiatives=null,properties=null,visibility='local',layer='warm' :put node {id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}",
+        "input[id] <- $nodes\n?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] := input[id],validity=[1000,true],type='episode',tier='operational',name=id,body='body',tags=null,initiatives=null,properties=null,visibility='local',layer='warm' :put node {id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}",
         BTreeMap::from([("nodes".into(), DataValue::List(nodes))]), ScriptMutability::Mutable,
     ).unwrap();
     store.run("?[initiative,node_id] := *node{id:node_id @ 'NOW'},initiative='perf' :put node_initiative {initiative,node_id}").unwrap();
@@ -166,7 +166,7 @@ fn relation_cache_does_not_cross_visibility_or_scope_policies() {
     let store = Store::open_in_memory().unwrap();
     record(&store, "public", "perf", Visibility::Shared);
     record(&store, "private", "private-scope", Visibility::Local);
-    store.run("?[src,dst,edge_type,validity,weight,properties,dst_store] <- [['public','private','refers_to',[1000.0,true],1.0,null,'local']] :put edge {src,dst,edge_type,validity=>weight,properties,dst_store}").unwrap();
+    store.run("?[src,dst,edge_type,validity,weight,properties,dst_store] <- [['public','private','refers_to',[1000,true],1.0,null,'local']] :put edge {src,dst,edge_type,validity=>weight,properties,dst_store}").unwrap();
     let local = ApiOptions::local();
     let viewer = ApiOptions {
         include_local: false,
@@ -215,7 +215,7 @@ fn read_snapshot_keeps_access_and_payload_on_one_side_of_future_transition() {
     let store = Store::open_in_memory().unwrap();
     record(&store, "record", "perf", Visibility::Shared);
     let transition = Utc::now().timestamp_micros() + 200_000;
-    store.run(&format!("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['record',[{transition}.0,true],'episode','operational','private version','private body',null,null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}")).unwrap();
+    store.run(&format!("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['record',[{transition},true],'episode','operational','private version','private body',null,null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}")).unwrap();
     let options = ApiOptions {
         include_local: false,
         ..ApiOptions::local()

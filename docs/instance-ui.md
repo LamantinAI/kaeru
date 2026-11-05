@@ -196,7 +196,7 @@ frontend behind nginx can use the same `/auth/`, `/admin/` and `/v1/` routes.
 
 ## Building
 
-Source: `kaeru-viz/`; generated bundle: `kaeru-mcp/ui-dist/`.
+Source: `kaeru-viz/`; generated bundle: `kaeru-server/ui-dist/`.
 
 ```sh
 cd kaeru-viz
@@ -223,7 +223,7 @@ are proxied. If an origin is explicitly pinned, use the Vite browser origin.
 End-to-end tests use a real embedded binary and temporary private accounts/vaults:
 
 ```sh
-cargo build -p kaeru-mcp
+cargo build -p kaeru-local
 cd kaeru-viz
 npx playwright install chromium
 npm run test:browser
@@ -239,7 +239,7 @@ configuration. This example first initializes a protected account without
 opening the vault/listener, then starts an owner-access UI bound to host loopback:
 
 ```sh
-docker build -f docker/Dockerfile.mcp -t kaeru-mcp .
+docker build -f docker/Dockerfile.local -t kaeru-mcp .
 docker run --rm -it \
   -v kaeru-config:/home/kaeru/.config/kaeru \
   kaeru-mcp --auth enabled
@@ -264,3 +264,12 @@ base definition persists the two vaults but does **not** persist MCP account
 configuration, select an auth mode, grant HTTP/UI owner scope or add routable
 MCP Host authorities. Supply those explicitly through your deployment/override;
 the local installer's account/scope setup does not run inside an image.
+
+## Central service profile
+
+Memory-service embeds the same UI bundle. Its instance-account configuration
+must be supplied explicitly with `KAERU_MEMORY_WEB_CONFIG_FILE`; home web.toml
+and local flags never set service policy. A bearer-only service does not expose
+browser login/admin routes because this frontend uses password/cookie sessions.
+The canonical HTTP API remains available with its own explicit service token
+and initiative ceiling. Platform Auth/Control integration is a separate stage.

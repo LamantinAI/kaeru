@@ -19,7 +19,7 @@ fn store() -> Store {
 
 fn write_node(store: &Store, id: &str, seconds: u64, asserted: bool, value: u8) {
     store.run(&format!(
-        "?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['{id}',[{seconds}.0,{asserted}],'episode','operational','n{value}','v{value}',[],null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}"
+        "?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['{id}',[{seconds},{asserted}],'episode','operational','n{value}','v{value}',[],null,null,'local','warm']] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}"
     )).unwrap();
 }
 
@@ -32,7 +32,7 @@ fn write_edge(
 ) {
     let (src, dst, kind) = key;
     store.run(&format!(
-        "?[src,dst,edge_type,validity,weight,properties] <- [['{src}','{dst}','{kind}',[{seconds}.0,{asserted}],{value}.0,parse_json('{{\"value\":{value}}}')]] :put edge {{src,dst,edge_type,validity=>weight,properties}}"
+        "?[src,dst,edge_type,validity,weight,properties] <- [['{src}','{dst}','{kind}',[{seconds},{asserted}],{value}.0,parse_json('{{\"value\":{value}}}')]] :put edge {{src,dst,edge_type,validity=>weight,properties}}"
     )).unwrap();
 }
 
@@ -75,7 +75,7 @@ fn exact_boundaries_ties_retractions_and_same_key_rewrites_match_the_oracle() {
             "time={time}"
         );
         assert_eq!(
-            edge_at(&store, &key, &format!("{time}.0")),
+            edge_at(&store, &key, &time.to_string()),
             expected.map(|v| (v as f64, v)),
             "edge time={time}"
         );
@@ -105,7 +105,7 @@ proptest! {
             for time in 0..9 {
                 let expected = nodes.at(&id,time).copied();
                 prop_assert_eq!(at(&store,&id,time as f64).unwrap().and_then(|n|n.body),expected.map(|v|format!("v{v}")),"node={},time={},ops={:?}",id,time,operations);
-                prop_assert_eq!(edge_at(&store,&edge,&format!("{time}.0")),edges.at(&edge,time).map(|v|(*v as f64,*v)),"edge={:?},time={},ops={:?}",edge,time,operations);
+                prop_assert_eq!(edge_at(&store,&edge,&time.to_string()),edges.at(&edge,time).map(|v|(*v as f64,*v)),"edge={:?},time={},ops={:?}",edge,time,operations);
             }
         }
     }
@@ -245,7 +245,7 @@ fn public_edge_revisions_and_unlink_match_the_oracle() {
     let current = store.run_read("?[w] := *edge{src,dst,edge_type,weight:w @ 'NOW'},src='left',dst='right',edge_type='refers_to'").unwrap();
     assert!(current.rows.is_empty());
     for time in times {
-        let rows = store.run_read(&format!("?[w] := *edge{{src,dst,edge_type,weight:w @ {time}.0}},src='left',dst='right',edge_type='refers_to'")).unwrap();
+        let rows = store.run_read(&format!("?[w] := *edge{{src,dst,edge_type,weight:w @ {time}}},src='left',dst='right',edge_type='refers_to'")).unwrap();
         assert_eq!(
             rows.rows[0][0].get_float().as_ref(),
             reference.at(&key, time)

@@ -465,7 +465,7 @@ mod tests {
         let script = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
-                [[$id, [{now}.0, true], 'episode', 'operational', $name, 'body', [{tag_list}],
+                [[$id, [{now}, true], 'episode', 'operational', $name, 'body', [{tag_list}],
                   null, null, 'local', 'warm']]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}}
             "#

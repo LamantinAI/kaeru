@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kaeru-core", "kaeru-mcp", "kaeru-cloud", "kaeru-rig"]
+members = ["kaeru-core", "kaeru-server", "kaeru-local", "kaeru-cloud/memory-service", "kaeru-rig"]
 
 [workspace.package]
 version = "0.8.1"
@@ -17,15 +17,11 @@ rpassword = "7"
 toml = "0.9"
 tempfile = "3"
 include_dir = "0.7"
-# Substrate. Cozo with the rocksdb storage backend explicitly enabled —
-# disk-mode `Store::open(path)` opens the embedded RocksDB engine via
-# `DbInstance::new("rocksdb", path, "")`. The "compact" default features
-# (minimal + requests + graph-algo) stay on.
-# default-features off drops cozo's `minimal` bundle, which forces the sqlite
-# storage engine (dep `sqlite3-src`, `links = "sqlite3"`) — kaeru only ever opens
-# the "mem"/"rocksdb" engines, so it was dead weight, and it clashed with any other
-# sqlite (e.g. an app that also uses sqlx). Keep graph-algo + requests + rocksdb.
-cozo = { version = "0.7", default-features = false, features = ["graph-algo", "requests", "storage-rocksdb"] }
+# Maintained Cozo-compatible substrate, pinned with transactional FTS statistics.
+# The package is mnestic; its Rust library and this dependency alias stay cozo.
+# Embedded mem/RocksDB remain the storage backends. Keep defaults off to avoid
+# pulling SQLite into hosts that use a different sqlite3 binding.
+cozo = { package = "mnestic", git = "https://github.com/LamantinAI/mnestic.git", rev = "0ed6ca24e3c1906110d209bec2da378754f32a38", default-features = false, features = ["graph-algo", "requests", "storage-rocksdb"] }
 crossbeam-channel = "0.5"
 flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 jsonschema = { version = "0.33", default-features = false }
@@ -94,6 +90,7 @@ proptest = "1"
 
 # Internal
 kaeru-core = { path = "kaeru-core" }
+kaeru-server = { path = "kaeru-server" }
 
 [profile.release]
 lto = "thin"
@@ -105,7 +102,8 @@ codegen-units = 1
 # fork. Pinned to an exact `rev`, NOT a branch: the `fix/edgelist-par-iter`
 # branch was deleted upstream, so a `branch = …` patch fails to resolve on a
 # clean clone (`failed to find branch …`). A commit sha is immutable; this is
-# the same commit Cargo.lock already locked. Drop the patch once the fix
-# ships in a released graph_builder (see neo4j-labs/graph PR #144).
+# the same commit Cargo.lock already locked. The upstream fix was merged via
+# neo4j-labs/graph PR #145 (superseding #144). Keep this pin until a compatible
+# published graph_builder is verified with the substrate's dependency set.
 [patch.crates-io]
 graph_builder = { git = "https://github.com/lawless-m/graph", rev = "790ef623533fa39574ddd11308e3abc3993c0994" }

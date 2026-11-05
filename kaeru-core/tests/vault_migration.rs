@@ -125,7 +125,7 @@ fn recovered_custom_ids_and_deleted_identity_history_remain_accessible_to_the_ow
     let dir = std::env::temp_dir().join(format!("kaeru-legacy-id-{}", new_node_id()));
     {
         let store = Store::open(&dir).unwrap();
-        store.run("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['custom-legacy-id',[1.0,true],'reference','archival','different-display-name','Original legacy content.',null,null,null,'local','warm']] :put node {id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}").unwrap();
+        store.run("?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [['custom-legacy-id',[1,true],'reference','archival','different-display-name','Original legacy content.',null,null,null,'local','warm']] :put node {id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}").unwrap();
         store
             .run("?[name] <- [['0011_scope_legacy_unscoped']] :rm migration_journal {name}")
             .unwrap();

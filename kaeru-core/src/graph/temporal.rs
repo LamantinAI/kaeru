@@ -1,4 +1,4 @@
-//! Temporal queries — bi-temporal point-in-time and history.
+//! Recorded-history point-in-time queries and version history.
 //!
 //! The substrate stores `Validity` (timestamp + assertion flag) in node and
 //! edge primary keys. This module exposes the two practical reads:
@@ -49,6 +49,7 @@ pub struct Revision {
 /// time. For the latest committed state use `read_node_full`: a burst of
 /// revisions can allocate recorded seconds ahead of the wall-clock cutoff.
 pub fn at(store: &Store, id: &NodeId, at_seconds: f64) -> Result<Option<NodeSnapshot>> {
+    let at_seconds = recorded_seconds(at_seconds)?;
     let mut params: BTreeMap<String, DataValue> = BTreeMap::new();
     params.insert("id".to_string(), DataValue::Str(id.clone().into()));
 
@@ -142,15 +143,33 @@ pub fn history(store: &Store, id: &NodeId) -> Result<Vec<Revision>> {
     Ok(revisions)
 }
 
-/// Parses a `DataValue::Validity` into `(unix_seconds_f64, asserted)`.
-///
-/// Cozo's `Validity` stores the timestamp as an `i64` wrapped in `Reverse<>`.
-/// When values are inserted as `[float, bool]` literals (the form every
-/// kaeru mutation uses, see `mutate.rs::now_validity_seconds`), Cozo
-/// preserves the integer value as-is — so stored timestamps are in
-/// seconds-since-epoch on the kaeru side. Cozo's own `current_validity()`
-/// (used by `@ 'NOW'`) writes microseconds; we don't read that path back
-/// out, so this parser only handles the seconds-scale values we wrote.
+/// Converts a public historical cutoff to the integer recorded-seconds domain.
+/// Fractional values were not supported by the substrate; reject them rather
+/// than rounding across an assertion or retraction boundary. The exclusive
+/// upper bound avoids saturating the f64 representation of i64::MAX.
+pub(crate) fn recorded_seconds(seconds: f64) -> Result<i64> {
+    if !seconds.is_finite()
+        || seconds.fract() != 0.0
+        || seconds < i64::MIN as f64
+        || seconds >= i64::MAX as f64
+    {
+        return Err(Error::Invalid(
+            "recorded time must be finite whole seconds within the signed 64-bit range".into(),
+        ));
+    }
+    Ok(seconds as i64)
+}
+
+/// One temporal selector for current and historical reads. Stored Validity
+/// values retain Kaeru's existing raw-second scale; do not convert to native
+/// engine microseconds or introduce native ASSERT timestamps here.
+pub(crate) fn recorded_at_expr(at: Option<f64>) -> Result<String> {
+    match at {
+        Some(seconds) => Ok(recorded_seconds(seconds)?.to_string()),
+        None => Ok("'NOW'".into()),
+    }
+}
+
 /// Best-effort read of a validity column into Unix seconds. Returns `Some`
 /// only for an **asserted** `Validity`; `None` for a retraction, a missing
 /// column, or any non-Validity value — so a caller can pass a result row's
@@ -165,6 +184,9 @@ pub(crate) fn validity_seconds(dv: Option<&DataValue>) -> Option<f64> {
     }
 }
 
+/// The native i64 contains Kaeru's recorded seconds, preserved unchanged across
+/// engine versions. The engine's own current temporal clock uses microseconds;
+/// it must not be interpreted as a timestamp written by Kaeru.
 pub(crate) fn parse_validity(dv: Option<&DataValue>) -> Result<(f64, bool)> {
     let dv = dv.ok_or_else(|| Error::Substrate("missing validity column".to_string()))?;
     let DataValue::Validity(Validity {
@@ -187,10 +209,48 @@ mod tests {
     use cozo::{DataValue, ScriptMutability};
 
     use super::at;
+    use crate::errors::Error;
+    use crate::recall::{board_node_id, board_view_at, recall_id_by_name_at};
     use crate::store::Store;
     use crate::{
         EpisodeKind, Significance, history, node_brief_by_id, read_node_full, write_episode,
     };
+
+    #[test]
+    fn historical_reads_reject_fractional_nonfinite_and_out_of_range_cutoffs() {
+        let store = Store::open_in_memory().unwrap();
+        let id = "missing".to_string();
+        for seconds in [
+            1000.5,
+            -1000.5,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            i64::MAX as f64,
+            f64::MIN,
+        ] {
+            assert!(matches!(at(&store, &id, seconds), Err(Error::Invalid(_))));
+            assert!(matches!(
+                recall_id_by_name_at(&store, "missing", seconds),
+                Err(Error::Invalid(_))
+            ));
+            assert!(matches!(
+                board_node_id(&store, "scope", Some(seconds)),
+                Err(Error::Invalid(_))
+            ));
+            assert!(matches!(
+                board_view_at(&store, "scope", Some(seconds)),
+                Err(Error::Invalid(_))
+            ));
+        }
+        assert!(at(&store, &id, 1000.0).unwrap().is_none());
+        assert!(
+            recall_id_by_name_at(&store, "missing", 1000.0)
+                .unwrap()
+                .is_none()
+        );
+        assert!(board_view_at(&store, "scope", Some(1000.0)).is_ok());
+    }
 
     /// Verify the optimizer assumption behind all four keyed reads without
     /// a wall-clock threshold or a private performance fixture.
@@ -200,7 +260,7 @@ mod tests {
         for query in [
             "?[id,type,name,body,validity] := id = $id, *node{id,type,name,body,validity @ 'NOW'}",
             "?[type,tier,name,body,tags,visibility,layer,properties] := id = $id, *node{id,type,tier,name,body,tags,visibility,layer,properties @ 'NOW'}",
-            "?[type,tier,name,body,tags,layer,visibility,validity] := id = $id, *node{id,type,tier,name,body,tags,layer,visibility,validity @ 9999999999.0}",
+            "?[type,tier,name,body,tags,layer,visibility,validity] := id = $id, *node{id,type,tier,name,body,tags,layer,visibility,validity @ 9999999999}",
             "?[validity,name,body] := id = $id, *node{id,validity,name,body} :order validity",
         ] {
             let plan = store
@@ -228,13 +288,13 @@ mod tests {
         let store = Store::open_in_memory().unwrap();
         store.run(r#"
             rows[id, validity, type, tier, name, body, tags, visibility, layer, properties] <- [
-                ['quoted\'id', [100.0, true], 'reference', 'archival', 'first', 'body one', ['one'], 'shared', 'hot', {'url': 'https://example.test/1'}],
-                ['quoted\'id', [200.0, true], 'reference', 'archival', 'second', 'body two', ['two'], 'local', 'warm', {'url': 'https://example.test/2'}],
-                ['quoted\'id', [300.0, false], 'reference', 'archival', 'second', 'body two', ['two'], 'local', 'warm', null],
-                ['quoted\'id', [400.0, true], 'reference', 'archival', 'third', 'body three', ['three'], 'shared', 'core', {'url': 'https://example.test/3'}],
-                ['withdrawn', [100.0, true], 'reference', 'archival', 'gone', 'old', [], 'local', 'warm', null],
-                ['withdrawn', [200.0, false], 'reference', 'archival', 'gone', 'old', [], 'local', 'warm', null],
-                ['unrelated', [100.0, true], 'reference', 'archival', 'other', 'not the requested body', [], 'local', 'warm', null]
+                ['quoted\'id', [100, true], 'reference', 'archival', 'first', 'body one', ['one'], 'shared', 'hot', {'url': 'https://example.test/1'}],
+                ['quoted\'id', [200, true], 'reference', 'archival', 'second', 'body two', ['two'], 'local', 'warm', {'url': 'https://example.test/2'}],
+                ['quoted\'id', [300, false], 'reference', 'archival', 'second', 'body two', ['two'], 'local', 'warm', null],
+                ['quoted\'id', [400, true], 'reference', 'archival', 'third', 'body three', ['three'], 'shared', 'core', {'url': 'https://example.test/3'}],
+                ['withdrawn', [100, true], 'reference', 'archival', 'gone', 'old', [], 'local', 'warm', null],
+                ['withdrawn', [200, false], 'reference', 'archival', 'gone', 'old', [], 'local', 'warm', null],
+                ['unrelated', [100, true], 'reference', 'archival', 'other', 'not the requested body', [], 'local', 'warm', null]
             ]
             ?[id, validity, type, tier, name, body, tags, visibility, layer, properties, initiatives] :=
                 rows[id, validity, type, tier, name, body, tags, visibility, layer, properties], initiatives = null

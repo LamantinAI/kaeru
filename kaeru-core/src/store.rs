@@ -1,4 +1,4 @@
-//! Store — wrapper around an embedded CozoDB instance.
+//! Store — wrapper around an in-process Mnestic database.
 //!
 //! Owns the `DbInstance` and exposes a thin script-execution surface plus
 //! schema bootstrap. Higher-level primitives (`write_episode`, `recall`,
@@ -8,12 +8,14 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
+#[cfg(feature = "storage-tikv")]
+use std::thread;
 use std::time::Duration;
 
 use chrono::Utc;
 use cozo::{DbInstance, NamedRows, ScriptMutability};
 
-use crate::config::KaeruConfig;
+use crate::config::{KaeruConfig, StorageConfig};
 use crate::errors::{Error, Result};
 use crate::models::ReadTraceEvent;
 use crate::read_trace::ReadTrace;
@@ -57,20 +59,11 @@ impl Store {
 
     /// Opens an in-memory store with an explicit [`KaeruConfig`]. Used
     /// by tests that want deterministic caps regardless of environment.
-    pub fn open_in_memory_with(config: KaeruConfig) -> Result<Self> {
+    pub fn open_in_memory_with(mut config: KaeruConfig) -> Result<Self> {
+        config.storage = StorageConfig::Memory;
         let db = DbInstance::new("mem", "", "")
             .map_err(|e| Error::Substrate(format!("failed to open cozo in-memory: {e:?}")))?;
-        let store = Self {
-            db: Database::new(db),
-            current_initiative: Mutex::new(None),
-            scope_guard: Mutex::new(()),
-            read_trace: ReadTrace::start(&config),
-            config,
-            api_snapshots: Mutex::new(BTreeMap::new()),
-            api_requests: Mutex::new(()),
-        };
-        store.bootstrap_schema()?;
-        Ok(store)
+        Self::from_instance(db, config)
     }
 
     /// Opens (or creates) a disk-backed store at `path`, using
@@ -83,25 +76,54 @@ impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let mut config = KaeruConfig::from_env()?;
         config.vault_path = path.as_ref().to_path_buf();
+        config.storage = StorageConfig::Rocksdb;
         Self::open_with_config(config)
     }
 
-    /// Opens (or creates) a disk-backed store at `config.vault_path`.
-    /// The canonical disk constructor: adapters typically call
-    /// `Store::open_with_config(KaeruConfig::from_env()?)`.
+    /// Open the configured backend and bootstrap its schema. RocksDB remains
+    /// the default. Remote initialization runs outside async runtimes.
     pub fn open_with_config(config: KaeruConfig) -> Result<Self> {
-        // Create the vault directory if missing. Cozo's RocksDB engine
-        // expects the parent path to exist; we accept either an empty
-        // directory or one with an existing Cozo dataset inside.
-        if !config.vault_path.exists() {
-            fs::create_dir_all(&config.vault_path).map_err(Error::Io)?;
+        #[cfg(feature = "storage-tikv")]
+        if matches!(config.storage, StorageConfig::Tikv { .. }) {
+            return thread::Builder::new()
+                .name("kaeru-storage-open".into())
+                .spawn(move || Self::open_backend(config))?
+                .join()
+                .map_err(|_| Error::Substrate("storage initialization worker panicked".into()))?;
         }
+        Self::open_backend(config)
+    }
 
-        let path_str = config.vault_path.to_string_lossy();
-        let db = DbInstance::new("rocksdb", path_str.as_ref(), "").map_err(|e| {
-            Error::Substrate(format!("failed to open cozo rocksdb at {path_str}: {e:?}"))
-        })?;
+    fn open_backend(config: KaeruConfig) -> Result<Self> {
+        let db = match &config.storage {
+            StorageConfig::Rocksdb => {
+                if !config.vault_path.exists() {
+                    fs::create_dir_all(&config.vault_path)?;
+                }
+                DbInstance::new("rocksdb", &config.vault_path, "")?
+            }
+            StorageConfig::Memory => DbInstance::new("mem", "", "")?,
+            #[cfg(feature = "storage-tikv")]
+            StorageConfig::Tikv { connection } => {
+                if connection
+                    .namespace
+                    .as_ref()
+                    .is_none_or(|s| s.trim().is_empty())
+                {
+                    return Err(Error::Invalid(
+                        "TiKV storage requires an explicit nonempty namespace".into(),
+                    ));
+                }
+                let options = serde_json::to_string(connection).map_err(|error| {
+                    Error::Invalid(format!("invalid TiKV configuration: {error}"))
+                })?;
+                DbInstance::new("tikv", "", &options)?
+            }
+        };
+        Self::from_instance(db, config)
+    }
 
+    fn from_instance(db: DbInstance, config: KaeruConfig) -> Result<Self> {
         let store = Self {
             db: Database::new(db),
             current_initiative: Mutex::new(None),
@@ -551,39 +573,39 @@ mod tests {
 
         let insert_t1 = r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [['n1', [1000.0, true], 'concept', 'archival', 'Test', null, null, ['a', 'b'], null]]
+                [['n1', [1000, true], 'concept', 'archival', 'Test', null, null, ['a', 'b'], null]]
             :put node {id, validity => type, tier, name, body, tags, initiatives, properties}
         "#;
         store.run(insert_t1).expect("insert at t1");
 
         let retract_t2 = r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [['n1', [2000.0, false], 'concept', 'archival', 'Test', null, null, null, null]]
+                [['n1', [2000, false], 'concept', 'archival', 'Test', null, null, null, null]]
             :put node {id, validity => type, tier, name, body, tags, initiatives, properties}
         "#;
         store.run(retract_t2).expect("retract at t2");
 
         let reinsert_t2 = r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [['n1', [2000.0, true], 'concept', 'archival', 'Test', null, null, ['a', 'c'], null]]
+                [['n1', [2000, true], 'concept', 'archival', 'Test', null, null, ['a', 'c'], null]]
             :put node {id, validity => type, tier, name, body, tags, initiatives, properties}
         "#;
         store.run(reinsert_t2).expect("re-insert at t2");
 
         let q_b_at_1500 = r#"
-            ?[id] := *node{id, initiatives @ 1500.0}, is_in('b', initiatives)
+            ?[id] := *node{id, initiatives @ 1500}, is_in('b', initiatives)
         "#;
         let r1 = store.run_read(q_b_at_1500).expect("query b @ 1500");
         assert_eq!(r1.rows.len(), 1, "is_in('b', initiatives) @ 1500 → 1 row");
 
         let q_b_at_2500 = r#"
-            ?[id] := *node{id, initiatives @ 2500.0}, is_in('b', initiatives)
+            ?[id] := *node{id, initiatives @ 2500}, is_in('b', initiatives)
         "#;
         let r2 = store.run_read(q_b_at_2500).expect("query b @ 2500");
         assert_eq!(r2.rows.len(), 0, "is_in('b', initiatives) @ 2500 → 0 rows");
 
         let q_c_at_2500 = r#"
-            ?[id] := *node{id, initiatives @ 2500.0}, is_in('c', initiatives)
+            ?[id] := *node{id, initiatives @ 2500}, is_in('c', initiatives)
         "#;
         let r3 = store.run_read(q_c_at_2500).expect("query c @ 2500");
         assert_eq!(r3.rows.len(), 1, "is_in('c', initiatives) @ 2500 → 1 row");

@@ -66,11 +66,10 @@ pub use supersedes::supersedes;
 pub use synthesise::synthesise;
 pub use task::{complete_task, write_task, write_task_with_layer};
 
-/// Cozo coerces `[float, bool]` to `Validity` only when the float is integer-
-/// valued (whole seconds). Sub-second precision via fractional float fails
-/// `eval::invalid_validity`. We therefore pin to whole-second resolution at
-/// the substrate level. Tests that need distinct timestamps within the same
-/// operation sequence add an explicit sleep.
+/// Whole recorded seconds for integer Validity inputs. Keep the established
+/// numerical scale across engine changes; native ASSERT would introduce
+/// microseconds alongside the existing history. Revisions of existing keys
+/// use the per-key version helpers below to preserve mutation ordering.
 pub(crate) fn now_validity_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -523,7 +522,7 @@ pub(crate) fn reassert_node_now(store: &Store, id: &NodeId, row: ReassertRow<'_>
         r#"
         ?[id, validity, {cols}] :=
             *node{{id, initiatives, properties @ 'NOW'}}, id = $id,
-            validity = [{secs}.0, true],
+            validity = [{secs}, true],
             type = '{ty}', tier = '{tier}',
             name = $name, body = $body,
             tags = {tags_lit},
@@ -674,7 +673,7 @@ pub(crate) fn retract_node_at(store: &Store, id: &NodeId, secs: u64) -> Result<(
     let script = format!(
         r#"
         ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-            [[$id, [{secs}.0, false], 'placeholder', 'operational', '', null, null, null, null]]
+            [[$id, [{secs}, false], 'placeholder', 'operational', '', null, null, null, null]]
         :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
         "#
     );
@@ -960,7 +959,7 @@ mod tests {
         );
         let seed = r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
-                [['n1', [1000.0, true], 'episode', 'operational', 'old-name', 'old body',
+                [['n1', [1000, true], 'episode', 'operational', 'old-name', 'old body',
                   ['custom:x'], ['team-init'], $props, 'shared', 'core']]
             :put node {id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}
         "#;
@@ -1038,7 +1037,7 @@ mod tests {
         );
         let seed = r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties, visibility, layer] <-
-                [['n1', [1000.0, true], 'episode', 'operational', 'seeded-name', 'seeded body',
+                [['n1', [1000, true], 'episode', 'operational', 'seeded-name', 'seeded body',
                   ['custom:x'], ['team-init'], $props, 'shared', 'core']]
             :put node {id, validity => type, tier, name, body, tags, initiatives, properties, visibility, layer}
         "#;

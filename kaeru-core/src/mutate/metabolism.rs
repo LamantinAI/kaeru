@@ -42,7 +42,7 @@ pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
             let s = format!(
                 r#"
                 ?[src, dst, edge_type, validity, weight, properties] <-
-                    [[$src, $dst, $edge_type, [{edge_secs}.0, false], 1.0, null]]
+                    [[$src, $dst, $edge_type, [{edge_secs}, false], 1.0, null]]
                 :put edge {{src, dst, edge_type, validity => weight, properties}}
                 "#
             );
@@ -58,7 +58,7 @@ pub fn forget(store: &Store, node_id: &NodeId) -> Result<()> {
         let s_node = format!(
             r#"
             ?[id, validity, type, tier, name, body, tags, initiatives, properties] <-
-                [[$id, [{node_secs}.0, false], 'placeholder', 'operational', '', null, null, null, null]]
+                [[$id, [{node_secs}, false], 'placeholder', 'operational', '', null, null, null, null]]
             :put node {{id, validity => type, tier, name, body, tags, initiatives, properties}}
             "#
         );

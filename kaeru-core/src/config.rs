@@ -30,7 +30,9 @@ pub mod api;
 pub mod cloud;
 pub mod read_trace;
 pub mod search;
+pub mod storage;
 pub use api::API_VERSION;
+pub use storage::StorageConfig;
 
 /// Tunables read by curator-API primitives. Every field has a default
 /// suitable for typical agent sessions; overriding a field changes the
@@ -44,6 +46,9 @@ pub use api::API_VERSION;
 /// default.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KaeruConfig {
+    /// Backend selection; TiKV is available only with the storage-tikv feature.
+    #[serde(default)]
+    pub storage: StorageConfig,
     /// Filesystem path to the on-disk substrate (RocksDB-backed Cozo).
     /// Defaults are platform-specific — see [`default_vault_path`].
     /// Override via `KAERU_VAULT_PATH`.
@@ -134,6 +139,7 @@ impl KaeruConfig {
     /// Useful for tests that want a known baseline.
     pub fn defaults() -> Self {
         Self {
+            storage: StorageConfig::default(),
             vault_path: default_vault_path(),
             active_window_size: 15,
             recent_episodes_cap: 15,
@@ -175,9 +181,21 @@ impl KaeruConfig {
     /// `u64`, etc; a value that fails to parse surfaces as
     /// `Error::Config` rather than corrupting the cap.
     pub fn from_env() -> Result<Self> {
+        Self::from_env_with_defaults(Self::defaults())
+    }
+
+    /// Apply environment overrides to an explicit host profile.
+    pub fn from_env_with_defaults(defaults: Self) -> Result<Self> {
         let resolved = Config::builder()
-            .add_source(Config::try_from(&Self::defaults())?)
-            .add_source(Environment::with_prefix("KAERU").try_parsing(true))
+            .add_source(Config::try_from(&defaults)?)
+            .add_source(
+                Environment::with_prefix("KAERU")
+                    .prefix_separator("_")
+                    .separator("__")
+                    .try_parsing(true)
+                    .list_separator(",")
+                    .with_list_parse_key("storage.end_points"),
+            )
             .build()?
             .try_deserialize()?;
         Ok(resolved)

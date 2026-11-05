@@ -21,7 +21,7 @@
 #
 #   The script auto-discovers MacOSX*.sdk under that dir; override with SDKROOT.
 #
-# Ships only the client daemon `kaeru-mcp`. The shared `kaeru-cloud` server is
+# Ships only the client daemon `kaeru-mcp`. The central `kaeru-memory-service` server is
 # distributed via Docker (one per team), not as a per-user prebuilt.
 #
 # Upload everything in dist/ as release assets. install.sh expects this
@@ -295,7 +295,7 @@ build_linux_in_container() {
         "$LINUX_IMAGE" \
         bash -c 'rm -f /io/target-linux-release/release/kaeru-mcp &&
                  apt-get update -qq && apt-get install -y -qq clang libclang-dev >/dev/null &&
-                 cargo build --locked --release --target-dir /io/target-linux-release -p kaeru-mcp --bin kaeru-mcp' \
+                 cargo build --locked --release --target-dir /io/target-linux-release -p kaeru-local --bin kaeru-mcp' \
         || status=$?
 
     # Two questions, and the container's own exit code is the honest answer
@@ -328,7 +328,7 @@ verify_linux_opens_an_existing_vault
 for target in "${TARGETS[@]}"; do
     echo "==> building $target"
 
-    # darwin needs `-p kaeru-mcp`: without it cargo unifies features across
+    # darwin needs `-p kaeru-local`: without it cargo unifies features across
     # the workspace, `kaeru-rig`'s rig-core pulls in aws-lc-rs, and aws-lc's
     # assembly makes zig's Mach-O linker fail with no message at all — only
     # "exit status 1" and an empty note. Scoped to the package we ship, that
@@ -336,7 +336,7 @@ for target in "${TARGETS[@]}"; do
     #
     # Validate the packaged Darwin binary on a Mac before release; native QA
     # builds do not verify this cross-compiled artifact.
-    cargo zigbuild --locked --release --target "$target" -p kaeru-mcp --bin kaeru-mcp
+    cargo zigbuild --locked --release --target "$target" -p kaeru-local --bin kaeru-mcp
 
     package_target "$target" "target/$target/release/kaeru-mcp"
 done

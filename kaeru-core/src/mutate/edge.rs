@@ -47,7 +47,7 @@ pub fn link_with_weight(
         let script = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties] <-
-                [[$src, $dst, $edge_type, [{now_secs}.0, true], {w:.6}, null]]
+                [[$src, $dst, $edge_type, [{now_secs}, true], {w:.6}, null]]
             :put edge {{src, dst, edge_type, validity => weight, properties}}
             "#
         );
@@ -189,7 +189,7 @@ pub fn link_remote_to(
         let script = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties, dst_store] <-
-                [[$src, $dst, $edge_type, [{now_secs}.0, true], 1.0, null, $dst_store]]
+                [[$src, $dst, $edge_type, [{now_secs}, true], 1.0, null, $dst_store]]
             :put edge {{src, dst, edge_type, validity => weight, properties, dst_store}}
             "#
         );
@@ -231,7 +231,7 @@ pub fn unlink(store: &Store, src: &NodeId, dst: &NodeId, edge_type: EdgeType) ->
         let script = format!(
             r#"
             ?[src, dst, edge_type, validity, weight, properties] <-
-                [[$src, $dst, $edge_type, [{now_secs}.0, false], 1.0, null]]
+                [[$src, $dst, $edge_type, [{now_secs}, false], 1.0, null]]
             :put edge {{src, dst, edge_type, validity => weight, properties}}
             "#
         );

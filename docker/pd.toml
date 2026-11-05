@@ -1,0 +1,3 @@
+# A single replica is sufficient only for the disposable local fixture.
+[replication]
+max-replicas = 1

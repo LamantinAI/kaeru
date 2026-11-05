@@ -122,7 +122,7 @@ pub(super) fn apply(store: &Store, document: &AmgDocument, plan: &Plan) -> Resul
             db::write(
                 store,
                 &format!(
-                    "?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [[$id,[{seconds}.0,true],$kind,$tier,$name,$body,$tags,null,$properties,$visibility,$layer]] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}"
+                    "?[id,validity,type,tier,name,body,tags,initiatives,properties,visibility,layer] <- [[$id,[{seconds},true],$kind,$tier,$name,$body,$tags,null,$properties,$visibility,$layer]] :put node {{id,validity=>type,tier,name,body,tags,initiatives,properties,visibility,layer}}"
                 ),
                 params,
             )?;
@@ -150,7 +150,7 @@ pub(super) fn apply(store: &Store, document: &AmgDocument, plan: &Plan) -> Resul
             db::write(
                 store,
                 &format!(
-                    "?[src,dst,edge_type,validity,weight,properties,dst_store] <- [[$src,$dst,$kind,[{seconds}.0,true],$weight,$properties,'local']] :put edge {{src,dst,edge_type,validity=>weight,properties,dst_store}}"
+                    "?[src,dst,edge_type,validity,weight,properties,dst_store] <- [[$src,$dst,$kind,[{seconds},true],$weight,$properties,'local']] :put edge {{src,dst,edge_type,validity=>weight,properties,dst_store}}"
                 ),
                 BTreeMap::from([
                     ("src".into(), s(&edge.src)),

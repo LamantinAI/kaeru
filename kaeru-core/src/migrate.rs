@@ -671,8 +671,10 @@ fn flip_edge(db: &DbInstance, src: &str, dst: &str) -> Result<()> {
     )?;
 
     for row in &rows.rows {
-        let (secs, asserted) = parse_validity(row.first())?;
-        let validity = DataValue::List(vec![DataValue::from(secs), DataValue::Bool(asserted)]);
+        parse_validity(row.first())?;
+        // Preserve the native key exactly, including timestamps beyond f64's
+        // integer precision. Rebuilding a Validity from a float loses identity.
+        let validity = row[0].clone();
 
         let mut rm: BTreeMap<String, DataValue> = BTreeMap::new();
         rm.insert("s".to_string(), DataValue::Str(src.into()));
@@ -849,13 +851,13 @@ mod tests {
         run(
             &db,
             "?[id, validity, type, tier, name, body, tags, initiatives, properties] <- \
-             [['n1', [1700000000.0, true], 'reference', 'archival', 'legacy', null, null, null, null]] \
+             [['n1', [1700000000, true], 'reference', 'archival', 'legacy', null, null, null, null]] \
              :put node {id, validity => type, tier, name, body, tags, initiatives, properties}",
         );
         run(
             &db,
             "?[src, dst, edge_type, validity, weight, properties] <- \
-             [['n1', 'n1', 'relates_to', [1700000000.0, true], 1.0, null]] \
+             [['n1', 'n1', 'relates_to', [1700000000, true], 1.0, null]] \
              :put edge {src, dst, edge_type, validity => weight, properties}",
         );
 
@@ -1001,7 +1003,7 @@ mod tests {
             run(
                 &db,
                 "?[id, validity, type, tier, name, body, tags, initiatives, properties] <- \
-                 [['n1', [1700000000.0, true], 'reference', 'archival', 'legacy', null, null, null, null]] \
+                 [['n1', [1700000000, true], 'reference', 'archival', 'legacy', null, null, null, null]] \
                  :put node {id, validity => type, tier, name, body, tags, initiatives, properties}",
             );
             assert!(
@@ -1060,6 +1062,39 @@ mod tests {
                 ))
             })
             .collect()
+    }
+
+    #[test]
+    fn m0008_flip_preserves_native_history_keys_beyond_float_precision() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .run(
+                r#"
+            ?[src,dst,edge_type,validity,weight,properties] <- [
+                ['old','new','supersedes',[9007199254740993,true],0.25,{'version':'first'}],
+                ['old','new','supersedes',[9007199254740995,false],0.75,{'version':'withdrawn'}]
+            ]
+            :put edge {src,dst,edge_type,validity=>weight,properties}
+        "#,
+            )
+            .unwrap();
+        let before = store.run_read(
+            "?[validity,weight,properties] := *edge{src:'old',dst:'new',edge_type:'supersedes',validity,weight,properties} :order validity",
+        ).unwrap();
+        super::flip_edge(store.db_ref().raw(), "old", "new").unwrap();
+        let after = store.run_read(
+            "?[validity,weight,properties] := *edge{src:'new',dst:'old',edge_type:'supersedes',validity,weight,properties} :order validity",
+        ).unwrap();
+        assert_eq!(after.rows, before.rows);
+        assert!(
+            store
+                .run_read(
+                    "?[validity] := *edge{src:'old',dst:'new',edge_type:'supersedes',validity}",
+                )
+                .unwrap()
+                .rows
+                .is_empty()
+        );
     }
 
     /// The legacy shape: `supersedes()` wrote old → new and left an audit
