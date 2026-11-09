@@ -92,7 +92,7 @@ async fn legacy_and_canonical_routes_share_store_without_sharing_auth_bypasses()
 
 #[tokio::test]
 async fn explicit_instance_ui_cookie_does_not_authorize_legacy_sharing_or_mcp() {
-    use kaeru_server::{
+    use kaeru_runtime::{
         auth::{
             session::{WebSession, hash_password, random_secret},
             store::AccountStore,

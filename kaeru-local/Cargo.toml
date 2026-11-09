@@ -7,7 +7,7 @@ repository.workspace = true
 description = "kaeru — optional local memory host and stdio bridge"
 
 [features]
-storage-tikv = ["kaeru-server/storage-tikv"]
+storage-tikv = ["kaeru-runtime/storage-tikv"]
 
 [[bin]]
 name = "kaeru-mcp"
@@ -15,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 kaeru-core.workspace = true
-kaeru-server.workspace = true
+kaeru-runtime.workspace = true
 config.workspace = true
 clap.workspace = true
 rpassword.workspace = true

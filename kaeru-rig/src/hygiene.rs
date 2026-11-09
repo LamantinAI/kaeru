@@ -2,7 +2,7 @@
 //!
 //! The pass itself lives in `kaeru_core::hygiene` and takes only a `&Store`,
 //! so it is adapter-agnostic; this module is the *when*, ported from the
-//! daemon's scheduler (`kaeru-server/src/hygiene.rs`) with the properties that
+//! daemon's scheduler (`kaeru-runtime/src/hygiene.rs`) with the properties that
 //! matter kept intact:
 //!
 //! * **Non-blocking** — every pass runs on the blocking pool, so the tool call

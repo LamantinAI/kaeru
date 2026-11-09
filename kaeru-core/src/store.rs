@@ -21,6 +21,7 @@ use crate::models::ReadTraceEvent;
 use crate::read_trace::ReadTrace;
 
 mod database;
+mod scope;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub(crate) use database::Database;
@@ -31,21 +32,13 @@ pub struct Store {
     /// Process-local current initiative. Set via `use_initiative`,
     /// read by primitives that scope by initiative (junction lookups).
     current_initiative: Mutex<Option<String>>,
-    /// Serializes scope sessions ([`Store::scoped`]). The current initiative
-    /// is process-local mutable state shared by every handle to this store;
-    /// holding this guard across a set-initiative-then-operate sequence keeps
-    /// two concurrent scoped callers (e.g. a `kaeru-rig` `spawn_blocking`
-    /// pool) from interleaving each other's scope. Distinct from
-    /// `current_initiative` so primitives can still read the scope without
-    /// deadlocking against the guard.
-    scope_guard: Mutex<()>,
     /// Tunable caps and defaults read by curator-API primitives.
     /// Captured at `Store` construction time so concurrent tests under
     /// `cargo test` can each pin their own config without racing on
     /// shared state.
     config: KaeruConfig,
     read_trace: ReadTrace,
-    pub(crate) api_snapshots: Mutex<BTreeMap<String, crate::api::read::Snapshot>>,
+    pub(crate) api_snapshots: Mutex<crate::api::read::SnapshotCache>,
     pub(crate) api_requests: Mutex<()>,
 }
 
@@ -124,13 +117,17 @@ impl Store {
     }
 
     fn from_instance(db: DbInstance, config: KaeruConfig) -> Result<Self> {
+        if !(1..=crate::config::database::MAX_READ_WORKERS).contains(&config.read_workers) {
+            return Err(Error::Invalid(
+                "read_workers is outside the supported bound".into(),
+            ));
+        }
         let store = Self {
-            db: Database::new(db),
+            db: Database::with_read_workers(db, config.read_workers),
             current_initiative: Mutex::new(None),
-            scope_guard: Mutex::new(()),
             read_trace: ReadTrace::start(&config),
             config,
-            api_snapshots: Mutex::new(BTreeMap::new()),
+            api_snapshots: Mutex::new(Default::default()),
             api_requests: Mutex::new(()),
         };
         store.bootstrap_schema()?;
@@ -182,6 +179,9 @@ impl Store {
         // Trim on entry so a fat-fingered `"auth "` scopes to the same
         // initiative as `"auth"`. Identity stays exact otherwise (no
         // case-folding — that would risk merging distinct projects).
+        if scope::set(self, Some(name.trim().to_owned())) {
+            return;
+        }
         if let Ok(mut guard) = self.current_initiative.lock() {
             *guard = Some(name.trim().to_string());
         }
@@ -190,6 +190,9 @@ impl Store {
     /// Clears the current initiative (subsequent reads will need explicit
     /// `--initiative` arguments or fall back to cross-initiative).
     pub fn clear_initiative(&self) {
+        if scope::set(self, None) {
+            return;
+        }
         if let Ok(mut guard) = self.current_initiative.lock() {
             *guard = None;
         }
@@ -197,31 +200,17 @@ impl Store {
 
     /// Returns a copy of the current initiative name, if any.
     pub fn current_initiative(&self) -> Option<String> {
+        if let Some(value) = scope::current(self) {
+            return value;
+        }
         self.current_initiative.lock().ok().and_then(|g| g.clone())
     }
 
-    /// Runs `f` with the current initiative atomically set to `initiative`
-    /// (`None` = cross-initiative), serialized against other `scoped` callers
-    /// on this store.
-    ///
-    /// The current initiative is process-local state shared by every handle to
-    /// the store, so a bare "set scope, then run a primitive" sequence races
-    /// when two callers interleave (e.g. distinct `kaeru-rig` `KaeruMemory`
-    /// handles with different initiatives sharing one `Arc<Store>` across the
-    /// `spawn_blocking` pool). This holds an internal guard across the whole
-    /// set-then-operate sequence so each scoped session is atomic. The guard
-    /// is separate from `current_initiative`, so primitives inside `f` read the
-    /// scope normally without deadlocking. Poisoning is recovered from — a
-    /// panicked prior session does not wedge the store.
+    /// Runs synchronous work in a thread-bound, per-Store request scope.
+    /// Nested calls and unwinding restore the previous frame. Explicit `None`
+    /// hides the legacy default; scopes never propagate across await or spawn.
     pub fn scoped<T>(&self, initiative: Option<&str>, f: impl FnOnce(&Self) -> T) -> T {
-        let _guard = self
-            .scope_guard
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        match initiative {
-            Some(name) => self.use_initiative(name),
-            None => self.clear_initiative(),
-        }
+        let _scope = scope::enter(self, initiative);
         f(self)
     }
 

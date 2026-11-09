@@ -1,9 +1,9 @@
-//! Transaction-aware execution shared by the existing curator primitives.
+//! Snapshot transactions share one engine while keeping caller state independent.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, ThreadId};
 
 use cozo::{
@@ -11,55 +11,84 @@ use cozo::{
 };
 use crossbeam_channel::{Receiver, bounded};
 
+#[cfg(test)]
+use crate::config::database::DEFAULT_READ_WORKERS;
 use crate::errors::{Error, Result};
 
+mod gate;
+mod readers;
 mod worker;
+use gate::Gate;
+use readers::{Lease, Readers};
 use worker::{DatabaseJob, ScriptJob, TransactionJob, TransactionWorker};
 #[cfg(test)]
 mod tests;
 
 struct ActiveTransaction {
-    owner: ThreadId,
     handle: MultiTransaction,
     failed: bool,
     wrote: bool,
     read_only: bool,
 }
 
-/// Embedded standalone scripts retain direct execution; TiKV scripts also use
-/// the blocking worker. During an atomic command or read assembly, its thread
-/// shares one Cozo transaction and temporal
-/// NOW. Read assemblies reject writes; atomic commands commit their primitives
-/// together. Separate transactions reuse a per-database worker, retaining
-/// RocksDB's thread-local state without occupying Cozo's Rayon compute pool.
+/// Read workers and the writer reuse one DbInstance. No worker opens a second
+/// namespace owner, and cleanup is acknowledged before a slot becomes reusable.
 pub(crate) struct Database {
     raw: DbInstance,
-    writers: Mutex<()>,
-    active: Mutex<Option<ActiveTransaction>>,
+    gate: Gate,
+    active: Mutex<HashMap<ThreadId, Arc<Mutex<ActiveTransaction>>>>,
     generation: AtomicU64,
     worker: Mutex<Option<TransactionWorker>>,
+    readers: Readers,
     blocking_backend: bool,
 }
 
 impl Database {
+    #[cfg(test)]
     pub(crate) fn new(raw: DbInstance) -> Self {
+        Self::with_read_workers(raw, DEFAULT_READ_WORKERS)
+    }
+
+    pub(crate) fn with_read_workers(raw: DbInstance, count: usize) -> Self {
         #[cfg(feature = "storage-tikv")]
         let blocking_backend = matches!(&raw, DbInstance::TiKv(_));
         #[cfg(not(feature = "storage-tikv"))]
         let blocking_backend = false;
         Self {
-            blocking_backend,
             raw,
-            writers: Mutex::new(()),
-            active: Mutex::new(None),
+            blocking_backend,
+            gate: Gate::default(),
+            active: Mutex::new(HashMap::new()),
             generation: AtomicU64::new(0),
             worker: Mutex::new(None),
+            readers: Readers::new(count),
         }
     }
 
-    /// Bootstrap/migration access, before this store becomes available to callers.
+    /// Bootstrap/migration access, before this store is published to callers.
     pub(crate) fn raw(&self) -> &DbInstance {
         &self.raw
+    }
+
+    fn current(&self) -> Option<Arc<Mutex<ActiveTransaction>>> {
+        self.active
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&thread::current().id())
+            .cloned()
+    }
+
+    pub(crate) fn write_transaction_active(&self) -> bool {
+        self.current()
+            .is_some_and(|tx| !tx.lock().unwrap_or_else(|p| p.into_inner()).read_only)
+    }
+    pub(crate) fn exclusive_operation(&self) -> bool {
+        self.gate.exclusive()
+    }
+
+    /// A lease can span assembly, delivery bookkeeping and cache publication.
+    pub(crate) fn operation<T>(&self, write: bool, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.gate.run(write, f)
     }
 
     pub(crate) fn run_script(
@@ -67,37 +96,31 @@ impl Database {
         script: &str,
         params: BTreeMap<String, DataValue>,
         mutability: ScriptMutability,
-    ) -> std::result::Result<NamedRows, cozo::Error> {
+    ) -> std::result::Result<NamedRows, CozoError> {
         #[cfg(test)]
         super::test_support::record(script, &params, mutability);
-        {
-            let mut active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if let Some(tx) = active.as_mut()
-                && tx.owner == thread::current().id()
-            {
-                if tx.read_only && matches!(mutability, ScriptMutability::Mutable) {
-                    return Err(CozoError::msg("writes are forbidden during read assembly"));
-                }
-                // Only prepared core scripts participate in a transaction. Cozo's
-                // multi-transaction query API does not take a mutability flag.
-                let result = tx.handle.run_script(script, params);
-                tx.wrote |= matches!(mutability, ScriptMutability::Mutable);
-                tx.failed |= !tx.read_only && result.is_err();
-                return result;
+        if let Some(tx) = self.current() {
+            let mut tx = tx.lock().unwrap_or_else(|p| p.into_inner());
+            if tx.read_only && matches!(mutability, ScriptMutability::Mutable) {
+                return Err(CozoError::msg("writes are forbidden during read assembly"));
             }
+            // Only prepared Core statements participate in MultiTransaction.
+            let result = tx.handle.run_script(script, params);
+            tx.wrote |= matches!(mutability, ScriptMutability::Mutable);
+            tx.failed |= !tx.read_only && result.is_err();
+            return result;
         }
-        // Do not keep the active-state mutex across a foreign query: a storage
-        // reader/writer may wait for commit, which must still obtain that mutex.
-        if matches!(mutability, ScriptMutability::Mutable) {
-            let _writer = self.writers.lock().unwrap_or_else(|p| p.into_inner());
-            let result = self.run_standalone(script, params, mutability);
-            if result.is_ok() {
+        let write = matches!(mutability, ScriptMutability::Mutable);
+        self.operation(write, || {
+            let result = self
+                .run_standalone(script, params, mutability)
+                .map_err(Error::from);
+            if write && result.is_ok() {
                 self.generation.fetch_add(1, Ordering::Release);
             }
             result
-        } else {
-            self.run_standalone(script, params, mutability)
-        }
+        })
+        .map_err(|e| CozoError::msg(e.to_string()))
     }
 
     fn run_standalone(
@@ -110,13 +133,23 @@ impl Database {
             return self.raw.run_script(script, params, mutability);
         }
         let (result, incoming) = bounded(1);
-        self.submit_job(DatabaseJob::Script(ScriptJob {
+        let job = DatabaseJob::Script(ScriptJob {
             script: script.into(),
             params,
             mutability,
             result,
-        }))
-        .map_err(|error| CozoError::msg(error.to_string()))?;
+        });
+        let mut reader = if matches!(mutability, ScriptMutability::Immutable) {
+            Some(
+                self.readers
+                    .take(&self.raw)
+                    .map_err(|e| CozoError::msg(e.to_string()))?,
+            )
+        } else {
+            None
+        };
+        self.submit(job, reader.as_mut())
+            .map_err(|e| CozoError::msg(e.to_string()))?;
         incoming.recv().map_err(|_| {
             CozoError::msg("database worker stopped before delivering script result")
         })?
@@ -125,65 +158,68 @@ impl Database {
     pub(crate) fn atomic<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
         self.transaction(true, f)
     }
-
-    /// All queries in one read assembly share the database snapshot and Cozo's
-    /// single temporal NOW. End this span before delivery bookkeeping writes.
     pub(crate) fn read_snapshot<T>(&self, f: impl FnOnce() -> Result<T>) -> Result<T> {
         self.transaction(false, f)
     }
 
-    fn transaction<T>(&self, is_write: bool, f: impl FnOnce() -> Result<T>) -> Result<T> {
-        {
-            let active = self.active.lock().unwrap_or_else(|p| p.into_inner());
-            if active
-                .as_ref()
-                .is_some_and(|tx| tx.owner == thread::current().id())
-            {
-                if is_write && active.as_ref().is_some_and(|tx| tx.read_only) {
-                    return Err(Error::Invalid(
-                        "write transaction inside read assembly".into(),
-                    ));
-                }
-                drop(active);
-                let result = f();
-                if result.is_err()
-                    && let Some(tx) = self
-                        .active
-                        .lock()
-                        .unwrap_or_else(|p| p.into_inner())
-                        .as_mut()
-                {
-                    tx.failed |= !tx.read_only;
-                }
-                return result;
+    fn transaction<T>(&self, write: bool, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        if let Some(tx) = self.current() {
+            if write && tx.lock().unwrap_or_else(|p| p.into_inner()).read_only {
+                return Err(Error::Invalid(
+                    "write transaction inside read assembly".into(),
+                ));
             }
+            let result = f();
+            if result.is_err() {
+                let mut tx = tx.lock().unwrap_or_else(|p| p.into_inner());
+                tx.failed |= !tx.read_only;
+            }
+            return result;
         }
+        self.operation(write, || self.start_transaction(write, f))
+    }
 
-        let _writer = self.writers.lock().unwrap_or_else(|p| p.into_inner());
+    fn start_transaction<T>(&self, write: bool, f: impl FnOnce() -> Result<T>) -> Result<T> {
+        let mut reader = if write {
+            None
+        } else {
+            Some(self.readers.take(&self.raw)?)
+        };
         let (sender, commands) = bounded(1);
         let (results, receiver) = bounded(1);
         let (done, completed) = bounded(1);
-        self.submit_transaction(TransactionJob {
-            write: is_write,
-            commands,
-            results,
-            done,
-        })?;
-        *self.active.lock().unwrap_or_else(|p| p.into_inner()) = Some(ActiveTransaction {
-            owner: thread::current().id(),
-            handle: MultiTransaction { sender, receiver },
-            failed: false,
-            wrote: false,
-            read_only: !is_write,
-        });
-
+        self.submit(
+            DatabaseJob::Transaction(TransactionJob {
+                write,
+                commands,
+                results,
+                done,
+            }),
+            reader.as_mut(),
+        )?;
+        let owner = thread::current().id();
+        self.active
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(
+                owner,
+                Arc::new(Mutex::new(ActiveTransaction {
+                    handle: MultiTransaction { sender, receiver },
+                    failed: false,
+                    wrote: false,
+                    read_only: !write,
+                })),
+            );
         let outcome = catch_unwind(AssertUnwindSafe(f));
         let tx = self
             .active
             .lock()
             .unwrap_or_else(|p| p.into_inner())
-            .take()
-            .expect("the transaction owner retains its active handle");
+            .remove(&owner)
+            .expect("transaction owner retains its handle");
+        let tx = Arc::try_unwrap(tx)
+            .unwrap_or_else(|_| panic!("active transaction handle escaped its caller"));
+        let tx = tx.into_inner().unwrap_or_else(|p| p.into_inner());
         let result = match outcome {
             Ok(Ok(value)) if !tx.failed => tx
                 .handle
@@ -208,20 +244,19 @@ impl Database {
             Err(panic) => {
                 let _ = tx.handle.abort();
                 drop(tx);
-                self.complete_transaction(completed);
+                self.complete_transaction(completed, reader.as_mut());
                 resume_unwind(panic)
             }
         };
         drop(tx);
-        self.complete_transaction(completed);
+        self.complete_transaction(completed, reader.as_mut());
         result
     }
 
-    fn submit_transaction(&self, job: TransactionJob) -> Result<()> {
-        self.submit_job(DatabaseJob::Transaction(job))
-    }
-
-    fn submit_job(&self, job: DatabaseJob) -> Result<()> {
+    fn submit(&self, job: DatabaseJob, reader: Option<&mut Lease<'_>>) -> Result<()> {
+        if let Some(reader) = reader {
+            return reader.submit(&self.raw, job);
+        }
         let mut worker = self.worker.lock().unwrap_or_else(|p| p.into_inner());
         if worker.as_ref().is_some_and(TransactionWorker::is_finished) {
             drop(worker.take());
@@ -230,22 +265,26 @@ impl Database {
             *worker = Some(TransactionWorker::spawn(self.raw.clone())?);
         }
         if let Err(job) = worker.as_ref().unwrap().submit(job) {
-            // The worker stopped before accepting this job. It has executed
-            // neither a script nor caller code. Never retry accepted work.
+            // Retry only unaccepted work; an accepted operation is never replayed.
             drop(worker.take());
             *worker = Some(TransactionWorker::spawn(self.raw.clone())?);
-            worker.as_ref().unwrap().submit(job).map_err(|_| {
-                Error::Substrate("transaction worker stopped before accepting work".into())
-            })?;
+            worker
+                .as_ref()
+                .unwrap()
+                .submit(job)
+                .map_err(|_| Error::Substrate("writer stopped before accepting work".into()))?;
         }
         Ok(())
     }
 
-    fn complete_transaction(&self, completed: Receiver<()>) {
+    fn complete_transaction(&self, completed: Receiver<()>, reader: Option<&mut Lease<'_>>) {
         if completed.recv().is_err() {
-            // Join any worker unwind before releasing the writer guard. A
-            // confirmed commit remains successful even if later cleanup failed.
-            drop(self.worker.lock().unwrap_or_else(|p| p.into_inner()).take());
+            // Join unwind/cleanup before releasing the gate or leasing the worker.
+            if let Some(reader) = reader {
+                reader.retire();
+            } else {
+                drop(self.worker.lock().unwrap_or_else(|p| p.into_inner()).take());
+            }
         }
     }
 

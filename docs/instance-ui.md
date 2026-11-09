@@ -196,7 +196,7 @@ frontend behind nginx can use the same `/auth/`, `/admin/` and `/v1/` routes.
 
 ## Building
 
-Source: `kaeru-viz/`; generated bundle: `kaeru-server/ui-dist/`.
+Source: `kaeru-viz/`; generated bundle: `kaeru-runtime/ui-dist/`.
 
 ```sh
 cd kaeru-viz

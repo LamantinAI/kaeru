@@ -96,7 +96,7 @@ fn cancellation_during_read_is_rejection_not_a_successful_partial_map() {
 }
 
 #[test]
-fn queued_cancelled_read_skips_storage_after_scope_becomes_available() {
+fn queued_cancelled_read_skips_storage_after_database_becomes_available() {
     let store = Arc::new(fixture());
     let cancelled = Arc::new(AtomicBool::new(false));
     let worker = store.clone();
@@ -104,28 +104,30 @@ fn queued_cancelled_read_skips_storage_after_scope_becomes_available() {
     let (started_tx, started_rx) = channel();
     let mut started = Some(started_tx);
     let ready = Arc::new(std::sync::Mutex::new(started.take()));
-    let handle = store.scoped(Some("holder"), |_| {
-        let handle = thread::spawn(move || {
-            let control = ExecutionControl::new(move || {
-                if let Some(tx) = ready.lock().unwrap().take() {
-                    tx.send(()).unwrap();
-                }
-                signal.load(Ordering::SeqCst)
+    let handle = store
+        .atomic(|_| {
+            let handle = thread::spawn(move || {
+                let control = ExecutionControl::new(move || {
+                    if let Some(tx) = ready.lock().unwrap().take() {
+                        tx.send(()).unwrap();
+                    }
+                    signal.load(Ordering::SeqCst)
+                });
+                capture(|| {
+                    execute_with_control(
+                        &worker,
+                        "context",
+                        json!({"initiative":"perf","view":"map"}),
+                        &ApiOptions::local(),
+                        &control,
+                    )
+                })
             });
-            capture(|| {
-                execute_with_control(
-                    &worker,
-                    "context",
-                    json!({"initiative":"perf","view":"map"}),
-                    &ApiOptions::local(),
-                    &control,
-                )
-            })
-        });
-        started_rx.recv().unwrap();
-        cancelled.store(true, Ordering::SeqCst);
-        handle
-    });
+            started_rx.recv().unwrap();
+            cancelled.store(true, Ordering::SeqCst);
+            Ok(handle)
+        })
+        .unwrap();
     let (response, queries) = handle.join().unwrap();
     assert!(
         response

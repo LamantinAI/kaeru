@@ -1,0 +1,25 @@
+FROM rust:1.95-bookworm AS builder
+
+WORKDIR /build
+COPY . .
+ARG CARGO_BUILD_JOBS=2
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/build/target \
+    --mount=type=secret,id=cargo_config \
+    if [ -f /run/secrets/cargo_config ]; then \
+      cargo --config /run/secrets/cargo_config build --offline --locked --release -j "$CARGO_BUILD_JOBS" -p kaeru-tokenizer-service; \
+    else \
+      cargo build --locked --release -j "$CARGO_BUILD_JOBS" -p kaeru-tokenizer-service; \
+    fi && \
+    cp target/release/kaeru-tokenizer-service /usr/local/bin/kaeru-tokenizer-service
+
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    useradd --create-home --uid 10001 tokenizer
+COPY --from=builder /usr/local/bin/kaeru-tokenizer-service /usr/local/bin/kaeru-tokenizer-service
+USER tokenizer
+ENV TOKENIZER_LISTEN=0.0.0.0:9880
+EXPOSE 9880
+ENTRYPOINT ["kaeru-tokenizer-service"]

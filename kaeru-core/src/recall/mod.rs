@@ -18,6 +18,7 @@ pub mod fts;
 pub mod initiatives;
 pub mod layered;
 pub mod lint;
+pub mod lookup;
 pub mod neighbours;
 pub mod open_work;
 pub mod overview;
@@ -156,4 +157,6 @@ pub(crate) fn truncate_excerpt(s: &str, max_chars: usize) -> String {
     }
 }
 
-pub use cloud_import::{existing_node_ids, restore_cloud_edges, restore_cloud_edges_cancellable};
+pub use lookup::existing_node_ids;
+// Retain the former recall facade while the implementation belongs to mutation.
+pub use crate::mutate::cloud_import::{restore_cloud_edges, restore_cloud_edges_cancellable};

@@ -9,7 +9,7 @@ named operations over that graph.
 
 The central `kaeru-memory-service` owns one Mnestic runtime over transactional
 TiKV. The optional `kaeru-local` host owns embedded RocksDB and retains the
-installed `kaeru-mcp` command. Both compose the same `kaeru-server` MCP/HTTP/UI
+installed `kaeru-mcp` command. Both compose the same `kaeru-runtime` MCP/HTTP/UI
 library; embedded Rig applications own their Store directly.
 
 `kaeru-cloud/` contains memory-service and the future Control boundary. It is
@@ -106,7 +106,10 @@ correct.
 
 Read continuations use bounded snapshots tied to the caller, arguments, policy
 and store generation. Snapshots expire after 15 minutes, and writes invalidate
-them. They are limited to 8 MiB each and 16 cached reads per store. Ranges and
+them. They are limited to 8 MiB each and 16 cached reads per store (128 MiB
+aggregate reservation). Active snapshots are never evicted to admit another
+read; excess admission returns `SNAPSHOT_CAPACITY`. Completion frees a slot,
+and the fixed expiry is not extended by continuation requests. Ranges and
 coverage distinguish an excerpt from complete content. Following source pages
 reconstructs the supplied UTF-8 text exactly; authorized export is available for
 sources too large for a cached snapshot.

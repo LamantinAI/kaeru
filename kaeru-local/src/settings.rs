@@ -4,8 +4,8 @@ use config::{Config, ConfigError, Environment, File, FileFormat};
 use std::path::PathBuf;
 
 #[cfg(test)]
-pub use kaeru_server::settings::MCP_PROTOCOL_VERSION;
-pub use kaeru_server::settings::{
+pub use kaeru_runtime::settings::MCP_PROTOCOL_VERSION;
+pub use kaeru_runtime::settings::{
     KaeruMcpConfig, MCP_PROTOCOL_HEADER, MCP_SESSION_HEADER, STDIO_SESSION_CLOSE_TIMEOUT,
 };
 pub mod web;

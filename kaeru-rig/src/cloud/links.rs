@@ -49,11 +49,11 @@ pub(super) async fn do_link_cloud(mem: &KaeruMemory, a: LinkCloudArgs) -> Value 
             Ok(e) => e,
             Err(e) => return json!({ "error": e.to_string() }),
         };
-        let src = match resolve(s, &name) {
-            Ok(id) => id,
-            Err(error) => return json!({"error":error}),
-        };
-        match link_remote_to(s, &src, &cloud_id, edge, cloud_name.as_deref()) {
+        let linked = s.atomic(|s| {
+            let src = resolve(s, &name).map_err(Error::Invalid)?;
+            link_remote_to(s, &src, &cloud_id, edge, cloud_name.as_deref())
+        });
+        match linked {
             Ok(()) => {
                 let tag = cloud_name
                     .as_deref()

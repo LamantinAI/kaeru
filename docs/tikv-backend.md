@@ -19,7 +19,7 @@ cargo build -p kaeru-local --features storage-tikv --locked
 For an explicitly remote local-host image, pass `--build-arg CARGO_FEATURES=storage-tikv`
 to `docker/Dockerfile.local`. The memory-service image includes TiKV by default.
 
-The same feature is available in `kaeru-core`, `kaeru-server`, `kaeru-memory-service` and `kaeru-rig`.
+The same feature is available in `kaeru-core`, `kaeru-runtime`, `kaeru-memory-service` and `kaeru-rig`.
 The engine remains in-process; only its transactional KV storage is remote.
 Select the backend explicitly before starting the binary:
 

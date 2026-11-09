@@ -18,6 +18,7 @@ For the product overview, see [README.md](../README.md).
 8. [Read performance](read-performance.md) explains batching, cancellation and disposable benchmarks.
 9. [MCP diagnostics](mcp-diagnostics.md) explains opt-in session and HTTP handler logs.
 10. [TiKV backend](tikv-backend.md) covers optional storage configuration, ownership and the isolated PD/TiKV Compose stand.
+11. [Tokenizer service](../kaeru-cloud/tokenizer-service/README.md) covers standalone PostgreSQL credentials, inheritance, HTTP/2+CBOR, cache and isolated integration tests.
 
 Kaeru stores typed records and relationships in an embedded Mnestic graph,
 using its Cozo-compatible model. Each

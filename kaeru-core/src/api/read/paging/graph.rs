@@ -1,30 +1,31 @@
 //! Page borrowed compact items and retain one shared immutable snapshot.
 use std::sync::Arc;
-use std::time::Instant;
 
 use serde_json::{json, to_string, to_vec};
 
-use super::{Snapshot, arguments_hash, policy_hash};
+use super::{PageCursor, cache};
 use crate::api::control::checkpoint;
 use crate::api::read::graph::revalidate;
 use crate::api::{ApiOptions, ApiResult, Args, issue_from_error};
-use crate::config::api::{
-    API_DEFAULT_CONTEXT_BUDGET_CHARS, API_MAX_CACHED_SNAPSHOTS, API_MAX_SNAPSHOT_BYTES,
-    API_SNAPSHOT_TTL,
-};
+use crate::config::api::{API_DEFAULT_CONTEXT_BUDGET_CHARS, API_MAX_SNAPSHOT_BYTES};
 use crate::models::{
     Continuation, GraphData, GraphSnapshot, Issue, Omission, Response, ResponseData,
 };
 use crate::{Error, Store};
 
-pub(super) fn page(
-    store: &Store,
+pub(super) fn page<'a>(
+    store: &'a Store,
     full: Arc<Response>,
     args: &Args,
     options: &ApiOptions,
-    offset: usize,
-    token: Option<String>,
+    cursor: PageCursor<'a>,
 ) -> ApiResult<Response> {
+    let PageCursor {
+        offset,
+        token,
+        generation,
+        lease,
+    } = cursor;
     let ResponseData::Graph(source) = &full.data else {
         unreachable!()
     };
@@ -59,7 +60,6 @@ pub(super) fn page(
     if offset == 0 && to_string(full.as_ref()).unwrap().chars().count() <= budget {
         return Ok(Arc::unwrap_or_clone(full));
     }
-    let token = token.unwrap_or_else(|| graph.snapshot_id.clone());
     let mut next_arguments = args.0.clone();
     next_arguments["cursor"] = json!(format!("{token}:{total}"));
     let mut page = Response::read(
@@ -152,25 +152,6 @@ pub(super) fn page(
         let continuation = page.continuation.as_mut().unwrap();
         continuation.cursor = format!("{token}:{end}");
         continuation.next_arguments["cursor"] = json!(continuation.cursor);
-        let mut snapshots = store
-            .api_snapshots
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        snapshots.retain(|_, s| s.expires > Instant::now());
-        if snapshots.len() >= API_MAX_CACHED_SNAPSHOTS {
-            snapshots.clear();
-        }
-        snapshots.insert(
-            token,
-            Snapshot {
-                caller: options.caller.clone(),
-                arguments_hash: arguments_hash("context", args),
-                policy_hash: policy_hash(options),
-                generation: store.generation(),
-                expires: Instant::now() + API_SNAPSHOT_TTL,
-                response: full,
-            },
-        );
     }
     if to_string(&page).unwrap().chars().count() > budget {
         return Err(Issue::new(
@@ -179,5 +160,22 @@ pub(super) fn page(
         ));
     }
     checkpoint()?;
+    if end < total {
+        let lease = match lease {
+            Some(lease) => lease,
+            None => cache::reserve(
+                store,
+                token,
+                full.clone(),
+                args,
+                options,
+                generation,
+                to_vec(full.as_ref()).unwrap().len(),
+            )?,
+        };
+        lease.publish(full, end, generation)?;
+    } else if let Some(lease) = lease {
+        lease.finish()?;
+    }
     Ok(page)
 }

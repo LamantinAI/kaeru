@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import { build } from 'vite'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const target = resolve(root, '../kaeru-server/ui-dist')
+const target = resolve(root, '../kaeru-runtime/ui-dist')
 const temporary = await mkdtemp(join(tmpdir(), 'kaeru-ui-build-'))
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex')
 async function files(directory) {

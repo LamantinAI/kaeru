@@ -35,7 +35,7 @@ npx wrangler secret put GITHUB_TOKEN         # optional: a read-only token avoid
 Then point `updates.lamantin-ai.com` at the Worker (Workers → Settings →
 Domains & Routes). If the domain's DNS is not on Cloudflare, use the
 `*.workers.dev` URL instead and change `UPDATES_URL` in
-`kaeru-server/src/update.rs` to match.
+`kaeru-runtime/src/update.rs` to match.
 
 ## Reading the numbers
 

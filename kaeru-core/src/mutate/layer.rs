@@ -47,6 +47,7 @@ pub fn set_layer(store: &Store, node_id: &NodeId, layer: Layer) -> Result<()> {
 /// `layer` call in the audit trail — "what did the sweep touch on the 12th"
 /// is a query, not a guess.
 pub fn set_layer_as(store: &Store, node_id: &NodeId, layer: Layer, actor: &str) -> Result<()> {
+    store.atomic(|store| {
     // `core` promises to load in every session (#81), and injection runs through
     // `awake <initiative>`. Promoting a node with no initiative to `core` would
     // orphan it exactly as an initiative-less capture does, so it is refused —
@@ -67,6 +68,7 @@ pub fn set_layer_as(store: &Store, node_id: &NodeId, layer: Layer, actor: &str) 
     write_audit(store.db_ref(), "set_layer", actor, &[node_id.clone()])?;
 
     Ok(())
+    })
 }
 
 /// Returns the current layer of a node.

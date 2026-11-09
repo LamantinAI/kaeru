@@ -8,7 +8,7 @@ repository.workspace = true
 
 [features]
 default = ["storage-tikv"]
-storage-tikv = ["kaeru-server/storage-tikv"]
+storage-tikv = ["kaeru-runtime/storage-tikv"]
 
 [[bin]]
 name = "kaeru-memory-service"
@@ -16,7 +16,7 @@ path = "src/main.rs"
 required-features = ["storage-tikv"]
 
 [dependencies]
-kaeru-server.workspace = true
+kaeru-runtime.workspace = true
 clap.workspace = true
 tokio-util.workspace = true
 kaeru-core.workspace = true
@@ -33,7 +33,12 @@ utoipa-axum.workspace = true
 utoipa-swagger-ui.workspace = true
 
 [dev-dependencies]
+contracts.workspace = true
+ciborium.workspace = true
+uuid.workspace = true
+sha2.workspace = true
 tempfile.workspace = true
+reqwest = { workspace = true, features = ["http2"] }
 # Router-level tests: `tower::util::ServiceExt::oneshot` drives the axum
 # app without binding a socket; `http-body-util` collects response bodies.
 tower = { version = "0.5", features = ["util"] }

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["kaeru-core", "kaeru-server", "kaeru-local", "kaeru-cloud/memory-service", "kaeru-rig"]
+members = ["kaeru-core", "kaeru-runtime", "kaeru-local", "kaeru-cloud/memory-service", "kaeru-rig", "kaeru-cloud/contracts", "kaeru-cloud/tokenizer-service"]
 
 [workspace.package]
 version = "0.8.1"
@@ -27,6 +27,10 @@ flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
 jsonschema = { version = "0.33", default-features = false }
 sha2 = "0.10"
 tower = { version = "0.5", features = ["util"] }
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono", "migrate", "macros"] }
+redis = { version = "0.32", default-features = false, features = ["tokio-comp", "connection-manager"] }
+getrandom = "0.3"
+subtle = "2.6"
 
 # CLI parsing
 clap = { version = "4", features = ["derive", "env"] }
@@ -90,7 +94,8 @@ proptest = "1"
 
 # Internal
 kaeru-core = { path = "kaeru-core" }
-kaeru-server = { path = "kaeru-server" }
+kaeru-runtime = { path = "kaeru-runtime" }
+contracts = { path = "kaeru-cloud/contracts" }
 
 [profile.release]
 lto = "thin"

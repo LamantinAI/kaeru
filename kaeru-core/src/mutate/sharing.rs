@@ -29,18 +29,20 @@ use crate::store::Store;
 /// it falls back to the latest historical version, so the verb also
 /// recovers a node left invisible by an earlier buggy rewrite.
 pub fn set_visibility(store: &Store, node_id: &NodeId, visibility: Visibility) -> Result<()> {
-    // Shares the generated rewrite with `set_layer`: the column list comes
-    // from `NODE_VALUE_COLUMNS`, so nothing here needs updating when the
-    // schema grows a column — and nothing silently resets to a default.
-    rewrite_node_column_in_place(store, node_id, "visibility", visibility.as_str())?;
+    store.atomic(|store| {
+        // Shares the generated rewrite with `set_layer`: the column list comes
+        // from `NODE_VALUE_COLUMNS`, so nothing here needs updating when the
+        // schema grows a column — and nothing silently resets to a default.
+        rewrite_node_column_in_place(store, node_id, "visibility", visibility.as_str())?;
 
-    write_audit(
-        store.db_ref(),
-        "set_visibility",
-        "system",
-        &[node_id.clone()],
-    )?;
-    Ok(())
+        write_audit(
+            store.db_ref(),
+            "set_visibility",
+            "system",
+            &[node_id.clone()],
+        )?;
+        Ok(())
+    })
 }
 
 /// Returns a node's current `visibility`, defaulting to `Local` if unset.
@@ -64,24 +66,26 @@ pub fn get_visibility(store: &Store, node_id: &NodeId) -> Result<Visibility> {
 /// `initiative` row. This is the one-time classification; it persists and
 /// is not re-asked per capture.
 pub fn set_share_policy(store: &Store, initiative: &str, policy: SharePolicy) -> Result<()> {
-    let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
-    p.insert("name".to_string(), DataValue::Str(initiative.into()));
-    p.insert("policy".to_string(), DataValue::Str(policy.as_str().into()));
-    let script = r#"
+    store.atomic(|store| {
+        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+        p.insert("name".to_string(), DataValue::Str(initiative.into()));
+        p.insert("policy".to_string(), DataValue::Str(policy.as_str().into()));
+        let script = r#"
         ?[name, share_policy] <- [[$name, $policy]]
         :put initiative {name => share_policy}
     "#;
-    store
-        .db_ref()
-        .run_script(script, p, ScriptMutability::Mutable)?;
+        store
+            .db_ref()
+            .run_script(script, p, ScriptMutability::Mutable)?;
 
-    write_audit(
-        store.db_ref(),
-        "set_share_policy",
-        "system",
-        &[initiative.to_string()],
-    )?;
-    Ok(())
+        write_audit(
+            store.db_ref(),
+            "set_share_policy",
+            "system",
+            &[initiative.to_string()],
+        )?;
+        Ok(())
+    })
 }
 
 /// Returns an initiative's `share_policy`, defaulting to `Private` when the
@@ -226,6 +230,35 @@ mod tests {
         assert_eq!(get_visibility(&store, &id).unwrap(), Visibility::Local);
     }
 
+    #[test]
+    fn concurrent_visibility_and_layer_updates_preserve_both_attributes() {
+        use std::sync::{Arc, Barrier};
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let id = write_episode(
+            &store,
+            EpisodeKind::Observation,
+            Significance::Low,
+            "parallel",
+            "body",
+        )
+        .unwrap();
+        for _ in 0..32 {
+            set_layer(&store, &id, Layer::Warm).unwrap();
+            set_visibility(&store, &id, Visibility::Local).unwrap();
+            let start = Barrier::new(2);
+            std::thread::scope(|threads| {
+                threads.spawn(|| {
+                    start.wait();
+                    set_layer(&store, &id, Layer::Hot).unwrap();
+                });
+                start.wait();
+                set_visibility(&store, &id, Visibility::Shared).unwrap();
+            });
+            assert_eq!(get_layer(&store, &id).unwrap(), Layer::Hot);
+            assert_eq!(get_visibility(&store, &id).unwrap(), Visibility::Shared);
+        }
+    }
+
     /// Unknown initiative defaults to `Private`; `set_share_policy`
     /// persists and `permits_share` reflects the policy.
     #[test]
@@ -261,42 +294,44 @@ mod tests {
 /// fine with one cloud, and not a permission model with several of differing
 /// trust.
 pub fn set_initiative_clouds(store: &Store, initiative: &str, clouds: &[String]) -> Result<()> {
-    let mut clear: BTreeMap<String, DataValue> = BTreeMap::new();
-    clear.insert("init".to_string(), DataValue::Str(initiative.into()));
-    store.db_ref().run_script(
-        r#"
+    store.atomic(|store| {
+        let mut clear: BTreeMap<String, DataValue> = BTreeMap::new();
+        clear.insert("init".to_string(), DataValue::Str(initiative.into()));
+        store.db_ref().run_script(
+            r#"
         ?[initiative, cloud] := *initiative_cloud{initiative, cloud}, initiative = $init
         :rm initiative_cloud {initiative, cloud}
         "#,
-        clear,
-        ScriptMutability::Mutable,
-    )?;
+            clear,
+            ScriptMutability::Mutable,
+        )?;
 
-    for cloud in clouds {
-        let name = cloud.trim();
-        if name.is_empty() {
-            continue;
-        }
-        let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
-        p.insert("init".to_string(), DataValue::Str(initiative.into()));
-        p.insert("cloud".to_string(), DataValue::Str(name.into()));
-        store.db_ref().run_script(
-            r#"
+        for cloud in clouds {
+            let name = cloud.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let mut p: BTreeMap<String, DataValue> = BTreeMap::new();
+            p.insert("init".to_string(), DataValue::Str(initiative.into()));
+            p.insert("cloud".to_string(), DataValue::Str(name.into()));
+            store.db_ref().run_script(
+                r#"
             ?[initiative, cloud] <- [[$init, $cloud]]
             :put initiative_cloud {initiative, cloud}
             "#,
-            p,
-            ScriptMutability::Mutable,
-        )?;
-    }
+                p,
+                ScriptMutability::Mutable,
+            )?;
+        }
 
-    write_audit(
-        store.db_ref(),
-        "set_initiative_clouds",
-        "system",
-        &[initiative.to_string()],
-    )?;
-    Ok(())
+        write_audit(
+            store.db_ref(),
+            "set_initiative_clouds",
+            "system",
+            &[initiative.to_string()],
+        )?;
+        Ok(())
+    })
 }
 
 /// The clouds an initiative is restricted to, sorted. Empty means unrestricted.

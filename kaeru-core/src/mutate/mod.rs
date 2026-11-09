@@ -19,6 +19,8 @@ use crate::store::Store;
 pub mod board;
 pub mod chain;
 pub mod cite;
+pub mod cloud_import;
+pub use cloud_import::{restore_cloud_edges, restore_cloud_edges_cancellable};
 pub mod consolidate;
 pub mod edge;
 pub mod episode;

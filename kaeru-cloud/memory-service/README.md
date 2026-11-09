@@ -2,7 +2,7 @@
 
 `kaeru-memory-service` is the central MCP/HTTP memory server. It replaces the
 previous cloud server and supports direct agent access without a local install.
-It composes the shared `kaeru-server` runtime around one Store, defaulting to
+It composes the shared `kaeru-runtime` runtime around one Store, defaulting to
 transactional TiKV. `kaeru-local` remains an optional private embedded host.
 
 ```sh
@@ -87,3 +87,92 @@ services. It also avoids requiring a central service token for local-only use.
 Both modes live in the same Compose file. TLS/account configuration needs explicit mounts or an
 override for a secured deployment. Existing local/artifact named volumes are
 retained; no RocksDB vault is automatically migrated to TiKV.
+
+## Known-card latency probe
+
+The `known_read` Cargo example measures canonical `POST /v1/read` with an already
+known ID, not search or the legacy raw-node endpoint. Use a disposable,
+loopback-reachable PD/TiKV lab whose advertised addresses are reachable by both
+the seeder and the service. The seeder creates a random fresh namespace; it does
+not open an existing vault or accept a destination namespace.
+
+```sh
+cargo run --release --locked -p kaeru-memory-service --example known_read -- \
+  seed --pd-endpoints 127.0.0.1:12379 --records 1000 --output fixture.json
+```
+
+After seeding exits and releases its single-owner Store, start the real
+memory-service against `fixture.json`'s namespace and the same PD endpoint.
+Enable the canonical API with `API_ALLOW=known-read-0`, `API_INCLUDE_LOCAL=true`,
+and an explicit synthetic instance bearer; disable hygiene/UI for the probe.
+Use the `KAERU_MEMORY_*`/`KAERU_STORAGE__*` variable names documented above.
+Never open the namespace with a second engine while the service owns it.
+
+Set `CARD_READ_BASE_URL` and `CARD_READ_TOKEN` in the client environment:
+
+```sh
+cargo run --release --locked -p kaeru-memory-service --example known_read -- \
+  run --fixture fixture.json --samples 200 --rounds 2 --concurrency 16 \
+  --paging-samples 50 --output reads.csv
+```
+
+The synthetic fixture has 1/4/16-KiB ASCII bodies, two recorded versions per
+regular node, scoped edges, a conflict and saved reasoning on each target.
+Timing includes the actual HTTP response, JSON decoding and full-body/context
+validation. Connections are reused. The current canonical service path is
+HTTP/1.1 JSON with instance authentication, not integrated product-tokenizer
+authorization. Do not add independent authorization percentiles to these values.
+
+The runner exercises C1, C4 and the selected concurrency in reversed round order.
+Set `KAERU_READ_WORKERS` on the service to bound concurrent read transactions
+(default 4; 1–64). Ordinary full reads use a 64,000-character budget; the separate default-budget
+case follows continuations without retry and records real paging errors.
+Control cases verify 401 for a wrong bearer and 404 for an inaccessible scope.
+CSV files contain timings/status/bytes, never tokens, card bodies or cursor
+values. Keep first-request observations, main read results and paging diagnostics
+separate. These closed-loop local measurements do not establish a production SLO.
+
+
+## Authorized-read integration probe
+
+The `authorized_read` example adds a real Memory → Tokenizer HTTP/2 + CBOR hop
+before canonical reads. It is a loopback-only integration harness, separate from
+the deployed instance-auth runtime. Control's authoritative UUID-to-initiative
+registry is not implemented by this example: a frozen, bijective synthetic map
+binds five known-card scopes to disposable platform resource IDs.
+
+Start an empty isolated tokenizer PostgreSQL with optional Valkey, using its
+normal trusted Control and Memory service keys. Set `TOKENIZER_BASE_URL`,
+`TOKENIZER_CONTROL_KEY` and `TOKENIZER_MEMORY_KEY` in the environment. Prepare
+synthetic personal-space rights and one-time credentials in a private directory:
+
+```sh
+cargo run --release --locked -p kaeru-memory-service --example authorized_read -- \
+  prepare --output "$LAB_DIR/authorization.json"
+```
+
+Stop the ordinary memory-service before opening the fixture namespace. Configure
+the same loopback PD, `known-read-*` namespace and reader limit as for the
+instance-auth probe, then run:
+
+```sh
+cargo run --release --locked -p kaeru-memory-service --example authorized_read -- \
+  serve --prepared "$LAB_DIR/authorization.json" --listen 127.0.0.1:19878 \
+  --include-local
+```
+
+The fixture deliberately uses local nodes; `--include-local` is the operator's
+explicit visibility ceiling for this disposable lab. Production visibility is
+not granted by a tokenizer decision alone. Point `known_read run` at this
+listener with the issued memory credential. The external measured operation
+includes authorization, the TiKV read, canonical egress, every continuation and
+body/metadata validation. Compare cache-enabled and PostgreSQL-only tokenizer
+instances against the same authority database; keep resource limits identical.
+
+Each page reauthorizes the exact initiative. Caller identity binds principal,
+credential fingerprint, authority revisions and map revision; raw tokens never
+enter cursors or logs. Wrong or revoked credentials, denied scopes, mismatched
+CBOR responses and tokenizer outages fail closed. The adapter shares canonical
+cancellation, visibility checks and redaction, exposes only `/v1/read`, and has no
+instance-bearer fallback. Remove disposable volumes and private credentials when
+finished. This probe does not complete production Control/Memory wiring.

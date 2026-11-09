@@ -7,10 +7,10 @@ mod stdio_bridge;
 use std::{error::Error, net::SocketAddr, str::FromStr, sync::Arc};
 
 use kaeru_core::{KaeruConfig, Store};
-use kaeru_server::shutdown_signal as shutdown;
+use kaeru_runtime::shutdown_signal as shutdown;
 #[cfg(test)]
-use kaeru_server::transport as session;
-use kaeru_server::{ApiConfig, RuntimeOptions, ServerRuntime, auth};
+use kaeru_runtime::transport as session;
+use kaeru_runtime::{ApiConfig, RuntimeOptions, ServerRuntime, auth};
 use tracing::Level;
 use tracing_subscriber::{EnvFilter, fmt, prelude::*};
 

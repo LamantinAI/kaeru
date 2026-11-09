@@ -1,5 +1,5 @@
 //! Local installation account discovery; never used by memory-service.
-pub use kaeru_server::settings::web::{WebConfig, access_mode};
+pub use kaeru_runtime::settings::web::{WebConfig, access_mode};
 use std::path::PathBuf;
 
 fn default_config_path(

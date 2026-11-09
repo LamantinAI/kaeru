@@ -332,7 +332,7 @@ pub(super) fn retention(store: &Store, args: &Args, options: &ApiOptions) -> Api
         }
         "run_hygiene" => Err(Issue::new(
             "INVALID_ARGUMENT",
-            "run_hygiene owns its scope guard and must enter through the API dispatcher",
+            "run_hygiene owns its batch transactions and must enter through the API dispatcher",
         )),
         _ => unreachable!(),
     }

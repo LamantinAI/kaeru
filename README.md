@@ -63,10 +63,12 @@ this contract. See [the API reference](docs/curator-api.md).
 kaeru/
 ├── Cargo.toml                  ← workspace root
 ├── kaeru-core/                 ← library: substrate, shared API, memory primitives and models
-├── kaeru-server/               ← shared MCP, HTTP and instance UI runtime
+├── kaeru-runtime/               ← shared MCP, HTTP and instance UI runtime
 ├── kaeru-local/                ← optional local host; installed binary `kaeru-mcp`
 ├── kaeru-cloud/                ← platform services (directory, not a crate)
+│   ├── contracts/              ← shared platform exchange models
 │   ├── memory-service/         ← binary `kaeru-memory-service`, TiKV by default
+│   ├── tokenizer-service/      ← PostgreSQL credentials and effective access
 │   └── control-service/        ← ownership boundary; implementation follows separately
 ├── kaeru-rig/                  ← library: `rig` Tools that give a rig agent kaeru memory
 ├── kaeru-viz/                  ← visualizer source and embedded frontend build

@@ -13,6 +13,7 @@ pub const API_DEFAULT_READ_BUDGET_CHARS: usize = 12_000;
 pub const API_DEFAULT_CONTEXT_BUDGET_CHARS: usize = 8_000;
 pub const API_MAX_SNAPSHOT_BYTES: usize = 8 * 1024 * 1024;
 pub const API_MAX_CACHED_SNAPSHOTS: usize = 16;
+pub const API_MAX_CACHED_SNAPSHOT_BYTES: usize = API_MAX_CACHED_SNAPSHOTS * API_MAX_SNAPSHOT_BYTES;
 pub const API_SNAPSHOT_TTL: Duration = Duration::from_secs(15 * 60);
 pub const API_REPLAY_TTL_SECONDS: u64 = 24 * 60 * 60;
 

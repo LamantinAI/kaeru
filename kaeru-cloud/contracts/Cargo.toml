@@ -1,0 +1,16 @@
+[package]
+name = "contracts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Shared platform contracts without graph or transport dependencies"
+
+[dependencies]
+serde.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+ciborium.workspace = true

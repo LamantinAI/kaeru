@@ -18,6 +18,33 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  test-tokenizer:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: tokenizer
+          POSTGRES_PASSWORD: synthetic-ci-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d tokenizer"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      valkey:
+        image: valkey/valkey:8.1-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "valkey-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TOKENIZER_TEST_DATABASE_URL: postgres://postgres:synthetic-ci-password@127.0.0.1:5432/tokenizer
+      TOKENIZER_TEST_VALKEY_URL: redis://127.0.0.1:6379
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal
+      - name: Test isolated authorization and HTTP/2 contracts
+        run: cargo test --locked -p contracts -p kaeru-tokenizer-service --all-targets -- --include-ignored
+
   test-ui:
     runs-on: ubuntu-latest
     steps:

@@ -15,7 +15,7 @@ kaeru-mcp
 ```
 
 Source builds need Rust 1.95+, a C/C++ toolchain and libclang. Cargo embeds the
-checked-in `kaeru-server/ui-dist/`; frontend changes need an explicit rebuild from
+checked-in `kaeru-runtime/ui-dist/`; frontend changes need an explicit rebuild from
 `kaeru-viz/`. See [Quick Start](../QUICK_START.md) for prebuilt releases.
 
 The local [installer](../contrib/install/install.sh) generates a systemd user

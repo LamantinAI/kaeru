@@ -42,6 +42,7 @@ pub use graph::{
 };
 pub use guard::GuardHit;
 pub use models::{CloudEdge, EdgeImportResult};
+pub use mutate::cloud_import::{restore_cloud_edges, restore_cloud_edges_cancellable};
 pub use mutate::{
     AttachStats, ChainOutcome, DeleteStats, MergeStats, RechainStats, RenameStats, add_status,
     attach_node, cite, cite_with_layer, complete_task, consolidate_in, consolidate_out,
@@ -57,9 +58,7 @@ pub use mutate::{
     upsert_node, write_episode, write_episode_with_layer, write_task, write_task_with_layer,
 };
 pub use naming::derive_auto_name;
-pub use recall::cloud_import::{
-    existing_node_ids, restore_cloud_edges, restore_cloud_edges_cancellable,
-};
+pub use recall::lookup::existing_node_ids;
 pub use recall::unversioned::UnversionedChange;
 pub use recall::verdicts::Verdict;
 pub use recall::{

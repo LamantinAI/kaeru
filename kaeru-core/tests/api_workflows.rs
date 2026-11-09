@@ -728,6 +728,14 @@ fn reminder_delivery_stays_within_budget_and_returns_one_revision_per_identity()
         "note",
         json!({"initiative":"work","body":"Check the pending decision.","reminder":{"after":"2000-01-01","window_days":2}}),
     ));
+    for n in 0..3 {
+        run(
+            &store,
+            "note",
+            json!({"initiative":"work","body":format!("Additional reminder {n}."),"reminder":{"after":"2000-01-01","window_days":2}}),
+        );
+    }
+    let mut continued_after_stamp = false;
     let mut args = json!({"initiative":"work","budget_chars":3000});
     loop {
         let response = run(&store, "context", args);
@@ -743,12 +751,26 @@ fn reminder_delivery_stays_within_budget_and_returns_one_revision_per_identity()
                 assert!(copies.iter().all(|n| n.revision == first.revision));
             }
         }
+        if response.continuation.is_some()
+            && let ResponseData::Context(data) = &response.data
+        {
+            continued_after_stamp |= data
+                .sections
+                .iter()
+                .filter(|s| s.name == "reminders")
+                .flat_map(|s| &s.records)
+                .any(|n| n.tags.iter().any(|tag| tag.starts_with("seen:")));
+        }
         if let Some(next) = response.continuation {
             args = next.next_arguments;
         } else {
             break;
         }
     }
+    assert!(
+        continued_after_stamp,
+        "must continue after a generation-changing reminder delivery"
+    );
     assert!(
         kaeru_core::read_node_full(&store, &reminder)
             .unwrap()

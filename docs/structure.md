@@ -1,11 +1,17 @@
 # Code structure
 
-The four Rust crates share dependencies through the workspace manifest. Core
+The Rust crates share dependencies through the workspace manifest. Core
 owns local memory semantics. MCP and Rig expose those semantics to clients;
 memory-service hosts the shared runtime plus the compatibility REST adapter. The browser visualizer
-is compiled separately, then embedded through kaeru-server into both executables;
+is compiled separately, then embedded through kaeru-runtime into both executables;
 Cargo-only installation uses the checked-in generated bundle. The portable skill
 remains a separate distribution.
+
+Platform authorization is a separate boundary: `kaeru-cloud/contracts` owns neutral
+exchange models and stable action IDs; `kaeru-cloud/tokenizer-service` owns its
+PostgreSQL schema, pure role evaluator, optional Valkey cache and HTTP/2+CBOR
+adapter. It does not link Core or open a knowledge store. See its README for
+one-time credential and consistency contracts.
 
 ## Follow one call
 
@@ -36,15 +42,15 @@ and Rig tool modules are removed; they are not a compatibility API.
 
 | Component | Responsibility |
 | --- | --- |
-| `kaeru-server/src/server.rs` | MCP registration, discovery and server instructions. |
-| `kaeru-server/src/canonical.rs` | Local dispatch and asynchronous supplements. |
-| `kaeru-server/src/cloud.rs` | The nine existing cloud bridge operations. |
-| `kaeru-server/src/api/` | Named HTTP routes, principal and egress policy. |
-| `kaeru-server/src/ui/` | Embedded assets, browser routes and thin account screens. |
-| `kaeru-server/src/exports/` | Bounded generated-only MCP archive resources. |
+| `kaeru-runtime/src/server.rs` | MCP registration, discovery and server instructions. |
+| `kaeru-runtime/src/canonical.rs` | Local dispatch and asynchronous supplements. |
+| `kaeru-runtime/src/cloud.rs` | The nine existing cloud bridge operations. |
+| `kaeru-runtime/src/api/` | Named HTTP routes, principal and egress policy. |
+| `kaeru-runtime/src/ui/` | Embedded assets, browser routes and thin account screens. |
+| `kaeru-runtime/src/exports/` | Bounded generated-only MCP archive resources. |
 | `kaeru-local/src/cli/` | Offline AMG and local authentication setup commands. |
-| `kaeru-server/src/auth/` | JWT/password verification and atomic local account persistence. |
-| `kaeru-server/ui-dist/` | Generated, verified static frontend bundled by Cargo. |
+| `kaeru-runtime/src/auth/` | JWT/password verification and atomic local account persistence. |
+| `kaeru-runtime/ui-dist/` | Generated, verified static frontend bundled by Cargo. |
 | `kaeru-rig/src/tools.rs` | Distinct `kaeru_<operation>` tools over the shared catalogue. |
 | `kaeru-rig/src/cloud/` | Embedded asynchronous cloud bridge. |
 | `kaeru-cloud/memory-service/src/api/` | Memory-service compatibility REST handlers. |

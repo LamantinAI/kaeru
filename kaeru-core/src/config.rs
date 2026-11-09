@@ -28,6 +28,7 @@ use crate::errors::Result;
 pub mod amg;
 pub mod api;
 pub mod cloud;
+pub mod database;
 pub mod read_trace;
 pub mod search;
 pub mod storage;
@@ -46,6 +47,9 @@ pub use storage::StorageConfig;
 /// default.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct KaeruConfig {
+    /// Persistent snapshot workers, bounded independently of caller threads.
+    #[serde(default = "database::read_workers")]
+    pub read_workers: usize,
     /// Backend selection; TiKV is available only with the storage-tikv feature.
     #[serde(default)]
     pub storage: StorageConfig,
@@ -92,13 +96,12 @@ pub struct KaeruConfig {
     // ── Hygiene ────────────────────────────────────────────────────────────
     // A hygiene pass classifies an initiative's nodes and applies reversible
     // layer moves. It runs on accumulation, not on a schedule, and never
-    // holds the store guard for longer than one batch.
-    /// Nodes applied per batch. The store guard is taken and released once per
-    /// batch, so this bounds how long a concurrent tool call can wait.
+    // holds the write transaction for longer than one batch.
+    /// Nodes applied per batch. One write transaction covers its rechecks and
+    /// changes, bounding how long another operation waits for that batch.
     pub hygiene_batch_size: usize,
-    /// Pause between batches, in milliseconds. `std::sync::Mutex` is not fair:
-    /// a tight release→acquire loop can keep barging ahead of a waiting client
-    /// thread. This yields the OS a window to hand the guard over.
+    /// Pause between batch transactions, in milliseconds, so waiting client
+    /// operations can acquire the database gate between batches.
     pub hygiene_batch_pause_ms: u64,
     /// Writes since the last pass that trigger the next one.
     pub hygiene_writes_trigger: usize,
@@ -139,6 +142,7 @@ impl KaeruConfig {
     /// Useful for tests that want a known baseline.
     pub fn defaults() -> Self {
         Self {
+            read_workers: database::DEFAULT_READ_WORKERS,
             storage: StorageConfig::default(),
             vault_path: default_vault_path(),
             active_window_size: 15,

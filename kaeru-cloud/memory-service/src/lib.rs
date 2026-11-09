@@ -9,7 +9,7 @@ pub mod settings;
 use std::sync::Arc;
 
 use kaeru_core::Store;
-use kaeru_server::{RuntimeOptions, ServerRuntime};
+use kaeru_runtime::{RuntimeOptions, ServerRuntime};
 
 use api::{router::api_router, state::AppState};
 use errors::StartError;

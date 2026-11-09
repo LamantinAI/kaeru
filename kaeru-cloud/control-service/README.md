@@ -1,7 +1,9 @@
 # Control service boundary
 
 Control owns platform users, organizations, projects, membership, grants,
-initiative placement and memory/control token administration. Identity and login
+initiative placement and the workflow for requesting credential administration.
+Tokenizer owns credential records and effective authorization; Control publishes
+its business rights projection over the internal API. Identity and login
 belong to Auth or an external IdP. Memory owns knowledge, recorded history and
 query execution.
 

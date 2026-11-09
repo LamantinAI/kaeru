@@ -8,7 +8,7 @@ use serde::Deserialize;
 #[cfg(feature = "storage-tikv")]
 use kaeru_core::config::storage::TiKvConfig;
 use kaeru_core::{KaeruConfig, config::StorageConfig};
-use kaeru_server::{
+use kaeru_runtime::{
     ApiConfig, RuntimeOptions,
     auth::store::AccountStore,
     settings::{KaeruMcpConfig, web::AccessMode},

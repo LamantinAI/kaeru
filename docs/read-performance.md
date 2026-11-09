@@ -23,22 +23,29 @@ Hosts may call `execute_with_control` with an `ExecutionControl` cancellation
 probe; ordinary `execute` remains supported. MCP passes its request token, HTTP
 cancels when its handler is dropped, and Rig cancels when its call future is
 dropped. Cancelled reads return `CANCELLED`, never a successful truncated view.
-Checks occur at entry, after acquiring the scope guard, between database
+Checks occur at entry, after database admission, between database
 batches/traversal steps, and before delivery. A running Cozo statement is allowed
 to finish; cancellation neither kills unrelated queries nor interrupts an
 already started command or delivery bookkeeping.
 
-The store still serializes scoped API operations. A cancelled request waiting
-for that guard skips its storage work after the guard becomes available. This
-change does not remove the mutex or provide preemptive database cancellation.
+Initiative scope is request-local for the synchronous Core call. Nested calls
+restore their previous scope on return or unwind; frames do not propagate to
+other threads or across `await`. A shared operation lease permits concurrent
+reads while committed writes require an exclusive lease. Context delivery uses
+an exclusive operation lease because it updates reminder and maintenance
+metadata; assembly itself remains read-only.
 
-Atomic commands and read snapshots reuse one dedicated worker per database.
-Each operation still creates and finishes its own Cozo transaction; completion
-is acknowledged after snapshot and storage-lock cleanup. The worker is outside
-Cozo's Rayon pool and is joined when the store closes. Caller errors and panics
-abort the current transaction; accepted work is never automatically replayed.
+Atomic commands use a persistent writer; independent read snapshots use a
+bounded pool of persistent workers sharing one engine owner. Configure
+`KAERU_READ_WORKERS` (default 4, range 1–64) to bound active read transactions.
+A saturated pool waits at most five seconds for a slot. Each operation creates
+and finishes its own transaction; completion is acknowledged after snapshot and
+storage-lock cleanup. Workers stay outside the engine's Rayon pool and are joined
+when the store closes. Caller errors and panics abort the current transaction;
+accepted work is never automatically replayed. Cancelled queued reads skip
+query work after admission; an active statement still finishes cooperatively.
 
-Keeping this thread alive also preserves RocksDB's thread-local random state.
+Keeping these threads alive also preserves RocksDB's thread-local random state.
 Repeatedly creating transaction threads can reuse the same native thread identity
 and restart that state, producing poorly balanced memtable skip lists under
 repeated write patterns. Reading freshly written data can then become much
@@ -70,10 +77,16 @@ profiles/backends and no competing builds during measurement.
 These are kernel read measurements, not a complete visualizer load or a
 prediction for every real vault. `context` still materializes its selected view
 before pagination. The visualizer uses a separate compact graph projection
-through `context(view=graph)`. Ordinary continuation pages retain their existing
-generation,
-policy and expiry checks; the assembly snapshot does not turn them into a
-long-lived database transaction.
+through `context(view=graph)`. Continuations bind caller, operation, arguments, policy, expected offset and
+captured generation. Their fixed TTL is not extended by paging. Completion
+releases the cached snapshot; duplicate concurrent advances return `CURSOR_BUSY`
+and completed/replayed offsets return `CURSOR_STALE`. At the 16-snapshot count
+or aggregate byte limit, new admissions return `SNAPSHOT_CAPACITY` without
+clearing active cursors. Assembly, delivery and publication share an operation
+lease so a writer cannot relabel an old snapshot with a new generation.
+Continuation creation or advancement inside an active write transaction is
+rejected: uncommitted data must not outlive an aborted transaction. Paging does
+not keep a database transaction open between HTTP requests.
 
 ## Compare whole-graph request patterns
 

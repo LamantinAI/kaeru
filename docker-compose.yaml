@@ -119,6 +119,62 @@ services:
       retries: 5
     restart: unless-stopped
 
+  tokenizer-db:
+    profiles: [tokenizer]
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: tokenizer
+      POSTGRES_DB: tokenizer
+      POSTGRES_PASSWORD: "${TOKENIZER_DB_PASSWORD:-}"
+    volumes:
+      - tokenizer_pg_data:/var/lib/postgresql
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U tokenizer -d tokenizer"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  tokenizer-valkey:
+    profiles: [tokenizer]
+    image: valkey/valkey:8.1-alpine
+    command: [valkey-server, --appendonly, "yes", --appendfsync, everysec, --maxmemory, 128mb, --maxmemory-policy, noeviction]
+    volumes:
+      - tokenizer_valkey_data:/data
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  tokenizer-service:
+    profiles: [tokenizer]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.tokenizer
+    environment:
+      TOKENIZER_LISTEN: "0.0.0.0:9880"
+      TOKENIZER_DATABASE_URL: "postgres://tokenizer:${TOKENIZER_DB_PASSWORD:-}@tokenizer-db:5432/tokenizer"
+      TOKENIZER_VALKEY_URL: "redis://tokenizer-valkey:6379"
+      TOKENIZER_CONTROL_KEY: "${TOKENIZER_CONTROL_KEY:-}"
+      TOKENIZER_MEMORY_KEY: "${TOKENIZER_MEMORY_KEY:-}"
+      RUST_LOG: "${RUST_LOG:-info}"
+    depends_on:
+      tokenizer-db:
+        condition: service_healthy
+      tokenizer-valkey:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${TOKENIZER_PORT:-9880}:9880"
+    healthcheck:
+      test: [CMD, curl, -fsS, http://127.0.0.1:9880/health/live]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    stop_grace_period: 20s
+    restart: unless-stopped
+
 volumes:
   pd_data:
   tikv_data:
@@ -128,3 +184,5 @@ volumes:
   memory_data:
     driver: local
     name: kaeru-cloud-data
+  tokenizer_pg_data:
+  tokenizer_valkey_data:

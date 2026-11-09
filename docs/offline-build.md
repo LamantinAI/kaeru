@@ -52,7 +52,7 @@ source.
 
 ## What you still need on the build machine
 
-Cargo embeds the checked-in `kaeru-server/ui-dist/`, so an unchanged frontend
+Cargo embeds the checked-in `kaeru-runtime/ui-dist/`, so an unchanged frontend
 needs no npm or Node.js during an offline Rust build. To change the UI, prepare
 its Node dependencies/build separately before transfer; the Rust vendor tree
 does not contain npm packages. The Dockerfile’s frontend stage runs `npm ci`
