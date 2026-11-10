@@ -1,10 +1,11 @@
 import { mountGalaxy, mountStarfield } from './login-galaxy.js'
 import { auth } from './auth.js'
+import { paths } from './paths.js'
 import { memory, registerGraph } from './api.js'
 import './account.css'
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
-const go = (path) => location.replace(path)
+const go = (suffix) => location.replace(paths.page(suffix))
 // A message lands in the nearest notice: a form's own, so an error sits beside
 // the fields it is about, or else the page's. Returns false where there is none.
 const notice = (text, error = false, scope = document) => {
@@ -14,7 +15,7 @@ const notice = (text, error = false, scope = document) => {
 }
 // Every way a session ends unasked (expiry, a revoked token) arrives at the
 // sign-in page saying so, rather than at a blank form.
-const expired = () => go('/ui/login?notice=expired')
+const expired = () => go('/login?notice=expired')
 function theme() {
   let value = 'auto'
   try { value = localStorage.getItem('kaeru-viz-theme') || 'auto' } catch (_) {}
@@ -43,13 +44,13 @@ function wireGalaxy() {
   starfield?.place() // the field turns about the project's axis, now that it is laid out
   if (!matchMedia('(prefers-reduced-motion: reduce)').matches) galaxy.play()
 }
-const mark = `<a class="account-brand" href="/ui/" aria-label="Kaeru memory"><span class="seal">蛙</span><span>kaeru<small>Cognitive memory for agents</small></span></a>`
+const mark = `<a class="account-brand" href="${paths.page('/')}" aria-label="Kaeru memory"><span class="seal">蛙</span><span>kaeru<small>Cognitive memory for agents</small></span></a>`
 const footer = `<footer class="account-footer"><a href="https://lamantin-ai.com" target="_blank" rel="noopener">Lamantin AI</a><span>connected memory</span></footer>`
 let starfield = null
 function shell(content, { admin = false, username = '' } = {}) {
   document.body.className = 'account-page'
   document.body.innerHTML = `<div class="account-shell"><header class="account-header">${mark}<nav>
-    ${admin ? `<a class="btn" href="/ui/">← memory</a><span class="account-user">${esc(username)}</span>` : ''}
+    ${admin ? `<a class="btn" href="${paths.page('/')}">← memory</a><span class="account-user">${esc(username)}</span>` : ''}
     <button type="button" class="btn" data-theme-toggle aria-label="Switch color theme">◐</button>
     ${admin ? '<button type="button" class="btn" data-logout>sign out all sessions</button>' : ''}
     </nav></header>${content}${footer}</div>`
@@ -58,7 +59,7 @@ function shell(content, { admin = false, username = '' } = {}) {
   document.querySelector('[data-logout]')?.addEventListener('click', logout)
 }
 async function logout() {
-  try { await auth.logout(); go('/ui/login?notice=signed-out') } catch (error) {
+  try { await auth.logout(); go('/login?notice=signed-out') } catch (error) {
     // the galaxy has no notice of its own; its live error bar carries the failure
     if (error.status === 401) expired()
     else if (!notice(error.message, true)) window.dispatchEvent(new CustomEvent('kaeru-api-error', { detail: error }))
@@ -85,7 +86,7 @@ function login(configured) {
     event.preventDefault()
     const form = event.currentTarget, button = form.querySelector('button')
     button.disabled = true; notice('Signing in…')
-    try { await auth.login(form.username.value, form.password.value); form.password.value = ''; go('/ui/') }
+    try { await auth.login(form.username.value, form.password.value); form.password.value = ''; go('/') }
     catch (error) {
       // a forgotten password has no reset link to follow; say where the reset lives
       notice(error.status === 401 ? `${error.message}. Forgot the password? Run kaeru-mcp --reset-web-password on the machine running kaeru.` : error.message, true)
@@ -96,7 +97,7 @@ function login(configured) {
 }
 function problem(message, { empty = false, showSettings = false } = {}) {
   shell(`<main class="account-status"><p class="account-eyebrow">${empty ? 'a fresh page' : 'connection paused'}</p><h1>${empty ? 'No visible memories yet.' : 'Memory is unavailable.'}</h1>
-    <p class="account-lead">${esc(message)}</p><p class="account-notice" data-notice hidden></p><div class="account-actions"><button class="btn go" data-retry>try again</button>${showSettings ? '<a class="btn" href="/ui/admin">settings</a>' : ''}</div></main>`)
+    <p class="account-lead">${esc(message)}</p><p class="account-notice" data-notice hidden></p><div class="account-actions"><button class="btn go" data-retry>try again</button>${showSettings ? `<a class="btn" href="${paths.page('/admin')}">settings</a>` : ''}</div></main>`)
   document.querySelector('[data-retry]').addEventListener('click', () => location.reload())
 }
 async function admin(session) {
@@ -133,8 +134,8 @@ async function admin(session) {
     }
     finally { button.disabled = false }
   })
-  submit('#account-form', async (form) => { await auth.request('/admin/account', { method: 'PATCH', body: { username: form.username.value, current_password: form.current_password.value, new_password: form.new_password.value || null, revision: cfg.revision } }); go('/ui/login?notice=account-updated') })
-  submit('#session-form', async (form) => { await auth.request('/admin/settings', { method: 'PATCH', body: { current_password: form.current_password.value, ttl_seconds: Math.round(Number(form.ttl.value) * 60), revision: cfg.revision } }); go('/ui/login?notice=settings-updated') })
+  submit('#account-form', async (form) => { await auth.request('/admin/account', { method: 'PATCH', body: { username: form.username.value, current_password: form.current_password.value, new_password: form.new_password.value || null, revision: cfg.revision } }); go('/login?notice=account-updated') })
+  submit('#session-form', async (form) => { await auth.request('/admin/settings', { method: 'PATCH', body: { current_password: form.current_password.value, ttl_seconds: Math.round(Number(form.ttl.value) * 60), revision: cfg.revision } }); go('/login?notice=settings-updated') })
 }
 
 theme()
@@ -149,8 +150,8 @@ try {
   const session = await auth.session()
   if (session.authenticated) setTimeout(expired, Math.max(0, session.expires_at * 1000 - Date.now()))
   if (session.auth_enabled && !session.authenticated) login(session.configured)
-  else if (location.pathname === '/ui/admin' && session.auth_enabled) await admin(session)
-  else if (location.pathname === '/ui/login' || location.pathname === '/ui/admin') go('/ui/')
+  else if (paths.isPage(location.pathname, '/admin') && session.auth_enabled) await admin(session)
+  else if (paths.isPage(location.pathname, '/login') || paths.isPage(location.pathname, '/admin')) go('/')
   else {
     const graphAbort = new AbortController()
     window.addEventListener('pagehide', () => graphAbort.abort(), { once: true })
@@ -162,7 +163,7 @@ try {
         const nav = document.createElement('nav'); nav.className = 'account-nav'
         // Signing out ends every session (the server revokes by account revision),
         // so the consequence rides along as a hint; the settings page names it in full.
-        nav.innerHTML = `<span>${esc(session.username)}</span><a class="btn" href="/ui/admin">settings</a><button class="btn" type="button" data-logout title="Signs out every browser using this memory">sign out</button>`
+        nav.innerHTML = `<span>${esc(session.username)}</span><a class="btn" href="${paths.page('/admin')}">settings</a><button class="btn" type="button" data-logout title="Signs out every browser using this memory">sign out</button>`
         document.getElementById('hud').append(nav); nav.querySelector('[data-logout]').addEventListener('click', logout)
       }
       await import('./main.js')

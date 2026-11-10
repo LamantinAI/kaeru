@@ -10,6 +10,14 @@ Part one is how we work here; part two is what the code is.
 
 # Part one — working agreements
 
+## Repository privacy
+
+Keep code, documentation, fixtures and release artifacts free of private
+operational context: personal paths, deployment addresses, credentials, user
+records and correspondence. Use neutral placeholders, reserved example
+addresses and synthetic data. Keep operator records outside Git working trees.
+Preserve required licenses and intentional public attribution.
+
 ## Git: commit locally in a batch, push squashed
 
 Commit as often as the work has natural steps — a passing test, a finished

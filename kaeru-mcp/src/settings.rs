@@ -41,6 +41,11 @@ pub struct CloudEndpoint {
 /// via `KAERU_MCP_<FIELD_UPPERCASE>` (e.g. `KAERU_MCP_LISTEN_PORT`).
 #[derive(Clone, Debug, Deserialize)]
 pub struct KaeruMcpConfig {
+    /// Browser-only mount prefix; empty preserves the legacy UI/auth/API paths.
+    /// Env: KAERU_MCP_UI_BASE_PATH. This never changes MCP/SSE addresses.
+    #[serde(default)]
+    pub ui_base_path: ui::UiMount,
+
     /// IPv4 the HTTP listener binds to. Defaults to loopback so the
     /// daemon is local-only out of the box; flip to `0.0.0.0` to
     /// expose on a LAN — and set `auth_token` when you do, since a
@@ -182,6 +187,14 @@ impl KaeruMcpConfig {
                 "KAERU_MCP_MAX_SESSIONS must be positive and within semaphore capacity".into(),
             ));
         }
+        settings
+            .ui_base_path
+            .validate_mounts(&[
+                &settings.mount_path,
+                &settings.sse_path,
+                &settings.messages_path,
+            ])
+            .map_err(ConfigError::Message)?;
         Ok(settings)
     }
 }
@@ -317,3 +330,5 @@ token = "work-yyy"
 
 pub mod archive;
 pub mod web;
+
+pub mod ui;

@@ -22,6 +22,7 @@ use crate::settings::web;
 
 #[derive(Clone)]
 pub struct BrowserAuth {
+    pub mount: crate::settings::ui::UiMount,
     pub auth_enabled: bool,
     pub session: Arc<WebSession>,
     pub static_token: String,
@@ -33,21 +34,6 @@ fn denied(status: StatusCode, message: &str) -> Response {
     (status, Json(json!({"error":message}))).into_response()
 }
 
-fn cookie_token(headers: &HeaderMap) -> Option<&str> {
-    let mut matches = headers
-        .get_all(header::COOKIE)
-        .iter()
-        .filter_map(|v| v.to_str().ok())
-        .flat_map(|value| value.split(';'))
-        .filter_map(|value| value.trim().split_once('='))
-        .filter(|(name, _)| *name == web::SESSION_COOKIE);
-    let (_, value) = matches.next()?;
-    if matches.next().is_some() {
-        return None;
-    }
-    Some(value)
-}
-
 fn identity(state: &BrowserAuth, headers: &HeaderMap) -> Option<(SessionClaims, bool)> {
     if let Some(header) = headers.get(header::AUTHORIZATION) {
         let token = bearer_token(header)?;
@@ -55,7 +41,7 @@ fn identity(state: &BrowserAuth, headers: &HeaderMap) -> Option<(SessionClaims, 
     }
     state
         .session
-        .verify(cookie_token(headers)?)
+        .verify(super::cookies::token(headers)?)
         .map(|claims| (claims, true))
 }
 
@@ -146,18 +132,6 @@ async fn admin_access(
     next.run(request).await
 }
 
-fn set_session_cookie(response: &mut Response, token: &str, ttl: u64, secure: bool) {
-    let value = format!(
-        "{}={token}; Path=/; HttpOnly; SameSite=Strict; Max-Age={ttl}{}",
-        web::SESSION_COOKIE,
-        if secure { "; Secure" } else { "" }
-    );
-    response.headers_mut().append(
-        header::SET_COOKIE,
-        value.parse().expect("JWT cookie uses URL-safe characters"),
-    );
-}
-
 async fn login(
     State(state): State<BrowserAuth>,
     headers: HeaderMap,
@@ -198,8 +172,9 @@ async fn login(
     match state.session.issue(snapshot.revision) {
         Ok((token, claims, secure)) => {
             let mut response = Json(SessionView::authenticated(&claims)).into_response();
-            set_session_cookie(
+            super::cookies::issue(
                 &mut response,
+                &state.mount,
                 &token,
                 claims.exp - claims.iat,
                 secure || request_origin(&headers).is_some_and(|url| url.scheme() == "https"),
@@ -224,13 +199,60 @@ async fn session(State(state): State<BrowserAuth>, headers: HeaderMap) -> Respon
     Json(view).into_response()
 }
 
+/// POST bootstrap knows the browser's validated external scheme without
+/// trusting forwarding headers. GET remains the legacy read-only session view.
+async fn bootstrap_session(State(state): State<BrowserAuth>, headers: HeaderMap) -> Response {
+    if !state.auth_enabled {
+        return Json(SessionView::anonymous()).into_response();
+    }
+    let configured = state.session.account.is_some();
+    if !configured {
+        return Json(SessionView::signed_out(false)).into_response();
+    }
+    if !origin_matches(&state, &headers) {
+        return denied(
+            StatusCode::FORBIDDEN,
+            "Sign in from the same address as this page",
+        );
+    }
+    if headers.contains_key(header::AUTHORIZATION) {
+        return Json(SessionView::signed_out(configured)).into_response();
+    }
+    let secure = request_origin(&headers).is_some_and(|url| url.scheme() == "https");
+    let token = super::cookies::token(&headers);
+    let claims = token.and_then(|token| state.session.verify(token));
+    let now = jsonwebtoken::get_current_timestamp();
+    let claims = claims.filter(|claims| claims.exp > now);
+    let mut response = Json(match &claims {
+        Some(claims) => SessionView::authenticated(claims),
+        None => SessionView::signed_out(configured),
+    })
+    .into_response();
+    if let (Some(token), Some(claims)) = (token, claims) {
+        super::cookies::issue(
+            &mut response,
+            &state.mount,
+            token,
+            claims.exp.saturating_sub(now),
+            secure,
+        );
+    } else if super::cookies::present(&headers) {
+        super::cookies::issue(&mut response, &state.mount, "", 0, secure);
+    }
+    response
+}
+
 async fn logout(
     State(state): State<BrowserAuth>,
+    headers: HeaderMap,
     axum::Extension(claims): axum::Extension<SessionClaims>,
 ) -> Response {
     let Some(account) = state.session.account.as_ref() else {
         return denied(StatusCode::UNAUTHORIZED, "Account not configured");
     };
+    if state.mount.prefixed() && !origin_matches(&state, &headers) {
+        return denied(StatusCode::FORBIDDEN, "Session origin is invalid");
+    }
     if account.update_async(claims.revision, |_| {}).await.is_err() {
         return denied(
             StatusCode::CONFLICT,
@@ -238,7 +260,9 @@ async fn logout(
         );
     }
     let mut response = StatusCode::NO_CONTENT.into_response();
-    set_session_cookie(&mut response, "", 0, account.snapshot().secure_cookie());
+    let secure = account.snapshot().secure_cookie()
+        || request_origin(&headers).is_some_and(|url| url.scheme() == "https");
+    super::cookies::issue(&mut response, &state.mount, "", 0, secure);
     response
 }
 
@@ -355,9 +379,14 @@ async fn no_store(request: Request, next: Next) -> Response {
 }
 
 pub fn router(state: BrowserAuth) -> Router {
+    let session_route = if state.mount.prefixed() {
+        get(session).post(bootstrap_session)
+    } else {
+        get(session)
+    };
     if !state.auth_enabled {
         return Router::new()
-            .route("/auth/session", get(session))
+            .route("/auth/session", session_route)
             .layer(middleware::from_fn(no_store))
             .with_state(state);
     }
@@ -368,7 +397,7 @@ pub fn router(state: BrowserAuth) -> Router {
         .route_layer(middleware::from_fn_with_state(state.clone(), admin_access));
     Router::new()
         .route("/auth/login", post(login))
-        .route("/auth/session", get(session))
+        .route("/auth/session", session_route)
         .merge(protected)
         .layer(DefaultBodyLimit::max(web::MAX_REQUEST_BYTES))
         .layer(middleware::from_fn(no_store))

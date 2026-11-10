@@ -8,7 +8,9 @@ import { once } from 'node:events'
 import { mkdtemp, rm, writeFile, readFile, mkdir } from 'node:fs/promises'
 import { openSync, closeSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { createServer } from 'node:net'
+import { createServer, createConnection } from 'node:net'
+import { createServer as httpServer, request as proxyRequest } from 'node:http'
+import { createServer as httpsServer } from 'node:https'
 import { resolve, join } from 'node:path'
 
 const binary = process.env.KAERU_MCP_TEST_BINARY || resolve('../target/debug/kaeru-mcp')
@@ -28,19 +30,19 @@ async function stop(child) {
     child.kill('SIGKILL'); await once(child, 'exit')
   }
 }
-async function fixture({ authentication = 'enabled', tokenOverride = true } = {}) {
+async function fixture({ authentication = 'enabled', tokenOverride = true, prefix = '', publicOrigin } = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'kaeru-browser-'))
   const port = await freePort(), origin = `http://127.0.0.1:${port}`
   const config = join(directory, 'web.toml')
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('KAERU_')))
   Object.assign(env, { KAERU_VAULT_PATH: join(directory, 'vault'), KAERU_MCP_LISTEN_ADDRESS: '127.0.0.1', KAERU_MCP_LISTEN_PORT: String(port),
     KAERU_MCP_WEB_CONFIG_FILE: config, KAERU_MCP_CLOUDS_FILE: join(directory, 'clouds.toml'),
-    KAERU_MCP_AUTH_TOKEN: mcpToken, KAERU_MCP_VIZ_INITIATIVES: '*', KAERU_MCP_VIZ_INCLUDE_LOCAL: '1',
+    KAERU_MCP_UI_BASE_PATH: prefix, KAERU_MCP_AUTH_TOKEN: mcpToken, KAERU_MCP_VIZ_INITIATIVES: '*', KAERU_MCP_VIZ_INCLUDE_LOCAL: '1',
     KAERU_MCP_HYGIENE_ENABLE: '0', KAERU_MCP_UPDATE_CHECK: '0', KAERU_READ_TRACE_ENABLED: 'false' })
   if (authentication === 'default' || !tokenOverride) delete env.KAERU_MCP_AUTH_TOKEN
   await writeFile(env.KAERU_MCP_CLOUDS_FILE, '')
   if (authentication !== 'default') {
-    const args = authentication === 'enabled' ? ['--auth', 'enabled', '--password-stdin', '--public-origin', origin] : ['--auth', 'disabled']
+    const args = authentication === 'enabled' ? ['--auth', 'enabled', '--password-stdin', '--public-origin', publicOrigin ?? origin] : ['--auth', 'disabled']
     const setup = spawnSync(binary, args, { env, cwd: directory, input: password + '\n', encoding: 'utf8' })
     assert.equal(setup.status, 0, setup.stderr)
   }
@@ -53,7 +55,7 @@ async function fixture({ authentication = 'enabled', tokenOverride = true } = {}
   let ready = false
   for (let attempt = 0; attempt < 100; attempt++) {
     if (child.exitCode !== null) break
-    try { if ((await fetch(origin + '/auth/session')).ok) { ready = true; break } } catch (_) {}
+    try { if ((await fetch(origin + prefix + '/auth/session')).ok) { ready = true; break } } catch (_) {}
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
   if (!ready) throw new Error(await readFile(logPath, 'utf8'))
@@ -71,7 +73,7 @@ async function fixture({ authentication = 'enabled', tokenOverride = true } = {}
   await api('relate', { initiative: 'memory-lab', action: 'connect', from: ids[1], to: ids[0], type: 'derived_from', weight: 1 })
   await api('trail', { initiative: 'memory-lab', name: 'Connected reasoning', route: { from: ids[2], to: ids[0] }, summary: 'A shared contract connects the decisions to their supporting observations.' })
   await api('note', { initiative: 'planning', name: 'A quiet workspace', body: 'A small, inspectable instance for connected work.', kind: 'observation' })
-  return { origin, directory, config, close, token: effectiveToken }
+  return { origin, directory, config, close, token: effectiveToken, api, ids }
   } catch (error) { await close(); throw error }
 }
 
@@ -285,3 +287,129 @@ test('local authentication choice persists and can be disabled and enabled again
     assert.equal((setup.stdout + setup.stderr).includes(password), false)
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
+
+async function browserProxy(instance, prefix, port, secure) {
+  const handler = (incoming, outgoing) => {
+    if (incoming.url !== prefix && !incoming.url.startsWith(prefix + '/') && !incoming.url.startsWith(prefix + '?')) {
+      outgoing.writeHead(200, { 'content-type': 'application/json' }); outgoing.end(JSON.stringify({ service: 'neighbor' })); return
+    }
+    const target = new URL(instance.origin)
+    const request = proxyRequest({ hostname: target.hostname, port: target.port, path: incoming.url, method: incoming.method,
+      headers: { ...incoming.headers, 'x-forwarded-proto': secure ? 'http' : 'https' } }, (response) => {
+      outgoing.writeHead(response.statusCode, response.headers); response.pipe(outgoing)
+    })
+    request.on('error', () => { outgoing.writeHead(502); outgoing.end() })
+    incoming.pipe(request)
+  }
+  let server, tls
+  if (secure) {
+    const key = join(instance.directory, 'proxy.key'), cert = join(instance.directory, 'proxy.crt')
+    const issued = spawnSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-keyout', key, '-out', cert, '-subj', '/CN=localhost', '-addext', 'subjectAltName=IP:127.0.0.1'], { encoding: 'utf8' })
+    assert.equal(issued.status, 0, issued.stderr)
+    tls = { key: await readFile(key), cert: await readFile(cert) }
+  }
+  if (process.env.KAERU_NGINX_IMAGE) {
+    const config = join(instance.directory, 'proxy.conf')
+    const target = new URL(instance.origin)
+    await writeFile(config, `worker_processes 1;
+      events { worker_connections 64; }
+      http { access_log off; server {
+        listen 127.0.0.1:${port}${secure ? ' ssl' : ''}; absolute_redirect off;
+        ${secure ? 'ssl_certificate /fixture/proxy.crt; ssl_certificate_key /fixture/proxy.key;' : ''}
+        location = ${prefix} { proxy_pass http://127.0.0.1:${target.port}; proxy_set_header Host $http_host; }
+        location ${prefix}/ { proxy_pass http://127.0.0.1:${target.port}; proxy_set_header Host $http_host; }
+        location / { default_type application/json; return 200 '{"service":"neighbor"}'; }
+      } }`)
+    const started = spawnSync('docker', ['run', '-d', '--rm', '--network', 'host', '--label', 'lamantin.test=ui-prefix', '-v', `${instance.directory}:/fixture:ro`, '-v', `${config}:/etc/nginx/nginx.conf:ro`, process.env.KAERU_NGINX_IMAGE], { encoding: 'utf8' })
+    assert.equal(started.status, 0, started.stderr)
+    const id = started.stdout.trim()
+    try {
+      for (let attempt = 0; attempt < 50; attempt++) {
+        const checked = spawnSync('docker', ['exec', id, 'nginx', '-t'], { encoding: 'utf8' })
+        const listening = checked.status === 0 && await new Promise((resolve) => {
+          const socket = createConnection(port, '127.0.0.1')
+          socket.setTimeout(200)
+          socket.once('connect', () => { socket.destroy(); resolve(true) })
+          socket.once('error', () => { socket.destroy(); resolve(false) })
+          socket.once('timeout', () => { socket.destroy(); resolve(false) })
+        })
+        if (listening) return async () => { spawnSync('docker', ['rm', '-f', id]) }
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      throw new Error('Temporary nginx did not start')
+    } catch (error) { spawnSync('docker', ['rm', '-f', id]); throw error }
+  }
+  server = secure ? httpsServer(tls, handler) : httpServer(handler)
+  server.listen(port, '127.0.0.1'); await once(server, 'listening')
+  return async () => { server.closeAllConnections(); await new Promise((resolve) => server.close(resolve)) }
+}
+function rpcValue(text) {
+  try { return JSON.parse(text) } catch (_) {
+    const frames = text.split('\n').filter((line) => line.startsWith('data:') && line.slice(5).trim()).map((line) => JSON.parse(line.slice(5).trim()))
+    const reply = frames.find((value) => value.result || value.error)
+    assert.ok(reply, 'MCP returned no complete JSON-RPC response'); return reply
+  }
+}
+async function checkNativeMcp(instance) {
+  const response = await initialize(instance.origin, instance.token)
+  assert.equal(response.status, 200)
+  const session = response.headers.get('mcp-session-id'), reply = rpcValue(await response.text())
+  assert.equal(reply.result.serverInfo.version, (await readFile(new URL('../../Cargo.toml', import.meta.url), 'utf8')).match(/^version = "([^"]+)"/m)[1])
+  const headers = { authorization: `Bearer ${instance.token}`, 'mcp-session-id': session, 'mcp-protocol-version': reply.result.protocolVersion, 'content-type': 'application/json', accept: 'application/json, text/event-stream' }
+  try {
+    assert.equal((await fetch(instance.origin + '/mcp', { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) })).status, 202)
+    const tools = await fetch(instance.origin + '/mcp', { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) })
+    assert.equal(tools.status, 200); assert.equal(rpcValue(await tools.text()).result.tools.length, 35)
+  } finally { await fetch(instance.origin + '/mcp', { method: 'DELETE', headers }) }
+}
+for (const secure of [false, true]) {
+  test(`nested UI behind ${secure ? 'HTTPS' : 'HTTP'} proxy isolates browser routes and preserves MCP`, { timeout: 120000 }, async () => {
+    const prefix = '/tools/memory', port = await freePort(), origin = `${secure ? 'https' : 'http'}://127.0.0.1:${port}`
+    // An empty pin exercises external-scheme validation without proxy trust.
+    const instance = await fixture({ prefix, publicOrigin: secure ? '' : origin })
+    let engine, closeProxy
+    try {
+      closeProxy = await browserProxy(instance, prefix, port, secure)
+      await checkNativeMcp(instance)
+      engine = await browser()
+      const context = await engine.newContext({ ignoreHTTPSErrors: true, reducedMotion: 'reduce' })
+      const page = await context.newPage(), requests = [], errors = []
+      page.on('request', (request) => { const url = new URL(request.url()); if (url.origin === origin) requests.push({ path: url.pathname, authorization: request.headers().authorization }) })
+      page.on('pageerror', (error) => errors.push(error.message))
+      page.on('console', (message) => { if (message.type() === 'error' && /Content Security Policy/.test(message.text())) errors.push(message.text()) })
+      await page.goto(origin + prefix + '?initial=1')
+      assert.equal(new URL(page.url()).pathname, prefix + '/')
+      await page.getByRole('heading', { name: 'Sign in' }).waitFor()
+      await page.getByLabel('Username', { exact: true }).fill('admin')
+      await page.getByLabel('Password', { exact: true }).fill(password)
+      await page.getByRole('button', { name: /open memory/ }).click()
+      await page.locator('#graph canvas').waitFor({ timeout: 30000 })
+      const original = (await context.cookies()).find((cookie) => cookie.name === 'kaeru_session')
+      assert.ok(original.httpOnly && original.sameSite === 'Strict'); assert.equal(original.path, prefix); assert.equal(original.secure, secure)
+      await context.clearCookies(); await context.addCookies([{ ...original, path: '/' }])
+      await page.reload(); await page.locator('#graph canvas').waitFor({ timeout: 30000 })
+      const migrated = (await context.cookies()).filter((cookie) => cookie.name === 'kaeru_session')
+      assert.equal(migrated.length, 1); assert.equal(migrated[0].path, prefix); assert.equal(migrated[0].value, original.value); assert.equal(migrated[0].secure, secure); assert.ok(migrated[0].expires <= original.expires + 1)
+      await page.locator('#chainRead').click(); await page.locator('#reader').waitFor({ state: 'visible' }); await page.locator('#rMs').click(); await page.locator('#manuscript').waitFor({ state: 'visible' }); await page.locator('#rBack').click()
+      await page.locator('#boardBtn').click(); await page.locator('#board').waitFor({ state: 'visible' }); await page.locator('#bBack').click()
+      await page.goto(origin + prefix + '/admin?direct=1'); await page.getByRole('heading', { name: 'Account', exact: true }).waitFor(); await page.reload()
+      await page.getByRole('heading', { name: 'Account', exact: true }).waitFor()
+      for (const forbidden of ['/mcp', '/v1/note', '/v1/share', '/v1/export', '/v1/initiative_manage']) {
+        const status = await page.evaluate(async (url) => (await fetch(url, { method: 'POST', body: '{}' })).status, prefix + forbidden)
+        assert.equal(status, 404, forbidden)
+      }
+      assert.deepEqual(await page.evaluate(async () => (await fetch('/v1/neighbor')).json()), { service: 'neighbor' })
+      await context.addCookies([{ ...migrated[0], path: '/' }]); await page.reload(); await page.getByRole('heading', { name: 'Sign in' }).waitFor()
+      assert.equal((await context.cookies()).filter((cookie) => cookie.name === 'kaeru_session').length, 0)
+      await page.getByLabel('Username', { exact: true }).fill('admin'); await page.getByLabel('Password', { exact: true }).fill(password); await page.getByRole('button', { name: /open memory/ }).click(); await page.locator('#graph canvas').waitFor({ timeout: 30000 })
+      await page.getByRole('link', { name: /settings/ }).click(); await page.getByRole('heading', { name: 'Account', exact: true }).waitFor()
+      await page.locator('#account-current').fill(password); await page.locator('#account-new').fill('updated prefixed browser password'); await page.getByRole('button', { name: 'save account' }).click(); await page.getByRole('heading', { name: 'Sign in' }).waitFor()
+      await page.getByLabel('Username', { exact: true }).fill('admin'); await page.getByLabel('Password', { exact: true }).fill('updated prefixed browser password'); await page.getByRole('button', { name: /open memory/ }).click(); await page.locator('#graph canvas').waitFor({ timeout: 30000 })
+      await page.locator('[data-logout]').click(); await page.getByRole('heading', { name: 'Sign in' }).waitFor()
+      await checkNativeMcp(instance)
+      assert.ok(requests.filter(({ path }) => path !== '/v1/neighbor').every(({ path, authorization }) => (path === prefix || path.startsWith(prefix + '/')) && !authorization), 'application requests must remain in their browser mount without a service bearer')
+      assert.ok(requests.some(({ path }) => path === prefix + '/v1/read'))
+      assert.deepEqual(errors, [])
+    } finally { await engine?.close(); await closeProxy?.(); await instance.close() }
+  })
+}

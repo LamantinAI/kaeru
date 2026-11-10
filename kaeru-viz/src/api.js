@@ -1,5 +1,6 @@
 // The visualizer consumes the same named JSON operations as agents.
 import { sessionHeaders } from './session.js'
+import { paths } from './paths.js'
 
 const scopesByNode = new Map()
 let registered = null
@@ -95,6 +96,6 @@ export function createClient({ baseUrl = '', headers = {}, fetcher = fetch, onEr
 
   return { call, pages, record, graph }
 }
-export const memory = createClient({ headers: sessionHeaders, onError(error) {
+export const memory = createClient({ baseUrl: paths.apiBase, headers: sessionHeaders, onError(error) {
   if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(error.status === 401 ? 'kaeru-auth-required' : 'kaeru-api-error', { detail: error }))
 } })

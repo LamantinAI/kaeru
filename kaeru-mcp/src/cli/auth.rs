@@ -31,6 +31,10 @@ pub(super) struct AuthOptions {
     /// Print enabled or disabled without changing configuration or opening the vault.
     #[arg(long)]
     pub auth_status: bool,
+    /// Atomically update an existing account origin without changing credentials.
+    /// Stop the daemon first; pass an exact origin or an empty string to unpin.
+    #[arg(long, allow_hyphen_values = true)]
+    pub set_web_origin: Option<String>,
     #[arg(long)]
     web_config: Option<PathBuf>,
     #[arg(long, default_value = "admin")]
@@ -69,8 +73,23 @@ pub(super) fn handle(args: AuthOptions) -> Result<(), Box<dyn std::error::Error>
     } else {
         std::env::current_dir()?.join(path)
     };
+    if let Some(origin) = args.set_web_origin {
+        let account = AccountStore::open(path.clone())?.ok_or("Account not configured")?;
+        if !account.snapshot().enabled {
+            return Err("Authentication is disabled".into());
+        }
+        account.update(account.snapshot().revision, |cfg| {
+            cfg.public_origin = origin
+        })?;
+        eprintln!(
+            "Browser origin updated. Restart kaeru-mcp to apply; existing sessions are revoked."
+        );
+        return Ok(());
+    }
     let current = read_config(&path)?;
-    let token = KaeruMcpConfig::new()?.auth_token;
+    let transport = KaeruMcpConfig::new()?;
+    let token = transport.auth_token;
+    let ui_root = transport.ui_base_path.page_root();
     if args.auth_status {
         println!(
             "{}",
@@ -134,8 +153,55 @@ pub(super) fn handle(args: AuthOptions) -> Result<(), Box<dyn std::error::Error>
         }
     }
     eprintln!(
-        "Authentication configured in {}. Restart kaeru-mcp, then open /ui/. MCP clients use KAERU_MCP_AUTH_TOKEN or mcp_token from this owner-only file.",
+        "Authentication configured in {}. Restart kaeru-mcp, then open {ui_root}/. MCP clients use KAERU_MCP_AUTH_TOKEN or mcp_token from this owner-only file.",
         path.display()
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod migration_tests {
+    use super::*;
+    fn options(path: PathBuf, origin: &str) -> AuthOptions {
+        AuthOptions {
+            init_web_auth: false,
+            reset_web_password: false,
+            auth: None,
+            auth_status: false,
+            set_web_origin: Some(origin.into()),
+            web_config: Some(path),
+            username: "unused".into(),
+            public_origin: String::new(),
+            password_stdin: false,
+        }
+    }
+    #[test]
+    fn origin_only_migration_is_validated_atomic_and_preserves_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("account.toml");
+        let before = WebConfig {
+            username: "operator".into(),
+            password_hash: hash_password("synthetic-password").unwrap(),
+            jwt_secret: "ab".repeat(32),
+            mcp_token: "synthetic-service-key".into(),
+            public_origin: "https://old.example".into(),
+            ..Default::default()
+        };
+        AccountStore::initialize(path.clone(), before.clone()).unwrap();
+        {
+            let _writer = AccountStore::open(path.clone()).unwrap().unwrap();
+            assert!(handle(options(path.clone(), "https://new.example")).is_err());
+        }
+        handle(options(path.clone(), "https://new.example:8443")).unwrap();
+        let after = read_config(&path).unwrap().unwrap();
+        assert_eq!(after.public_origin, "https://new.example:8443");
+        assert_eq!(after.revision, before.revision + 1);
+        assert_eq!(after.password_hash, before.password_hash);
+        assert_eq!(after.jwt_secret, before.jwt_secret);
+        assert_eq!(after.mcp_token, before.mcp_token);
+        assert_eq!(after.username, before.username);
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(handle(options(path.clone(), "https://new.example/path")).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+    }
 }

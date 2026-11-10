@@ -25,7 +25,7 @@ try {
   const inputs = [...await files(join(root, 'src')), ...await files(join(root, 'public/fonts')), ...['index.html', 'package.json', 'package-lock.json', 'vite.config.js', 'scripts/build-embedded.mjs'].map((path) => join(root, path))].sort()
   const digest = createHash('sha256')
   for (const path of inputs) { digest.update(relative(root, path).replaceAll('\\', '/')); digest.update(await readFile(path)) }
-  await build({ root, configFile: join(root, 'vite.config.js'), base: '/ui/', publicDir: false,
+  await build({ root, configFile: join(root, 'vite.config.js'), base: './', publicDir: false,
     build: { outDir: temporary, emptyOutDir: true, sourcemap: false } })
   const assets = await fingerprints(temporary)
   for (const name of Object.keys(assets)) {

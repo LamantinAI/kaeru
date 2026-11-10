@@ -41,3 +41,11 @@ pub fn router_with_clouds(store: Arc<Store>, cfg: ApiConfig, clouds: CloudRegist
     }
     router.with_state(ApiState { store, cfg, clouds })
 }
+
+/// Browser publication deliberately exposes only the visualizer's reads.
+pub fn browser_read_router(store: Arc<Store>, cfg: ApiConfig, clouds: CloudRegistry) -> Router {
+    Router::new()
+        .route("/v1/context", post(invoke))
+        .route("/v1/read", post(invoke))
+        .with_state(ApiState { store, cfg, clouds })
+}

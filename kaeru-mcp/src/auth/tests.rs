@@ -50,6 +50,7 @@ impl Fixture {
         Self {
             directory,
             auth: BrowserAuth {
+                mount: Default::default(),
                 auth_enabled: true,
                 session,
                 static_token: "mcp-test-secret".into(),
@@ -453,6 +454,7 @@ async fn jwt_api_preserves_scope_visibility_and_static_mcp_auth() {
 #[tokio::test]
 async fn unconfigured_ui_has_no_default_account_or_admin_access() {
     let state = BrowserAuth {
+        mount: Default::default(),
         auth_enabled: true,
         session: WebSession::new(None),
         static_token: String::new(),
@@ -496,7 +498,7 @@ async fn browser_login_uses_request_host_and_rejects_cross_origin_requests() {
     let app = fixture.router();
     for (host, origin, secure) in [
         ("127.0.0.1:9877", "http://127.0.0.1:9877", false),
-        ("192.168.0.166:9877", "http://192.168.0.166:9877", false),
+        ("203.0.113.10:9877", "http://203.0.113.10:9877", false),
         ("memory.example", "https://memory.example", true),
         ("[::1]:9877", "http://[::1]:9877", false),
     ] {
@@ -548,7 +550,7 @@ async fn browser_login_uses_request_host_and_rejects_cross_origin_requests() {
         "https://foreign.test",
         "null",
         "http://127.0.0.1:9877",
-        "http://192.168.0.166:9877/path",
+        "http://203.0.113.10:9877/path",
     ] {
         assert_eq!(
             call(
@@ -556,7 +558,7 @@ async fn browser_login_uses_request_host_and_rejects_cross_origin_requests() {
                 "POST",
                 "/auth/login",
                 json!({"username":"admin", "password":"admin"}),
-                &[("host", "192.168.0.166:9877"), ("origin", origin)]
+                &[("host", "203.0.113.10:9877"), ("origin", origin)]
             )
             .await
             .0,
@@ -723,3 +725,5 @@ async fn disabled_mode_ignores_old_credentials_but_preserves_memory_permissions(
             .enabled
     );
 }
+
+mod prefix;

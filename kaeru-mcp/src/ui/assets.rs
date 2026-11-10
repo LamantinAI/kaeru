@@ -2,7 +2,7 @@
 
 use axum::{
     Router,
-    extract::Request,
+    extract::{Request, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
     routing::get,
@@ -11,14 +11,19 @@ use include_dir::{Dir, include_dir};
 
 static ASSETS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/ui-dist");
 
-async fn asset(request: Request) -> Response {
+async fn asset(State(mount): State<crate::settings::ui::UiMount>, request: Request) -> Response {
     let path = request.uri().path();
-    let file = match path {
-        "/ui" | "/ui/" | "/ui/login" | "/ui/admin" => "index.html",
-        _ => match path.strip_prefix("/ui/") {
+    let local = if mount.prefixed() {
+        path
+    } else {
+        match path.strip_prefix("/ui") {
             Some(path) => path,
             None => return StatusCode::NOT_FOUND.into_response(),
-        },
+        }
+    };
+    let file = match local {
+        "" | "/" | "/login" | "/admin" => "index.html",
+        _ => local.trim_start_matches('/'),
     };
     if file.contains("..") || file.ends_with(".map") || file.ends_with("graph.json") {
         return StatusCode::NOT_FOUND.into_response();
@@ -36,7 +41,22 @@ async fn asset(request: Request) -> Response {
         "ico" => "image/x-icon",
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
-    let mut response = ([(header::CONTENT_TYPE, mime)], asset.contents()).into_response();
+    let mut response = if file == "index.html" {
+        let html = std::str::from_utf8(asset.contents())
+            .expect("embedded HTML is UTF8")
+            .replace(
+                "data-kaeru-ui-base=\"\"",
+                &format!("data-kaeru-ui-base=\"{}\"", mount.page_root()),
+            )
+            .replace(
+                "data-kaeru-api-base=\"\"",
+                &format!("data-kaeru-api-base=\"{}\"", mount.service_root()),
+            )
+            .replace("\"./assets/", &format!("\"{}/assets/", mount.page_root()));
+        ([(header::CONTENT_TYPE, mime)], html).into_response()
+    } else {
+        ([(header::CONTENT_TYPE, mime)], asset.contents()).into_response()
+    };
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         if file == "index.html" {
@@ -60,11 +80,24 @@ async fn asset(request: Request) -> Response {
     response
 }
 
+#[cfg(test)]
 pub fn router() -> Router {
-    Router::new()
-        .route("/ui", get(asset))
-        .route("/ui/", get(asset))
-        .route("/ui/{*path}", get(asset))
+    router_at(Default::default())
+}
+pub fn router_at(mount: crate::settings::ui::UiMount) -> Router {
+    let router = if mount.prefixed() {
+        Router::new()
+            .route("/", get(asset))
+            .route("/login", get(asset))
+            .route("/admin", get(asset))
+            .route("/assets/{*path}", get(asset))
+    } else {
+        Router::new()
+            .route("/ui", get(asset))
+            .route("/ui/", get(asset))
+            .route("/ui/{*path}", get(asset))
+    };
+    router.with_state(mount)
 }
 
 #[cfg(test)]

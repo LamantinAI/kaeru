@@ -17,7 +17,7 @@ pub(crate) enum Startup {
     version,
     about = "Kaeru cognitive memory for agents",
     args_conflicts_with_subcommands = true,
-    group(ArgGroup::new("auth_action").multiple(false).args(["init_web_auth", "reset_web_password", "auth", "auth_status"]))
+    group(ArgGroup::new("auth_action").multiple(false).args(["init_web_auth", "reset_web_password", "auth", "auth_status", "set_web_origin"]))
 )]
 struct Options {
     #[command(flatten)]
@@ -45,6 +45,7 @@ pub(crate) fn run() -> Result<Startup, Box<dyn std::error::Error>> {
         || options.auth.reset_web_password
         || options.auth.auth.is_some()
         || options.auth.auth_status
+        || options.auth.set_web_origin.is_some()
     {
         auth::handle(options.auth)?;
         return Ok(Startup::Handled);

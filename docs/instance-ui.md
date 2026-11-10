@@ -264,3 +264,62 @@ base definition persists the two vaults but does **not** persist MCP account
 configuration, select an auth mode, grant HTTP/UI owner scope or add routable
 MCP Host authorities. Supply those explicitly through your deployment/override;
 the local installer's account/scope setup does not run inside an image.
+
+## Publishing under a reverse-proxy prefix
+
+Set `KAERU_MCP_UI_BASE_PATH=/memory` before starting the daemon. The same embedded
+bundle then serves the application at `/memory/`, sign-in at `/memory/login`,
+account settings at `/memory/admin`, and all browser requests and assets below
+`/memory/`. Nested prefixes such as `/tools/memory` work too. Empty/unset preserves
+the existing `/ui/` pages and root `/auth`, `/admin` and `/v1` endpoints.
+
+The browser mount exposes only `context` and `read` memory operations. MCP,
+legacy SSE and the service HTTP API keep their configured addresses and service
+credentials. Publish tools through their own MCP proxy; do not inject a service
+Bearer into browser traffic. The prefix is a path, not an origin: URLs, escapes,
+empty or dot segments, and overlaps with service/API mounts are rejected.
+
+For example, inside an nginx `server` block (replace the backend DNS name with
+your own upstream):
+
+```nginx
+absolute_redirect off;
+
+location = /memory {
+    proxy_pass http://memory-backend:9876;
+    proxy_set_header Host $http_host;
+    proxy_http_version 1.1;
+}
+location /memory/ {
+    proxy_pass http://memory-backend:9876;
+    proxy_set_header Host $http_host;
+    proxy_http_version 1.1;
+}
+```
+
+Keep the URI prefix when forwarding. `Host $http_host` retains a nondefault
+external port, and `absolute_redirect off` preserves relative redirects. Other
+root paths can continue to serve unrelated applications. No JavaScript response
+rewriting or per-prefix frontend build is needed.
+
+`public_origin` remains an exact origin, for example `https://memory.example`,
+without the path or a trailing slash. To change an existing account's pinned
+origin, stop its daemon and run:
+
+```sh
+kaeru-mcp --set-web-origin https://memory.example --web-config "$CONFIG_FILE"
+```
+
+This atomically updates only the origin and account revision. Password hash,
+signing secret, service token and vault remain unchanged; old browser sessions
+are revoked. The command refuses an active account writer. Pass an empty string
+to unpin intentionally. Do not disable and re-enable authentication to migrate
+an account.
+
+Prefixed cookies use the browser mount as their Path. A same-origin POST session
+bootstrap moves a single valid legacy root cookie without extending its JWT
+expiry. Duplicate cookies fail closed and both scopes are cleared before a new
+sign-in. GET session inspection keeps its legacy read-only behavior. The
+validated browser Origin determines the Secure flag; forwarding headers alone
+cannot downgrade it. Moving between origins requires a new sign-in, and one pin
+allows only one exact origin at a time.

@@ -273,6 +273,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .filter(|s| !s.is_empty()),
     };
     let browser = ui::BrowserAuth {
+        mount: mcp_config.ui_base_path.clone(),
         auth_enabled: access.enabled,
         session: web_session,
         static_token: access.mcp_token.clone(),
@@ -285,7 +286,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .collect(),
     };
     let api_router = viz_enabled.then(|| {
-        api::router_with_clouds(server.store(), api_config, server.cloud_registry()).layer(
+        api::router_with_clouds(server.store(), api_config.clone(), server.cloud_registry()).layer(
+            axum::middleware::from_fn_with_state(browser.clone(), ui::api_access),
+        )
+    });
+
+    let browser_reads = (web_enabled && browser.mount.prefixed()).then(|| {
+        api::browser_read_router(server.store(), api_config, server.cloud_registry()).layer(
             axum::middleware::from_fn_with_state(browser.clone(), ui::api_access),
         )
     });
@@ -377,7 +384,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         router = router.merge(api_router);
     }
     if web_enabled {
-        router = router.merge(ui::router(browser));
+        router = router.merge(ui::router_with_reads(browser, browser_reads));
     } else if auth_enabled {
         router = router.merge(ui::auth_routes(browser));
     }

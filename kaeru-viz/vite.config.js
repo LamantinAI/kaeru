@@ -13,7 +13,7 @@ const daemon = () => ({
 })
 
 export default defineConfig({
-  base: '/ui/',
+  base: './',
   publicDir: false,
   server: {
     proxy: {
