@@ -324,14 +324,15 @@ fi
 #   - a SessionStart hook reminding the agent, every session, that
 #     kaeru is the source of truth.
 # Idempotent and non-destructive: merges into existing settings via jq,
-# backs the file up first, and skips the hook if it's already present.
+# backs the file up first, and upgrades the legacy generated hook in place.
 # ------------------------------------------------------------------
 
 setup_claude_memory() {
     local cfg_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
     local settings="$cfg_dir/settings.json"
     local sentinel="source of truth is kaeru"
-    local hook_cmd="printf '%s\\n' 'MEMORY: source of truth is kaeru (MCP), not the local file store. On session start call initiatives, then awake and overview. Write new facts/tasks to kaeru (jot/episode/cite/claim/task).'"
+    local legacy_hook_cmd="printf '%s\\n' 'MEMORY: source of truth is kaeru (MCP), not the local file store. On session start call initiatives, then awake and overview. Write new facts/tasks to kaeru (jot/episode/cite/claim/task).'"
+    local hook_cmd="printf '%s\\n' 'MEMORY: source of truth is kaeru (MCP), not the local file store. On session start and after compaction, discover the project initiative with initiatives, restore its state with context, and read the current handoff record if present before continuing. Record new facts, decisions and tasks with note/reference/claim/task.'"
 
     if ! command -v jq >/dev/null 2>&1; then
         warn "KAERU_SETUP_CLAUDE_MEMORY=yes needs jq to edit $settings safely; jq not found — skipping."
@@ -356,15 +357,22 @@ setup_claude_memory() {
     local updated
     updated=$(printf '%s' "$existing" | jq \
         --arg cmd "$hook_cmd" \
+        --arg legacy "$legacy_hook_cmd" \
         --arg sentinel "$sentinel" '
         .autoMemoryEnabled = false
         | .hooks = (.hooks // {})
         | .hooks.SessionStart = (.hooks.SessionStart // [])
+        | .hooks.SessionStart |= map(
+            if any((.hooks // [])[]; .command == $legacy) then
+              .matcher = "startup|resume|clear|compact"
+              | .hooks |= map(if .command == $legacy then .command = $cmd else . end)
+            else . end
+          )
         | ([ .hooks.SessionStart[] | (.hooks // [])[] | (.command // "") ]
             | any(contains($sentinel))) as $present
         | if $present then .
           else .hooks.SessionStart += [
-              { matcher: "startup|resume|clear",
+              { matcher: "startup|resume|clear|compact",
                 hooks: [ { type: "command", command: $cmd } ] }
           ]
           end
@@ -373,7 +381,7 @@ setup_claude_memory() {
     printf '%s\n' "$updated" > "$settings"
     say "configured Claude Code to use kaeru as primary memory -> $settings"
     say "    - autoMemoryEnabled=false (built-in file memory off)"
-    say "    - SessionStart reminder hook installed (skipped if already present)"
+    say "    - SessionStart reminder covers compaction; legacy generated hooks upgraded"
     say "    reload for effect: open /hooks in Claude Code once, or restart the app."
 }
 
