@@ -1,11 +1,13 @@
 """Exercise the installer with isolated downloads and service commands."""
 import fcntl
+import json
 import os
 from pathlib import Path
 import plistlib
 import pty
 import select
 import signal
+import shutil
 import subprocess
 import tarfile
 import tempfile
@@ -104,6 +106,47 @@ printf '%s\\n' '{"tag_name":"v0.8.0"}'
         self.run_installer(KAERU_VERSION="v0.7.5")
         commands = self.log.read_text()
         self.assertNotIn("kaeru --auth", commands)
+
+    @unittest.skipUnless(shutil.which("jq"), "memory configuration requires jq")
+    def test_memory_hook_restores_context_after_compaction(self):
+        config = self.root / "claude"
+        self.run_installer(KAERU_SETUP_CLAUDE_MEMORY="yes", CLAUDE_CONFIG_DIR=str(config))
+        settings = json.loads((config / "settings.json").read_text())
+        self.assertFalse(settings["autoMemoryEnabled"])
+        hook = settings["hooks"]["SessionStart"][0]
+        self.assertIn("compact", hook["matcher"].split("|"))
+        message = subprocess.check_output(["bash", "-c", hook["hooks"][0]["command"]], text=True)
+        for verb in ("initiatives", "context", "read", "note", "reference"):
+            self.assertIn(verb, message)
+        for obsolete in ("awake", "overview", "jot/episode/cite"):
+            self.assertNotIn(obsolete, message)
+
+    @unittest.skipUnless(shutil.which("jq"), "memory configuration requires jq")
+    def test_legacy_memory_hook_is_upgraded_once_and_other_hooks_survive(self):
+        config = self.root / "claude"
+        config.mkdir()
+        legacy = ("printf '%s\\n' 'MEMORY: source of truth is kaeru (MCP), not the local file store. "
+                  "On session start call initiatives, then awake and overview. "
+                  "Write new facts/tasks to kaeru (jot/episode/cite/claim/task).'")
+        extra = {"type": "command", "command": "printf keep-extra"}
+        unrelated = {"matcher": "startup", "hooks": [{"type": "command", "command": "printf unrelated"}]}
+        stop = [{"hooks": [{"type": "command", "command": "printf stop"}]}]
+        (config / "settings.json").write_text(json.dumps({"custom": 42, "hooks": {
+            "SessionStart": [{"matcher": "startup|resume|clear", "hooks": [
+                {"type": "command", "command": legacy}, extra]}, unrelated], "Stop": stop}}))
+        for _ in range(2):
+            self.run_installer(KAERU_SETUP_CLAUDE_MEMORY="yes", CLAUDE_CONFIG_DIR=str(config))
+        settings = json.loads((config / "settings.json").read_text())
+        self.assertEqual(settings["custom"], 42)
+        self.assertEqual(settings["hooks"]["Stop"], stop)
+        hooks = settings["hooks"]["SessionStart"]
+        self.assertEqual(len(hooks), 2)
+        self.assertEqual(hooks[1], unrelated)
+        self.assertEqual(hooks[0]["hooks"][1], extra)
+        self.assertIn("compact", hooks[0]["matcher"].split("|"))
+        self.assertIn("context", hooks[0]["hooks"][0]["command"])
+        self.assertNotIn("awake", hooks[0]["hooks"][0]["command"])
+        self.assertTrue((config / "settings.json.kaeru.bak").is_file())
 
     def interactive_install(self, answer):
         master, slave = pty.openpty()
