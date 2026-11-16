@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import plistlib
 import pty
+import re
 import select
 import signal
 import shutil
@@ -65,6 +66,12 @@ printf '%s\\n' '{"tag_name":"v0.8.0"}'
                                 start_new_session=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stdout+result.stderr)
         return result.stdout+result.stderr
+
+    def session_commands(self, settings, source):
+        return [hook.get("command")
+                for entry in settings["hooks"]["SessionStart"]
+                if re.search(entry.get("matcher", ""), source)
+                for hook in entry["hooks"]]
 
     def test_new_unattended_install_defaults_to_open_and_warns_about_hosting(self):
         output = self.run_installer()
@@ -140,13 +147,54 @@ printf '%s\\n' '{"tag_name":"v0.8.0"}'
         self.assertEqual(settings["custom"], 42)
         self.assertEqual(settings["hooks"]["Stop"], stop)
         hooks = settings["hooks"]["SessionStart"]
-        self.assertEqual(len(hooks), 2)
-        self.assertEqual(hooks[1], unrelated)
-        self.assertEqual(hooks[0]["hooks"][1], extra)
-        self.assertIn("compact", hooks[0]["matcher"].split("|"))
-        self.assertIn("context", hooks[0]["hooks"][0]["command"])
-        self.assertNotIn("awake", hooks[0]["hooks"][0]["command"])
+        self.assertIn(unrelated, hooks)
+        reminders = [hook for entry in hooks for hook in entry["hooks"]
+                     if "source of truth is kaeru" in hook.get("command", "")]
+        self.assertEqual(len(reminders), 1)
+        self.assertIn("context", reminders[0]["command"])
+        self.assertNotIn("awake", reminders[0]["command"])
+        for source in ("startup", "resume", "clear", "compact", "fork"):
+            commands = self.session_commands(settings, source)
+            self.assertEqual(commands.count(extra["command"]),
+                             int(source in ("startup", "resume", "clear")))
+            self.assertEqual(commands.count(reminders[0]["command"]),
+                             int(source in ("startup", "resume", "clear", "compact")))
         self.assertTrue((config / "settings.json.kaeru.bak").is_file())
+
+    @unittest.skipUnless(shutil.which("jq"), "memory configuration requires jq")
+    def test_current_generated_reminder_is_isolated_from_a_shared_custom_matcher(self):
+        config = self.root / "claude"
+        self.run_installer(KAERU_SETUP_CLAUDE_MEMORY="yes", CLAUDE_CONFIG_DIR=str(config))
+        path = config / "settings.json"
+        settings = json.loads(path.read_text())
+        reminder = settings["hooks"]["SessionStart"][0]["hooks"][0]
+        reminder["timeout"] = 7
+        extra = {"type": "command", "command": "printf resume-only", "timeout": 13}
+        settings["hooks"]["SessionStart"] = [{"matcher": "resume", "hooks": [extra, reminder]}]
+        path.write_text(json.dumps(settings))
+        for _ in range(2):
+            self.run_installer(KAERU_SETUP_CLAUDE_MEMORY="yes", CLAUDE_CONFIG_DIR=str(config))
+        updated = json.loads(path.read_text())
+        retained = [hook for entry in updated["hooks"]["SessionStart"] for hook in entry["hooks"]]
+        self.assertEqual(retained.count(extra), 1)
+        self.assertEqual(retained.count(reminder), 1)
+        for source in ("startup", "resume", "clear", "compact", "fork"):
+            commands = self.session_commands(updated, source)
+            self.assertEqual(commands.count(extra["command"]), int(source == "resume"))
+            self.assertEqual(commands.count(reminder["command"]),
+                             int(source in ("startup", "resume", "clear", "compact")))
+
+    @unittest.skipUnless(shutil.which("jq"), "memory configuration requires jq")
+    def test_custom_memory_reminder_is_not_rewritten_or_duplicated(self):
+        config = self.root / "claude"
+        config.mkdir()
+        hooks = {"SessionStart": [{"matcher": "resume", "hooks": [{
+            "type": "command", "command": "printf 'custom: source of truth is kaeru'"}]}]}
+        path = config / "settings.json"
+        path.write_text(json.dumps({"hooks": hooks}))
+        for _ in range(2):
+            self.run_installer(KAERU_SETUP_CLAUDE_MEMORY="yes", CLAUDE_CONFIG_DIR=str(config))
+        self.assertEqual(json.loads(path.read_text())["hooks"], hooks)
 
     def interactive_install(self, answer):
         master, slave = pty.openpty()

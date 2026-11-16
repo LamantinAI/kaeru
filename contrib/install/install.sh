@@ -359,14 +359,23 @@ setup_claude_memory() {
         --arg cmd "$hook_cmd" \
         --arg legacy "$legacy_hook_cmd" \
         --arg sentinel "$sentinel" '
+        def generated_reminder:
+          .type == "command" and (.command == $legacy or .command == $cmd);
         .autoMemoryEnabled = false
         | .hooks = (.hooks // {})
         | .hooks.SessionStart = (.hooks.SessionStart // [])
         | .hooks.SessionStart |= map(
-            if any((.hooks // [])[]; .command == $legacy) then
-              .matcher = "startup|resume|clear|compact"
-              | .hooks |= map(if .command == $legacy then .command = $cmd else . end)
-            else . end
+            . as $entry
+            | [(.hooks // [])[] | select(generated_reminder)] as $owned
+            | if ($owned | length) > 0 then
+                [(.hooks // [])[] | select(generated_reminder | not)] as $others
+                | ($entry
+                    | .matcher = "startup|resume|clear|compact"
+                    | .hooks = ($owned | map(.command = $cmd))) as $reminder
+                | if ($others | length) > 0 then
+                    ($entry | .hooks = $others), $reminder
+                  else $reminder end
+              else $entry end
           )
         | ([ .hooks.SessionStart[] | (.hooks // [])[] | (.command // "") ]
             | any(contains($sentinel))) as $present
