@@ -58,6 +58,28 @@ pub(in crate::api) fn scope_nodes(
     Ok(nodes)
 }
 
+fn accessible_slots(
+    store: &Store,
+    scope: &str,
+    options: &ApiOptions,
+) -> ApiResult<Vec<SlotChange>> {
+    Ok(slots_in(store, scope)
+        .map_err(issue_from_error)?
+        .into_iter()
+        .filter_map(|(slot, id)| {
+            if check_node(store, &id, Some(scope), options, false).is_err() {
+                return None;
+            }
+            Some(SlotChange {
+                revision: slot_revision(store, scope, &slot).ok()?,
+                slot,
+                before: None,
+                after: Some(id),
+            })
+        })
+        .collect())
+}
+
 pub(in crate::api) fn context(
     store: &Store,
     args: &Args,
@@ -146,7 +168,11 @@ pub(in crate::api) fn context(
                     records,
                     details: json!({"columns":columns,"recorded_at":args.text("recorded_at")}),
                 }],
-                slots: vec![],
+                slots: if at.is_none() {
+                    accessible_slots(store, &scope, options)?
+                } else {
+                    vec![]
+                },
             }),
             vec![scope],
         ));
@@ -171,7 +197,7 @@ pub(in crate::api) fn context(
             ResponseData::Context(ContextData {
                 proposals: vec![],
                 sections,
-                slots: vec![],
+                slots: accessible_slots(store, &scope, options)?,
             }),
             vec![scope],
         ));
@@ -351,21 +377,7 @@ pub(in crate::api) fn context(
             .collect(),
         details: Value::Null,
     });
-    let slots = slots_in(store, &scope)
-        .map_err(issue_from_error)?
-        .into_iter()
-        .filter_map(|(slot, id)| {
-            if check_node(store, &id, Some(&scope), options, false).is_err() {
-                return None;
-            }
-            Some(SlotChange {
-                revision: slot_revision(store, &scope, &slot).ok()?,
-                slot,
-                before: None,
-                after: Some(id),
-            })
-        })
-        .collect();
+    let slots = accessible_slots(store, &scope, options)?;
     let pending = store
         .db_ref()
         .run_script(

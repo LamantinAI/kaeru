@@ -721,6 +721,139 @@ fn a_long_source_delivers_saved_reasoning_before_its_body_continuation() {
 }
 
 #[test]
+fn budgeted_context_prioritizes_handoff_and_reports_remaining_slots() {
+    use std::collections::BTreeSet;
+
+    let store = Store::open_in_memory().unwrap();
+    let holder = id(&run(
+        &store,
+        "note",
+        json!({"initiative":"work","body":"Resume from here.","options":{"slot":"handoff"}}),
+    ));
+    run(
+        &store,
+        "note",
+        json!({"initiative":"work","body":"Keep the budget bounded.","kind":"constraint"}),
+    );
+    let mut expected_slots = BTreeSet::from(["handoff".to_owned()]);
+    for i in 0..16 {
+        let slot = format!("custom-{i:02}-{}", "x".repeat(54));
+        run(
+            &store,
+            "initiative_manage",
+            json!({"initiative":"work","action":"set_slot","slot":slot,"node":holder}),
+        );
+        expected_slots.insert(slot);
+        note(&store, &format!("entry-{i}"), "Résumé with a \"quote\".");
+    }
+    let complete = run(
+        &store,
+        "context",
+        json!({"initiative":"work","budget_chars":64000}),
+    );
+    let ResponseData::Context(complete) = complete.data else {
+        panic!("expected context");
+    };
+    let expected_records: Vec<_> = complete
+        .sections
+        .iter()
+        .enumerate()
+        .flat_map(|(i, section)| section.records.iter().map(move |node| (i, node.id.clone())))
+        .collect();
+    let mut records = Vec::new();
+    let budget = 3000;
+    let mut args = json!({"initiative":"work","budget_chars":budget});
+    for page in 0..64 {
+        let response = run(&store, "context", args);
+        assert!(serde_json::to_string(&response).unwrap().chars().count() <= budget);
+        let coverage = response.coverage.unwrap();
+        let ResponseData::Context(data) = response.data else {
+            panic!("expected context page");
+        };
+        if page == 0 {
+            assert_eq!(data.slots.first().unwrap().slot, "handoff");
+            assert!(!coverage.rules_complete);
+            assert!(data.slots.len() < expected_slots.len());
+        }
+        for slot in data.slots {
+            assert_eq!(slot.after.as_deref(), Some(holder.as_str()));
+            assert!(
+                expected_slots.remove(&slot.slot),
+                "duplicate or unexpected slot"
+            );
+        }
+        records.extend(
+            data.sections.iter().enumerate().flat_map(|(i, section)| {
+                section.records.iter().map(move |node| (i, node.id.clone()))
+            }),
+        );
+        let deferred = coverage.omitted.iter().find(|item| item.section == "slots");
+        assert_eq!(
+            deferred.map(|item| item.count),
+            (!expected_slots.is_empty()).then_some(expected_slots.len())
+        );
+        if let Some(next) = response.continuation {
+            assert!(!coverage.complete);
+            args = next.next_arguments;
+        } else {
+            assert!(coverage.complete);
+            assert!(coverage.rules_complete);
+            assert!(expected_slots.is_empty());
+            assert_eq!(records, expected_records);
+            return;
+        }
+    }
+    panic!("context pagination did not terminate");
+}
+
+#[test]
+fn current_context_views_return_only_visible_slots() {
+    let store = Store::open_in_memory().unwrap();
+    let shared = id(&run(
+        &store,
+        "note",
+        json!({"initiative":"work","body":"Shared handoff.","options":{"slot":"handoff"}}),
+    ));
+    let hidden = id(&run(
+        &store,
+        "note",
+        json!({"initiative":"work","body":"Local only.","options":{"slot":"internal"}}),
+    ));
+    kaeru_core::set_visibility(&store, &shared, Visibility::Shared).unwrap();
+    for view in ["work", "map", "board", "diagnostics"] {
+        let response = api::execute(
+            &store,
+            "context",
+            json!({"initiative":"work","view":view,"budget_chars":64000}),
+            &ApiOptions::default(),
+        );
+        assert!(!response.is_error(), "{response:?}");
+        let serialized = serde_json::to_string(&response).unwrap();
+        assert!(!serialized.contains(&hidden));
+        let ResponseData::Context(data) = response.data else {
+            panic!("expected context for {view}");
+        };
+        if view == "diagnostics" {
+            assert!(data.slots.is_empty());
+        } else {
+            assert_eq!(data.slots.len(), 1, "{view}");
+            assert_eq!(data.slots[0].slot, "handoff");
+            assert_eq!(data.slots[0].after.as_deref(), Some(shared.as_str()));
+            assert!(!data.slots[0].revision.is_empty());
+        }
+    }
+    let historical = run(
+        &store,
+        "context",
+        json!({"initiative":"work","view":"board","recorded_at":"2000-01-01T00:00:00Z"}),
+    );
+    let ResponseData::Context(data) = historical.data else {
+        panic!("expected historical board");
+    };
+    assert!(data.slots.is_empty());
+}
+
+#[test]
 fn reminder_delivery_stays_within_budget_and_returns_one_revision_per_identity() {
     let store = Store::open_in_memory().unwrap();
     let reminder = id(&run(

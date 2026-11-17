@@ -114,14 +114,21 @@ enum Item {
 fn items(data: &ResponseData) -> Vec<Item> {
     match data {
         ResponseData::Search(d) => d.hits.iter().cloned().map(Item::Hit).collect(),
-        ResponseData::Context(d) => d
-            .sections
-            .iter()
-            .enumerate()
-            .flat_map(|(i, s)| s.records.iter().cloned().map(move |n| Item::Section(i, n)))
-            .chain(d.slots.iter().cloned().map(Item::Slot))
-            .chain(d.proposals.iter().cloned().map(Item::Proposal))
-            .collect(),
+        ResponseData::Context(d) => {
+            d.slots
+                .iter()
+                .filter(|slot| slot.slot == "handoff")
+                .chain(d.slots.iter().filter(|slot| slot.slot != "handoff"))
+                .cloned()
+                .map(Item::Slot)
+                .chain(
+                    d.sections.iter().enumerate().flat_map(|(i, s)| {
+                        s.records.iter().cloned().map(move |n| Item::Section(i, n))
+                    }),
+                )
+                .chain(d.proposals.iter().cloned().map(Item::Proposal))
+                .collect()
+        }
         ResponseData::History(d) => d
             .versions
             .iter()
@@ -311,14 +318,31 @@ fn paginate_shared(
             total,
         });
     }
-    if let Some(c) = page.coverage.as_mut() {
+    let remaining_slots = entries[offset..]
+        .iter()
+        .take_while(|item| matches!(item, Item::Slot(_)))
+        .count();
+    let slot_end = offset + remaining_slots;
+    let slot_omission = page.coverage.as_mut().and_then(|c| {
         c.complete = false;
+        // Reserve the longer boolean value until the remaining rules are known.
+        c.rules_complete = false;
+        let slots = (remaining_slots > 0).then(|| {
+            let index = c.omitted.len();
+            c.omitted.push(Omission {
+                section: "slots".into(),
+                count: remaining_slots,
+                reason: "budget_or_limit".into(),
+            });
+            index
+        });
         c.omitted.push(Omission {
             section: "continuation".into(),
-            count: entries.len().saturating_sub(offset),
+            count: entries.len() - offset,
             reason: "budget_or_limit".into(),
         });
-    }
+        slots
+    });
     let token = token.unwrap_or_else(new_node_id);
     // Reserve continuation metadata while sizing the page.
     let mut next_args = args.0.clone();
@@ -335,13 +359,34 @@ fn paginate_shared(
         checkpoint()?;
         let previous = page.data.clone();
         push(&mut page.data, entry);
+        let removed = if let Some(index) = slot_omission
+            && end < slot_end
+        {
+            let omitted = &mut page.coverage.as_mut().unwrap().omitted;
+            let remaining = slot_end - end - 1;
+            if remaining == 0 {
+                Some(omitted.remove(index))
+            } else {
+                omitted[index].count = remaining;
+                None
+            }
+        } else {
+            None
+        };
         if size(&page) > budget {
             page.data = previous;
+            if let (Some(index), Some(omission)) = (slot_omission, removed) {
+                page.coverage
+                    .as_mut()
+                    .unwrap()
+                    .omitted
+                    .insert(index, omission);
+            }
             break;
         }
         end += 1;
     }
-    if end == offset && end < entries.len() {
+    if end == offset && (end < entries.len() || size(&page) > budget) {
         return Err(Issue::new(
             "BUDGET_TOO_SMALL",
             "required metadata/item cannot fit; increase budget_chars",
@@ -374,6 +419,11 @@ fn paginate_shared(
                 }
                 _ => false,
             });
+        if let Some(index) = slot_omission
+            && end < slot_end
+        {
+            c.omitted[index].count = slot_end - end;
+        }
         c.omitted.last_mut().unwrap().count = entries.len() - end;
         if end == entries.len() {
             c.complete = full.coverage.as_ref().is_some_and(|c| c.complete);

@@ -122,6 +122,9 @@ A URL citation records the URL without fetching its content.
 A slot selects one current record for a purpose, such as `handoff`. Changing its
 holder does not refute, retire or move the previous holder. Slots have their own
 revision and optional `expected_slot_revision`. Pins are independent of slots.
+The `work`, `map`, and current `board` context views return accessible current
+slots. Historical boards, `diagnostics`, and the structural `graph` view omit
+current slots by design. Coverage describes the selected view.
 
 For a hypothesis whose check is already complete, `claim` can include
 `initial_status` and evidence in the same call. For an existing claim, use
@@ -214,6 +217,11 @@ Reads have a response budget. `coverage` reports omissions; `body_range` shows
 which part of a body is present. When `continuation` exists, call the same
 operation with `continuation.next_arguments` unchanged. Repeat until there is
 no continuation. Source pages reconstruct the supplied UTF-8 text exactly.
+
+Paginated context places `handoff` first, followed by other slots and then
+section records. A slot is delivered once as you follow the pages. If slots
+remain, `coverage.omitted` includes a `slots` entry with the remaining count.
+Slots count toward `budget_chars`.
 
 Cursors belong to the caller, arguments, policy and store generation. They
 expire after 15 minutes, and writes invalidate them. A stale cursor requires
